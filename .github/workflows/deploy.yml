@@ -1,0 +1,75 @@
+name: Auto Deploy
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Run deploy on server
+        id: deploy_step
+        continue-on-error: true
+        run: |
+          set +e
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${{ secrets.SERVER_PORT }}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" "cd /root/.openclaw/workspace/oldboyapp && git pull --ff-only origin main && bash scripts/server_deploy.sh" | tee deploy_output.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Collect server logs on failure
+        if: steps.deploy_step.outputs.exit_code != '0'
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${{ secrets.SERVER_PORT }}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" "cd /root/.openclaw/workspace/oldboyapp/deploy && echo '## docker compose ps' && docker compose --env-file env.prod ps && echo && echo '## backend logs' && docker compose --env-file env.prod logs --tail=300 backend && echo && echo '## nginx logs' && docker compose --env-file env.prod logs --tail=300 nginx" > deploy_logs.txt || true
+
+      - name: Build failure report
+        if: steps.deploy_step.outputs.exit_code != '0'
+        run: |
+          {
+            echo "# Auto Deploy Failed"
+            echo
+            echo "- Commit: ${{ github.sha }}"
+            echo "- Actor: ${{ github.actor }}"
+            echo "- Workflow: ${{ github.workflow }}"
+            echo "- Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "- Exit code: ${{ steps.deploy_step.outputs.exit_code }}"
+            echo
+            echo "## Deploy Output"
+            echo '```text'
+            cat deploy_output.log || true
+            echo '```'
+            echo
+            echo "## Server Logs"
+            echo '```text'
+            cat deploy_logs.txt || true
+            echo '```'
+          } > deploy_failure_report.md
+
+      - name: Create GitHub issue on failure
+        if: steps.deploy_step.outputs.exit_code != '0'
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: "[Auto Deploy Failed] ${{ github.sha }}"
+          content-filepath: deploy_failure_report.md
+          labels: bug,deploy-failed
+
+      - name: Fail job if deploy failed
+        if: steps.deploy_step.outputs.exit_code != '0'
+        run: |
+          echo "Deployment failed on server"
+          exit 1

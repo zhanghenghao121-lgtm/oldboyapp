@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 PASSWORD_PATTERN = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$")
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 
 
 def valid_com_email(email: str) -> bool:
@@ -15,6 +16,9 @@ def valid_com_email(email: str) -> bool:
 
 def valid_password(password: str) -> bool:
     return bool(PASSWORD_PATTERN.match(password))
+
+def valid_username(username: str) -> bool:
+    return bool(USERNAME_PATTERN.match(username))
 
 
 def gen_numeric_code(length: int = 6) -> str:
@@ -27,17 +31,24 @@ def gen_captcha_text(length: int = 4) -> str:
 
 
 def captcha_base64(text: str) -> str:
-    img = Image.new("RGB", (120, 40), color=(255, 255, 255))
+    width, height = 220, 80
+    img = Image.new("RGB", (width, height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
+    font = None
     try:
-        font = ImageFont.truetype("Arial.ttf", 24)
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 52)
     except Exception:
-        font = ImageFont.load_default()
-    draw.text((15, 8), text, fill=(20, 40, 70), font=font)
-    for _ in range(5):
-        x1, y1 = random.randint(0, 120), random.randint(0, 40)
-        x2, y2 = random.randint(0, 120), random.randint(0, 40)
-        draw.line((x1, y1, x2, y2), fill=(180, 180, 180), width=1)
+        pass
+
+    if font:
+        draw.text((24, 12), text, fill=(20, 40, 70), font=font)
+    else:
+        draw.text((24, 24), text, fill=(20, 40, 70))
+
+    for _ in range(10):
+        x1, y1 = random.randint(0, width), random.randint(0, height)
+        x2, y2 = random.randint(0, width), random.randint(0, height)
+        draw.line((x1, y1, x2, y2), fill=(170, 170, 170), width=2)
     stream = io.BytesIO()
     img.save(stream, format="PNG")
     return "data:image/png;base64," + base64.b64encode(stream.getvalue()).decode("utf-8")

@@ -1,7 +1,7 @@
 <template>
   <div class="wrap">
     <el-card class="card">
-      <h2>你好章鱼</h2>
+      <h2>欢迎章鱼</h2>
       <p v-if="user">当前用户：{{ user.username }} / {{ user.email }}</p>
       <el-divider />
       <h3>功能模块</h3>
@@ -16,9 +16,11 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { me, logout } from '../api/auth'
 
+const router = useRouter()
 const user = ref(null)
 
 onMounted(async () => {
@@ -26,7 +28,7 @@ onMounted(async () => {
     const res = await me()
     user.value = res.data.user
   } catch {
-    location.href = '/login'
+    router.push('/login')
   }
 })
 
@@ -34,7 +36,7 @@ const doLogout = async () => {
   try {
     await logout()
     ElMessage.success('已退出')
-    location.href = '/login'
+    router.push('/login')
   } catch (e) {
     ElMessage.error(e)
   }

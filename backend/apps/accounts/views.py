@@ -55,6 +55,7 @@ def email_code(request):
         return bad("参数错误")
     email = s.validated_data["email"].lower()
     scene = s.validated_data["scene"]
+    username = s.validated_data.get("username", "").strip()
 
     if not valid_com_email(email):
         return bad("邮箱必须以.com结尾")
@@ -64,6 +65,11 @@ def email_code(request):
         return bad("邮箱已注册")
     if scene == "reset" and not exists:
         return bad("邮箱不存在")
+    if scene == "register":
+        if not username:
+            return bad("注册场景下必须提供用户名")
+        if User.objects.filter(username=username).exists():
+            return bad("用户名已存在")
 
     ip = _client_ip(request)
     if _cache_get(f"email_rate:{email}"):
@@ -82,6 +88,8 @@ def email_code(request):
 
     code = gen_numeric_code()
     _cache_set(f"email_code:{scene}:{email}", code, 300)
+    if scene == "register":
+        _cache_set(f"email_bind:register:{email}", username, 300)
     _cache_set(f"email_rate:{email}", "1", 60)
     _cache_set(f"ip_rate:{ip}", "1", 60)
 
@@ -126,9 +134,13 @@ def register(request):
     code = _cache_get(f"email_code:register:{email}")
     if not code or str(code).lower() != email_code.lower():
         return bad("邮箱验证码错误或已过期")
+    bind_username = _cache_get(f"email_bind:register:{email}")
+    if not bind_username or str(bind_username) != username:
+        return bad("邮箱验证码与用户名不匹配，请重新获取验证码")
 
     User.objects.create_user(username=username, email=email, password=password)
     _cache_delete(f"email_code:register:{email}")
+    _cache_delete(f"email_bind:register:{email}")
     return ok()
 
 

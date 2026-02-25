@@ -12,9 +12,23 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.SERVER_HOST }}
+      DEPLOY_PORT: ${{ secrets.SERVER_PORT }}
+      DEPLOY_USER: ${{ secrets.SERVER_USER }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          test -n "${DEPLOY_HOST}" || (echo "Missing secret: SERVER_HOST" && exit 1)
+          test -n "${DEPLOY_USER}" || (echo "Missing secret: SERVER_USER" && exit 1)
+          test -n "${{ secrets.SERVER_SSH_KEY }}" || (echo "Missing secret: SERVER_SSH_KEY" && exit 1)
+          if [ -z "${DEPLOY_PORT}" ]; then
+            echo "SERVER_PORT is empty, default to 22"
+            echo "DEPLOY_PORT=22" >> "$GITHUB_ENV"
+          fi
 
       - name: Prepare SSH key
         run: |
@@ -27,7 +41,7 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${{ secrets.SERVER_PORT }}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" "cd /root/.openclaw/workspace/oldboyapp && git pull --ff-only origin main && bash scripts/server_deploy.sh" | tee deploy_output.log
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "cd /root/.openclaw/workspace/oldboyapp && git pull --ff-only origin main && bash scripts/server_deploy.sh" 2>&1 | tee deploy_output.log
           code=${PIPESTATUS[0]}
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
@@ -35,7 +49,7 @@ jobs:
       - name: Collect server logs on failure
         if: steps.deploy_step.outputs.exit_code != '0'
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${{ secrets.SERVER_PORT }}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" "cd /root/.openclaw/workspace/oldboyapp/deploy && echo '## docker compose ps' && docker compose --env-file env.prod ps && echo && echo '## backend logs' && docker compose --env-file env.prod logs --tail=300 backend && echo && echo '## nginx logs' && docker compose --env-file env.prod logs --tail=300 nginx" > deploy_logs.txt || true
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "cd /root/.openclaw/workspace/oldboyapp/deploy && echo '## docker compose ps' && docker compose --env-file env.prod ps && echo && echo '## backend logs' && docker compose --env-file env.prod logs --tail=300 backend && echo && echo '## nginx logs' && docker compose --env-file env.prod logs --tail=300 nginx" > deploy_logs.txt 2>&1 || true
 
       - name: Build failure report
         if: steps.deploy_step.outputs.exit_code != '0'

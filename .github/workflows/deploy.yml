@@ -13,18 +13,19 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      DEPLOY_HOST: ${{ secrets.SERVER_HOST }}
-      DEPLOY_PORT: ${{ secrets.SERVER_PORT }}
-      DEPLOY_USER: ${{ secrets.SERVER_USER }}
+      DEPLOY_HOST: ${{ secrets.SERVER_HOST || vars.SERVER_HOST }}
+      DEPLOY_PORT: ${{ secrets.SERVER_PORT || vars.SERVER_PORT }}
+      DEPLOY_USER: ${{ secrets.SERVER_USER || vars.SERVER_USER }}
+      DEPLOY_KEY: ${{ secrets.SERVER_SSH_KEY || vars.SERVER_SSH_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Validate required secrets
         run: |
-          test -n "${DEPLOY_HOST}" || (echo "Missing secret: SERVER_HOST" && exit 1)
-          test -n "${DEPLOY_USER}" || (echo "Missing secret: SERVER_USER" && exit 1)
-          test -n "${{ secrets.SERVER_SSH_KEY }}" || (echo "Missing secret: SERVER_SSH_KEY" && exit 1)
+          test -n "${DEPLOY_HOST}" || (echo "Missing: SERVER_HOST (secret or variable)" && exit 1)
+          test -n "${DEPLOY_USER}" || (echo "Missing: SERVER_USER (secret or variable)" && exit 1)
+          test -n "${DEPLOY_KEY}" || (echo "Missing: SERVER_SSH_KEY (secret or variable)" && exit 1)
           if [ -z "${DEPLOY_PORT}" ]; then
             echo "SERVER_PORT is empty, default to 22"
             echo "DEPLOY_PORT=22" >> "$GITHUB_ENV"
@@ -33,7 +34,7 @@ jobs:
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          echo "${DEPLOY_KEY}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
       - name: Run deploy on server

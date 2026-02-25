@@ -14,7 +14,32 @@ docker compose --env-file env.prod up -d --build
 
 docker compose --env-file env.prod exec -T backend python manage.py migrate
 
-curl -fsS https://www.oldboyai.com/api/v1/healthz > /tmp/oldboyapp_healthz.json
-curl -fsS https://www.oldboyai.com/api/v1/script-optimizer/ping > /tmp/oldboyapp_script_optimizer_ping.json
+ok=0
+for i in {1..20}; do
+  if curl -fsS https://www.oldboyai.com/api/v1/healthz > /tmp/oldboyapp_healthz.json; then
+    ok=1
+    break
+  fi
+  sleep 3
+done
+
+if [[ "$ok" -ne 1 ]]; then
+  echo "healthz check failed after retries" >&2
+  exit 22
+fi
+
+ok=0
+for i in {1..20}; do
+  if curl -fsS https://www.oldboyai.com/api/v1/script-optimizer/ping > /tmp/oldboyapp_script_optimizer_ping.json; then
+    ok=1
+    break
+  fi
+  sleep 3
+done
+
+if [[ "$ok" -ne 1 ]]; then
+  echo "script-optimizer ping failed after retries" >&2
+  exit 23
+fi
 
 echo "Deploy success"

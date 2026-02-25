@@ -3,7 +3,7 @@ services:
     image: mariadb:11.4
     container_name: oldboyapp-db
     restart: always
-    command: ["mysqld", "--bind-address=0.0.0.0"]
+    command: ["mariadbd", "--bind-address=0.0.0.0"]
     ports:
       - "3306:3306"
     environment:

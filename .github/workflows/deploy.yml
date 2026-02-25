@@ -44,7 +44,7 @@ jobs:
           set +e
           port="${DEPLOY_PORT:-22}"
           if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_KEY}" ]; then
-            echo "Invalid deploy inputs: host='${DEPLOY_HOST}' user='${DEPLOY_USER}' key_present='$([ -n "${DEPLOY_KEY}" ] && echo yes || echo no)'"
+            echo "Invalid deploy inputs: host_present='$([ -n "${DEPLOY_HOST}" ] && echo yes || echo no)' user_present='$([ -n "${DEPLOY_USER}" ] && echo yes || echo no)' key_present='$([ -n "${DEPLOY_KEY}" ] && echo yes || echo no)'" | tee deploy_output.log
             code=99
           else
             target="${DEPLOY_USER}@${DEPLOY_HOST}"

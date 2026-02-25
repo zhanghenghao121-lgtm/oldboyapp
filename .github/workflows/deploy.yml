@@ -48,7 +48,7 @@ jobs:
             code=99
           else
             target="${DEPLOY_USER}@${DEPLOY_HOST}"
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${port}" "${target}" "cd /root/.openclaw/workspace/oldboyapp && git pull --ff-only origin main && bash scripts/server_deploy.sh" 2>&1 | tee deploy_output.log
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${port}" "${target}" "cd /root/.openclaw/workspace/oldboyapp && git remote set-url origin https://github.com/zhanghenghao121-lgtm/oldboyapp.git && git pull --ff-only origin main && bash scripts/server_deploy.sh" 2>&1 | tee deploy_output.log
             code=${PIPESTATUS[0]}
           fi
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"

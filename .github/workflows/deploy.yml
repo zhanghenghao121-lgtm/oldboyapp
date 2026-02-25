@@ -42,15 +42,27 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "cd /root/.openclaw/workspace/oldboyapp && git pull --ff-only origin main && bash scripts/server_deploy.sh" 2>&1 | tee deploy_output.log
-          code=${PIPESTATUS[0]}
+          port="${DEPLOY_PORT:-22}"
+          if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_KEY}" ]; then
+            echo "Invalid deploy inputs: host='${DEPLOY_HOST}' user='${DEPLOY_USER}' key_present='$([ -n "${DEPLOY_KEY}" ] && echo yes || echo no)'"
+            code=99
+          else
+            target="${DEPLOY_USER}@${DEPLOY_HOST}"
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${port}" "${target}" "cd /root/.openclaw/workspace/oldboyapp && git pull --ff-only origin main && bash scripts/server_deploy.sh" 2>&1 | tee deploy_output.log
+            code=${PIPESTATUS[0]}
+          fi
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
 
       - name: Collect server logs on failure
         if: steps.deploy_step.outputs.exit_code != '0'
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" "cd /root/.openclaw/workspace/oldboyapp/deploy && echo '## docker compose ps' && docker compose --env-file env.prod ps && echo && echo '## backend logs' && docker compose --env-file env.prod logs --tail=300 backend && echo && echo '## nginx logs' && docker compose --env-file env.prod logs --tail=300 nginx" > deploy_logs.txt 2>&1 || true
+          port="${DEPLOY_PORT:-22}"
+          if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_KEY}" ]; then
+            echo "Skip server log collection due to missing deploy inputs" > deploy_logs.txt
+          else
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${port}" "${DEPLOY_USER}@${DEPLOY_HOST}" "cd /root/.openclaw/workspace/oldboyapp/deploy && echo '## docker compose ps' && docker compose --env-file env.prod ps && echo && echo '## backend logs' && docker compose --env-file env.prod logs --tail=300 backend && echo && echo '## nginx logs' && docker compose --env-file env.prod logs --tail=300 nginx" > deploy_logs.txt 2>&1 || true
+          fi
 
       - name: Build failure report
         if: steps.deploy_step.outputs.exit_code != '0'

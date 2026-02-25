@@ -3,6 +3,12 @@
     <el-card class="card">
       <h2>你好章鱼</h2>
       <p v-if="user">当前用户：{{ user.username }} / {{ user.email }}</p>
+      <el-divider />
+      <h3>功能模块</h3>
+      <div class="module-list">
+        <el-button type="primary" @click="$router.push('/script-optimizer')">剧本优化</el-button>
+      </div>
+      <el-divider />
       <el-button type="danger" @click="doLogout">退出登录</el-button>
     </el-card>
   </div>
@@ -36,5 +42,5 @@ const doLogout = async () => {
 </script>
 
 <style scoped>
-.wrap{display:flex;justify-content:center;padding-top:60px}.card{width:480px}
+.wrap{display:flex;justify-content:center;padding-top:60px}.card{width:560px}.module-list{display:flex;gap:10px;flex-wrap:wrap}
 </style>

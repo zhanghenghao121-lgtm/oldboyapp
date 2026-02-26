@@ -1,13 +1,13 @@
 <template>
-  <div class="page-shell" :style="pageStyle">
-    <el-card class="surface-card home-card" shadow="never">
+  <div class="page-shell py-4" :style="pageStyle">
+    <el-card class="surface-card home-card shadow-sm" shadow="never">
       <div class="title-block">
-        <h2>欢迎章鱼</h2>
-        <p v-if="user">当前用户：{{ user.username }} / {{ user.email }}</p>
+        <h2 class="fw-bold">欢迎章鱼</h2>
+        <p v-if="user" class="mb-0">当前用户：{{ user.username }} / {{ user.email }}</p>
       </div>
       <el-divider />
-      <h3 class="section-title">功能模块</h3>
-      <div class="module-list">
+      <h3 class="section-title fw-semibold">功能模块</h3>
+      <div class="module-list d-flex flex-wrap gap-2">
         <el-button type="primary" class="main-btn" @click="$router.push('/script-optimizer')">剧本优化</el-button>
       </div>
       <el-divider />
@@ -69,5 +69,4 @@ const doLogout = async () => {
 <style scoped>
 .home-card { width: min(700px, 100%); }
 .section-title { margin: 0 0 12px; color: var(--ink-700); }
-.module-list{display:flex;gap:10px;flex-wrap:wrap}
 </style>

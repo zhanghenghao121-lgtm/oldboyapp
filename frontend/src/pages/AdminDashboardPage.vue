@@ -1,19 +1,19 @@
 <template>
   <div class="admin-dashboard">
-    <header class="dash-header">
+    <header class="dash-header container-xl">
       <div>
-        <h2>网站管理后台</h2>
+        <h2 class="fw-bold mb-1">网站管理后台</h2>
         <p v-if="adminUser">当前管理员：{{ adminUser.username }} / {{ adminUser.email }}</p>
       </div>
       <el-button type="danger" plain @click="handleLogout">退出后台</el-button>
     </header>
 
-    <el-row :gutter="16">
+    <el-row :gutter="16" class="container-xl mx-auto">
       <el-col :xs="24" :lg="10">
         <el-card shadow="never" class="dash-card">
-          <template #header>背景图管理</template>
+          <template #header><span class="fw-semibold">背景图管理</span></template>
           <div class="bg-form-item" v-for="item in backgroundItems" :key="item.scene">
-            <p class="bg-label">{{ item.label }}</p>
+            <p class="bg-label fw-semibold">{{ item.label }}</p>
             <el-input v-model="item.image_url" placeholder="请输入背景图 URL，留空表示使用默认背景" />
             <div class="bg-actions">
               <el-button class="main-btn" type="primary" @click="saveBackground(item)">保存</el-button>
@@ -27,7 +27,7 @@
         <el-card shadow="never" class="dash-card">
           <template #header>
             <div class="user-header">
-              <span>注册用户管理</span>
+              <span class="fw-semibold">注册用户管理</span>
               <div class="user-filter">
                 <el-input v-model="keyword" clearable placeholder="用户名/邮箱" @keyup.enter="loadUsers(1)" />
                 <el-button @click="loadUsers(1)">搜索</el-button>
@@ -198,22 +198,19 @@ onMounted(async () => {
     linear-gradient(160deg, #f3f8ff, #f8eee4);
 }
 .dash-header {
-  width: min(1240px, 100%);
   margin: 0 auto 16px;
+  padding-top: 8px;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-}
-.dash-header h2 {
-  margin: 0;
 }
 .dash-header p {
   margin: 8px 0 0;
   color: var(--ink-700);
 }
 .dash-card {
-  margin: 0 auto;
+  margin: 0 auto 8px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.9);
 }

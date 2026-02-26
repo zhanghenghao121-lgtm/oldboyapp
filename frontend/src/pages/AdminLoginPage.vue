@@ -1,14 +1,14 @@
 <template>
-  <div class="page-shell admin-shell">
-    <el-card class="surface-card admin-login-card" shadow="never">
+  <div class="page-shell admin-shell py-4">
+    <el-card class="surface-card admin-login-card shadow-sm" shadow="never">
       <div class="title-block">
-        <h2>管理后台登录</h2>
-        <p>仅管理员可访问后台配置。</p>
+        <h2 class="fw-bold">管理后台登录</h2>
+        <p class="mb-3">仅管理员可访问后台配置。</p>
       </div>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" class="pt-1">
         <el-form-item label="用户名" prop="username"><el-input v-model="form.username" /></el-form-item>
         <el-form-item label="密码" prop="password"><el-input type="password" show-password v-model="form.password" /></el-form-item>
-        <div class="actions">
+        <div class="actions mt-2">
           <el-button type="primary" class="main-btn" @click="submit">登录后台</el-button>
           <el-button link @click="$router.push('/login')">返回网站登录</el-button>
         </div>

@@ -25,6 +25,10 @@ body {
   font-family: "Avenir Next", "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
 }
 
+a {
+  text-decoration: none;
+}
+
 #app {
   min-height: 100vh;
 }
@@ -44,6 +48,10 @@ body {
   box-shadow: var(--shadow-soft);
   background: rgba(255, 255, 255, 0.84);
   backdrop-filter: blur(10px);
+}
+
+.container-xl {
+  max-width: 1240px;
 }
 
 .title-block h2 {

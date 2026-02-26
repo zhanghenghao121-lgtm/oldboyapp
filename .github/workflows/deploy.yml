@@ -48,8 +48,15 @@ jobs:
             code=99
           else
             target="${DEPLOY_USER}@${DEPLOY_HOST}"
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${port}" "${target}" "cd /root/.openclaw/workspace/oldboyapp && git remote set-url origin https://github.com/zhanghenghao121-lgtm/oldboyapp.git && git pull --ff-only origin main && bash scripts/server_deploy.sh" 2>&1 | tee deploy_output.log
-            code=${PIPESTATUS[0]}
+            ssh_opts="-o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${port}"
+            rsync -az --exclude='.git' --exclude='frontend/node_modules' --exclude='frontend/dist' --exclude='backend/.venv' --exclude='backend/db.sqlite3' --exclude='deploy/env.prod' -e "ssh ${ssh_opts}" ./ "${target}:/root/.openclaw/workspace/oldboyapp/" 2>&1 | tee deploy_output.log
+            sync_code=${PIPESTATUS[0]}
+            if [ "${sync_code}" -ne 0 ]; then
+              code=${sync_code}
+            else
+              ssh ${ssh_opts} "${target}" "cd /root/.openclaw/workspace/oldboyapp && bash scripts/server_deploy.sh" 2>&1 | tee -a deploy_output.log
+              code=${PIPESTATUS[0]}
+            fi
           fi
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0

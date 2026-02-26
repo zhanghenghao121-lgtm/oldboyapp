@@ -172,9 +172,10 @@ const saveUser = async () => {
 const handleLogout = async () => {
   try {
     await consoleLogout()
-    router.push('/admin/login')
   } catch (e) {
-    ElMessage.error(e)
+    ElMessage.warning(typeof e === 'string' ? e : '登录态已失效，返回登录页')
+  } finally {
+    router.push('/admin/login')
   }
 }
 

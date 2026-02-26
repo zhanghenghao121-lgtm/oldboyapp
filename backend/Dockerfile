@@ -4,7 +4,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing -o Acquire::Retries=5 \
     build-essential default-libmysqlclient-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 

@@ -37,11 +37,27 @@ jobs:
           echo "${DEPLOY_KEY}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
+      - name: Ensure rsync on runner
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync
+
+      - name: Ensure remote project dir
+        run: |
+          port="${DEPLOY_PORT:-22}"
+          if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_KEY}" ]; then
+            echo "Skip creating remote dir due to missing deploy inputs"
+            exit 0
+          fi
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${port}" "${DEPLOY_USER}@${DEPLOY_HOST}" "mkdir -p /root/.openclaw/workspace/oldboyapp"
+
       - name: Run deploy on server
         id: deploy_step
         continue-on-error: true
+        shell: bash
         run: |
           set +e
+          set -o pipefail
           port="${DEPLOY_PORT:-22}"
           if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_KEY}" ]; then
             echo "Invalid deploy inputs: host_present='$([ -n "${DEPLOY_HOST}" ] && echo yes || echo no)' user_present='$([ -n "${DEPLOY_USER}" ] && echo yes || echo no)' key_present='$([ -n "${DEPLOY_KEY}" ] && echo yes || echo no)'" | tee deploy_output.log

@@ -71,7 +71,7 @@ def console_me(request):
 
 @csrf_exempt
 @api_view(["POST"])
-@permission_classes([IsConsoleAdmin])
+@permission_classes([AllowAny])
 def console_logout(request):
     logout(request)
     return ok()

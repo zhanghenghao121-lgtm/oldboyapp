@@ -1,21 +1,28 @@
 <template>
-  <div class="page-shell">
-    <el-card class="surface-card auth-card" shadow="never">
+  <div class="page-shell py-4">
+    <el-card class="surface-card auth-card shadow-sm" shadow="never">
       <div class="title-block">
-        <h2>创建账号</h2>
-        <p>设置你的专属账号并绑定邮箱。</p>
+        <h2 class="fw-bold">创建账号</h2>
+        <p class="mb-3">设置你的专属账号并绑定邮箱。</p>
       </div>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" class="auth-form">
+      <el-alert
+        title="密码规则：至少8位，需包含大写字母、小写字母和数字"
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb-3"
+      />
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" class="auth-form pt-1">
         <el-form-item label="用户名" prop="username"><el-input v-model="form.username" /></el-form-item>
         <el-form-item label="邮箱" prop="email"><el-input v-model="form.email" /></el-form-item>
         <el-form-item label="密码" prop="password"><el-input v-model="form.password" type="password" show-password /></el-form-item>
         <el-form-item label="邮箱验证码" prop="email_code">
-          <div class="row">
+          <div class="d-flex gap-2 w-100 flex-wrap">
             <el-input v-model="form.email_code" />
-            <el-button @click="sendCode">发送验证码</el-button>
+            <el-button type="primary" plain @click="sendCode">发送验证码</el-button>
           </div>
         </el-form-item>
-        <div class="actions">
+        <div class="actions mt-2">
           <el-button type="primary" class="main-btn" @click="submit">注册</el-button>
           <el-button link @click="$router.push('/login')">去登录</el-button>
         </div>
@@ -103,7 +110,5 @@ const submit = async () => {
 
 <style scoped>
 .auth-card { padding: 10px 6px 4px; }
-.auth-form { margin-top: 6px; }
-.row{display:flex;gap:10px;width:100%}
 .actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 </style>

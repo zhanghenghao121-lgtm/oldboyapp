@@ -188,7 +188,7 @@ def me(request):
 
 @csrf_exempt
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def logout_view(request):
     logout(request)
     return ok()

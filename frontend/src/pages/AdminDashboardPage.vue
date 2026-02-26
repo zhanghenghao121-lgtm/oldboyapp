@@ -8,6 +8,24 @@
       <el-button type="danger" plain @click="handleLogout">退出后台</el-button>
     </header>
 
+    <el-row :gutter="12" class="container-xl mx-auto mb-2">
+      <el-col :xs="24" :sm="8">
+        <el-card class="metric-card" shadow="never">
+          <el-statistic title="背景图已配置" :value="configuredBackgrounds" />
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="8">
+        <el-card class="metric-card" shadow="never">
+          <el-statistic title="注册用户总数" :value="total" />
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="8">
+        <el-card class="metric-card" shadow="never">
+          <el-statistic title="当前页码" :value="page" />
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-row :gutter="16" class="container-xl mx-auto">
       <el-col :xs="24" :lg="10">
         <el-card shadow="never" class="dash-card">
@@ -82,7 +100,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -107,6 +125,7 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 const keyword = ref('')
+const configuredBackgrounds = computed(() => backgroundItems.value.filter((item) => !!item.image_url).length)
 
 const editVisible = ref(false)
 const editForm = reactive({ id: null, username: '', email: '', is_active: true })
@@ -214,6 +233,11 @@ onMounted(async () => {
   margin: 0 auto 8px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.9);
+}
+.metric-card {
+  border-radius: 12px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.92);
 }
 .bg-form-item {
   padding: 10px 0 14px;

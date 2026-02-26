@@ -5,6 +5,18 @@
         <h2 class="fw-bold">欢迎章鱼</h2>
         <p v-if="user" class="mb-0">当前用户：{{ user.username }} / {{ user.email }}</p>
       </div>
+      <el-row :gutter="12" class="mb-2">
+        <el-col :xs="24" :sm="12">
+          <el-card class="metric-card" shadow="never">
+            <el-statistic title="登录状态" value="在线" />
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :sm="12">
+          <el-card class="metric-card" shadow="never">
+            <el-statistic title="可用模块" :value="1" />
+          </el-card>
+        </el-col>
+      </el-row>
       <el-divider />
       <h3 class="section-title fw-semibold">功能模块</h3>
       <div class="module-list d-flex flex-wrap gap-2">
@@ -69,4 +81,5 @@ const doLogout = async () => {
 <style scoped>
 .home-card { width: min(700px, 100%); }
 .section-title { margin: 0 0 12px; color: var(--ink-700); }
+.metric-card { border: 1px solid var(--line-soft); border-radius: 12px; }
 </style>

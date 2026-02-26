@@ -40,9 +40,9 @@ def public_backgrounds(request):
     return ok(scene_map)
 
 
+@csrf_exempt
 @api_view(["POST"])
 @permission_classes([AllowAny])
-@csrf_exempt
 def console_login(request):
     s = ConsoleLoginSerializer(data=request.data)
     if not s.is_valid():
@@ -69,9 +69,9 @@ def console_me(request):
     return ok({"user": {"id": user.id, "username": user.username, "email": user.email}})
 
 
+@csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsConsoleAdmin])
-@csrf_exempt
 def console_logout(request):
     logout(request)
     return ok()
@@ -85,9 +85,9 @@ def console_backgrounds(request):
     return ok(serializer.data)
 
 
+@csrf_exempt
 @api_view(["PUT"])
 @permission_classes([IsConsoleAdmin])
-@csrf_exempt
 def console_background_update(request, scene):
     if scene not in [item[0] for item in SiteBackground.SCENE_CHOICES]:
         return bad("场景不支持", 404)
@@ -125,9 +125,9 @@ def console_users(request):
     return ok(data)
 
 
+@csrf_exempt
 @api_view(["PATCH"])
 @permission_classes([IsConsoleAdmin])
-@csrf_exempt
 def console_user_update(request, user_id):
     user = User.objects.filter(id=user_id).first()
     if not user:

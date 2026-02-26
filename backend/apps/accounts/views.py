@@ -46,9 +46,9 @@ def _cache_delete(key):
     cache.delete(key)
 
 
+@csrf_exempt
 @api_view(["POST"])
 @permission_classes([AllowAny])
-@csrf_exempt
 def email_code(request):
     s = EmailCodeSerializer(data=request.data)
     if not s.is_valid():
@@ -110,9 +110,9 @@ def email_code(request):
     return ok()
 
 
+@csrf_exempt
 @api_view(["POST"])
 @permission_classes([AllowAny])
-@csrf_exempt
 def register(request):
     s = RegisterSerializer(data=request.data)
     if not s.is_valid():
@@ -154,9 +154,9 @@ def captcha(request):
     return ok({"captcha_id": captcha_id, "image_base64": image})
 
 
+@csrf_exempt
 @api_view(["POST"])
 @permission_classes([AllowAny])
-@csrf_exempt
 def login_view(request):
     s = LoginSerializer(data=request.data)
     if not s.is_valid():
@@ -186,17 +186,17 @@ def me(request):
     return ok({"user": {"username": request.user.username, "email": request.user.email}})
 
 
+@csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-@csrf_exempt
 def logout_view(request):
     logout(request)
     return ok()
 
 
+@csrf_exempt
 @api_view(["POST"])
 @permission_classes([AllowAny])
-@csrf_exempt
 def reset_password(request):
     s = ResetPasswordSerializer(data=request.data)
     if not s.is_valid():

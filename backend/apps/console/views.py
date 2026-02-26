@@ -1,6 +1,7 @@
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core.paginator import Paginator
 from django.db.models import Q
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -41,6 +42,7 @@ def public_backgrounds(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@csrf_exempt
 def console_login(request):
     s = ConsoleLoginSerializer(data=request.data)
     if not s.is_valid():
@@ -69,6 +71,7 @@ def console_me(request):
 
 @api_view(["POST"])
 @permission_classes([IsConsoleAdmin])
+@csrf_exempt
 def console_logout(request):
     logout(request)
     return ok()
@@ -84,6 +87,7 @@ def console_backgrounds(request):
 
 @api_view(["PUT"])
 @permission_classes([IsConsoleAdmin])
+@csrf_exempt
 def console_background_update(request, scene):
     if scene not in [item[0] for item in SiteBackground.SCENE_CHOICES]:
         return bad("场景不支持", 404)
@@ -123,6 +127,7 @@ def console_users(request):
 
 @api_view(["PATCH"])
 @permission_classes([IsConsoleAdmin])
+@csrf_exempt
 def console_user_update(request, user_id):
     user = User.objects.filter(id=user_id).first()
     if not user:

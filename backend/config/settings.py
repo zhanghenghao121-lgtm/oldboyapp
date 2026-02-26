@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.storage",
     "apps.script_optimizer",
+    "apps.console",
 ]
 
 MIDDLEWARE = [

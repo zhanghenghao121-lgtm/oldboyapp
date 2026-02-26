@@ -1,29 +1,52 @@
 <template>
-  <div class="wrap">
-    <el-card class="card">
-      <h2>欢迎章鱼</h2>
-      <p v-if="user">当前用户：{{ user.username }} / {{ user.email }}</p>
-      <el-divider />
-      <h3>功能模块</h3>
-      <div class="module-list">
-        <el-button type="primary" @click="$router.push('/script-optimizer')">剧本优化</el-button>
+  <div class="page-shell" :style="pageStyle">
+    <el-card class="surface-card home-card" shadow="never">
+      <div class="title-block">
+        <h2>欢迎章鱼</h2>
+        <p v-if="user">当前用户：{{ user.username }} / {{ user.email }}</p>
       </div>
       <el-divider />
-      <el-button type="danger" @click="doLogout">退出登录</el-button>
+      <h3 class="section-title">功能模块</h3>
+      <div class="module-list">
+        <el-button type="primary" class="main-btn" @click="$router.push('/script-optimizer')">剧本优化</el-button>
+      </div>
+      <el-divider />
+      <el-button type="danger" plain @click="doLogout">退出登录</el-button>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { me, logout } from '../api/auth'
+import { getSiteBackgrounds } from '../api/site'
 
 const router = useRouter()
 const user = ref(null)
+const backgroundUrl = ref('')
+
+const pageStyle = computed(() =>
+  backgroundUrl.value
+    ? {
+        background:
+          `linear-gradient(rgba(255,255,255,0.24), rgba(255,255,255,0.24)), url(${backgroundUrl.value}) center/cover no-repeat`,
+      }
+    : {}
+)
+
+const loadBackground = async () => {
+  try {
+    const res = await getSiteBackgrounds()
+    backgroundUrl.value = res.data.home || ''
+  } catch {
+    backgroundUrl.value = ''
+  }
+}
 
 onMounted(async () => {
+  loadBackground()
   try {
     const res = await me()
     user.value = res.data.user
@@ -44,5 +67,7 @@ const doLogout = async () => {
 </script>
 
 <style scoped>
-.wrap{display:flex;justify-content:center;padding-top:60px}.card{width:560px}.module-list{display:flex;gap:10px;flex-wrap:wrap}
+.home-card { width: min(700px, 100%); }
+.section-title { margin: 0 0 12px; color: var(--ink-700); }
+.module-list{display:flex;gap:10px;flex-wrap:wrap}
 </style>

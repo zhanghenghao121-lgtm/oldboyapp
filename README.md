@@ -34,3 +34,11 @@ cp env.prod.example env.prod
 # 修改 env.prod 密钥
 docker compose --env-file env.prod up -d --build
 ```
+
+## 管理后台
+- 访问路径：`/admin/login`（例如 `https://oldboyai.com/admin/login`）
+- 初始账号：`root`
+- 初始密码：`zhang2000`
+- 功能：
+  - 登录页、首页背景图管理
+  - 注册用户信息管理（用户名、邮箱、状态）

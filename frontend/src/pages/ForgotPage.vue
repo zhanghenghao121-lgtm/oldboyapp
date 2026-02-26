@@ -1,15 +1,20 @@
 <template>
-  <div class="wrap">
-    <el-card class="card">
-      <h2>忘记密码</h2>
-      <el-form :model="form" label-width="90px">
+  <div class="page-shell">
+    <el-card class="surface-card auth-card" shadow="never">
+      <div class="title-block">
+        <h2>找回密码</h2>
+        <p>通过邮箱验证码重置账号密码。</p>
+      </div>
+      <el-form :model="form" label-width="90px" class="auth-form">
         <el-form-item label="邮箱"><el-input v-model="form.email" /></el-form-item>
         <el-form-item label="邮箱验证码">
           <div class="row"><el-input v-model="form.email_code" /><el-button @click="sendCode">发送验证码</el-button></div>
         </el-form-item>
         <el-form-item label="新密码"><el-input type="password" show-password v-model="form.new_password" /></el-form-item>
-        <el-button type="primary" @click="submit">重置密码</el-button>
-        <el-button link @click="$router.push('/login')">去登录</el-button>
+        <div class="actions">
+          <el-button type="primary" class="main-btn" @click="submit">重置密码</el-button>
+          <el-button link @click="$router.push('/login')">去登录</el-button>
+        </div>
       </el-form>
     </el-card>
   </div>
@@ -43,5 +48,8 @@ const submit = async () => {
 </script>
 
 <style scoped>
-.wrap{display:flex;justify-content:center;padding-top:60px}.card{width:480px}.row{display:flex;gap:8px;width:100%}
+.auth-card { padding: 10px 6px 4px; }
+.auth-form { margin-top: 6px; }
+.row{display:flex;gap:10px;width:100%}
+.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 </style>

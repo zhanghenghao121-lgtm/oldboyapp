@@ -28,6 +28,7 @@ DEBUG = env("DJANGO_DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
 
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

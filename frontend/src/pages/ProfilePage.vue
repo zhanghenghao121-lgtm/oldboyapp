@@ -106,13 +106,53 @@ const handleAvatarUpload = async (event) => {
   }
 
   try {
-    const res = await uploadToCos(file, 'images/avatars')
+    const compressed = await compressAvatar(file)
+    const res = await uploadToCos(compressed, 'images/avatars')
     await updateProfile({ avatar_url: res.data.url })
     form.avatar_url = res.data.url
     ElMessage.success('头像上传成功')
   } catch (e) {
     ElMessage.error(e)
   }
+}
+
+const loadImage = (file) =>
+  new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('图片读取失败'))
+    img.src = URL.createObjectURL(file)
+  })
+
+const toBlob = (canvas, type, quality) =>
+  new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), type, quality)
+  })
+
+const compressAvatar = async (file) => {
+  const img = await loadImage(file)
+  const maxEdge = 1024
+  let { width, height } = img
+  const ratio = Math.min(maxEdge / width, maxEdge / height, 1)
+  width = Math.round(width * ratio)
+  height = Math.round(height * ratio)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(img, 0, 0, width, height)
+
+  const targetType = file.type === 'image/png' ? 'image/webp' : file.type || 'image/jpeg'
+  const quality = targetType === 'image/jpeg' || targetType === 'image/webp' ? 0.82 : undefined
+  const blob = await toBlob(canvas, targetType, quality)
+  URL.revokeObjectURL(img.src)
+  if (!blob || blob.size >= file.size) return file
+
+  const extMap = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
+  const ext = extMap[targetType] || 'jpg'
+  const nextName = file.name.replace(/\.[^.]+$/, '') + `.${ext}`
+  return new File([blob], nextName, { type: targetType })
 }
 
 const save = async () => {

@@ -50,7 +50,6 @@ class ResetPasswordSerializer(serializers.Serializer):
 class ProfileUpdateSerializer(serializers.Serializer):
     avatar_url = serializers.URLField(max_length=500, required=False, allow_blank=True)
     username = serializers.CharField(max_length=20, min_length=3, required=False)
-    email = serializers.EmailField(required=False)
     signature = serializers.CharField(max_length=120, required=False, allow_blank=True)
 
     def validate_username(self, value):

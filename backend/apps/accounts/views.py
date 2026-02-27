@@ -355,6 +355,9 @@ def me(request):
 @api_view(["PATCH"])
 @permission_classes([IsAuthenticated])
 def profile_update(request):
+    if "email" in request.data:
+        return bad("用户邮箱不可修改")
+
     s = ProfileUpdateSerializer(data=request.data, partial=True)
     if not s.is_valid():
         errors = s.errors
@@ -371,14 +374,6 @@ def profile_update(request):
         if User.objects.filter(username=username).exclude(id=user.id).exists():
             return bad("用户名已存在")
         user.username = username
-
-    if "email" in payload:
-        email = payload["email"].strip().lower()
-        if not valid_com_email(email):
-            return bad("邮箱必须以.com结尾")
-        if User.objects.filter(email=email).exclude(id=user.id).exists():
-            return bad("邮箱已存在")
-        user.email = email
 
     if "avatar_url" in payload:
         user.avatar_url = payload.get("avatar_url", "").strip()

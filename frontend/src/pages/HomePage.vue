@@ -36,7 +36,7 @@
         <el-col :xs="24" :md="8">
           <el-card class="metric-card" shadow="never">
             <p class="metric-label">可用模块</p>
-            <h3>2</h3>
+            <h3>1</h3>
           </el-card>
         </el-col>
         <el-col :xs="24" :md="8">
@@ -54,10 +54,6 @@
             <span>剧本优化</span>
             <small>剧本分镜 / 段落分镜</small>
           </button>
-          <button class="module-item" @click="$router.push('/profile')">
-            <span>用户信息</span>
-            <small>头像、签名与账号设置</small>
-          </button>
         </div>
       </el-card>
     </main>
@@ -73,6 +69,7 @@ import { getSiteBackgrounds } from '../api/site'
 
 const router = useRouter()
 const user = ref(null)
+const fallbackBg = 'https://zy2000zh-1257453885.cos.ap-shanghai.myqcloud.com/image/1.png'
 const backgroundUrl = ref('')
 const defaultAvatar = ref('')
 
@@ -88,10 +85,10 @@ const pageStyle = computed(() =>
 const loadBackground = async () => {
   try {
     const res = await getSiteBackgrounds()
-    backgroundUrl.value = res.data.home || ''
+    backgroundUrl.value = res.data.home || fallbackBg
     defaultAvatar.value = res.data.default_avatar || ''
   } catch {
-    backgroundUrl.value = ''
+    backgroundUrl.value = fallbackBg
   }
 }
 

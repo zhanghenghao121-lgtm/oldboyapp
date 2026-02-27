@@ -20,10 +20,11 @@
         </el-form-item>
 
         <div class="actions mt-2">
-          <el-button type="primary" class="main-btn" @click="submit">登录</el-button>
-          <el-button link @click="$router.push('/register')">去注册</el-button>
-          <el-button link @click="$router.push('/forgot')">忘记密码</el-button>
-          <el-button link type="primary" @click="$router.push('/admin/login')">管理后台</el-button>
+          <el-button type="primary" class="main-btn login-btn" @click="submit">登录</el-button>
+          <div class="sub-actions">
+            <el-button link @click="$router.push('/forgot')">忘记密码</el-button>
+            <el-button link @click="$router.push('/register')">去注册</el-button>
+          </div>
         </div>
       </el-form>
     </el-card>
@@ -77,6 +78,7 @@ import { getSiteBackgrounds } from '../api/site'
 const router = useRouter()
 const formRef = ref()
 const form = reactive({ username: '', password: '' })
+const fallbackBg = 'https://zy2000zh-1257453885.cos.ap-shanghai.myqcloud.com/image/1.png'
 const backgroundUrl = ref('')
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -128,9 +130,9 @@ const buildEnergyParticles = () => {
 const loadBackground = async () => {
   try {
     const res = await getSiteBackgrounds()
-    backgroundUrl.value = res.data.login || ''
+    backgroundUrl.value = res.data.login || fallbackBg
   } catch {
-    backgroundUrl.value = ''
+    backgroundUrl.value = fallbackBg
   }
 }
 
@@ -229,7 +231,24 @@ onMounted(loadBackground)
   text-align: center;
 }
 .captcha-tip{margin:8px 0 0;color:var(--ink-700);font-size:12px}
-.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.login-btn {
+  min-height: 44px;
+  font-size: 15px;
+  border-radius: 12px;
+  background: linear-gradient(130deg, #1f86e8, #2e6ee6 45%, #8759f4);
+  box-shadow: 0 12px 26px rgba(34, 108, 225, 0.36);
+}
+.sub-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
 .energy-panel {
   padding: 4px;
 }

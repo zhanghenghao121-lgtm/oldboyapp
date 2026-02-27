@@ -31,7 +31,7 @@ def upload(request):
     folder = s.validated_data.get("folder", "uploads").strip("/") or "uploads"
 
     if file_obj.size > settings.MAX_UPLOAD_SIZE:
-        return bad("文件超过大小限制", 413)
+        return bad("文件超过大小限制（最大10MB）", 413)
 
     if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
         return bad("COS配置不完整", 500)

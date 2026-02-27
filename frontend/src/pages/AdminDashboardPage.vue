@@ -179,8 +179,13 @@ const handleBackgroundUpload = async (item, event) => {
   event.target.value = ''
   if (!file) return
   const isImage = file.type.startsWith('image/')
+  const limit = 10 * 1024 * 1024
   if (!isImage) {
     ElMessage.warning('请上传图片文件')
+    return
+  }
+  if (file.size > limit) {
+    ElMessage.warning('图片大小不能超过10MB')
     return
   }
 

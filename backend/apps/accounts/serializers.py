@@ -27,8 +27,15 @@ class RegisterSerializer(serializers.Serializer):
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     password = serializers.CharField(max_length=128)
-    captcha_id = serializers.CharField(max_length=64)
-    captcha_code = serializers.CharField(max_length=8)
+    captcha_id = serializers.CharField(max_length=64, required=False, allow_blank=True)
+    captcha_code = serializers.CharField(max_length=8, required=False, allow_blank=True)
+    captcha_ticket = serializers.CharField(max_length=64, required=False, allow_blank=True)
+
+
+class EnergySliderVerifySerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=64)
+    offset_x = serializers.IntegerField(min_value=0, max_value=500)
+    track = serializers.ListField(required=False, allow_empty=True)
 
 
 class ResetPasswordSerializer(serializers.Serializer):

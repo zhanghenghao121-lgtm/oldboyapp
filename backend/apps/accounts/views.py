@@ -1,4 +1,7 @@
 import uuid
+import io
+import base64
+import random
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth import get_user_model
@@ -10,15 +13,21 @@ from django_redis import get_redis_connection
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from PIL import Image, ImageDraw, ImageFilter
 from .serializers import (
     EmailCodeSerializer,
     RegisterSerializer,
     LoginSerializer,
+    EnergySliderVerifySerializer,
     ResetPasswordSerializer,
 )
 from .utils import valid_com_email, valid_password, gen_numeric_code, gen_captcha_text, captcha_base64
 
 User = get_user_model()
+ENERGY_SLIDER_TTL = 120
+ENERGY_SLIDER_PIECE = 44
+ENERGY_SLIDER_W = 320
+ENERGY_SLIDER_H = 160
 
 
 def ok(data=None):
@@ -44,6 +53,66 @@ def _cache_set(key, value, ttl):
 
 def _cache_delete(key):
     cache.delete(key)
+
+
+def _encode_png(img):
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def _build_energy_slider_image():
+    bg = Image.new("RGB", (ENERGY_SLIDER_W, ENERGY_SLIDER_H), "#0f1832")
+    draw = ImageDraw.Draw(bg)
+
+    # Background gradients and anime-like energy particles
+    for i in range(ENERGY_SLIDER_H):
+        t = i / max(ENERGY_SLIDER_H - 1, 1)
+        r = int(26 + 16 * t)
+        g = int(37 + 36 * t)
+        b = int(78 + 72 * t)
+        draw.line([(0, i), (ENERGY_SLIDER_W, i)], fill=(r, g, b))
+    for _ in range(22):
+        px = random.randint(0, ENERGY_SLIDER_W - 1)
+        py = random.randint(0, ENERGY_SLIDER_H - 1)
+        radius = random.randint(1, 3)
+        glow = random.choice([(84, 205, 255), (182, 110, 255), (255, 184, 99)])
+        draw.ellipse([px - radius, py - radius, px + radius, py + radius], fill=glow)
+    for _ in range(3):
+        x1 = random.randint(0, ENERGY_SLIDER_W // 2)
+        x2 = random.randint(ENERGY_SLIDER_W // 2, ENERGY_SLIDER_W)
+        y1 = random.randint(0, ENERGY_SLIDER_H)
+        y2 = random.randint(0, ENERGY_SLIDER_H)
+        draw.line([(x1, y1), (x2, y2)], fill=(132, 215, 255), width=1)
+
+    x = random.randint(86, 240)
+    y = random.randint(34, 92)
+    size = ENERGY_SLIDER_PIECE
+
+    mask = Image.new("L", (size, size), 0)
+    mdraw = ImageDraw.Draw(mask)
+    mdraw.rounded_rectangle([0, 0, size - 1, size - 1], radius=10, fill=255)
+
+    # Piece and hole
+    piece = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    piece.paste(bg.crop((x, y, x + size, y + size)), (0, 0), mask)
+    piece = piece.filter(ImageFilter.SHARPEN)
+
+    hole = Image.new("RGBA", (size, size), (98, 160, 255, 165))
+    bg_hole = bg.convert("RGBA")
+    bg_hole.paste(hole, (x, y), mask)
+    hd = ImageDraw.Draw(bg_hole)
+    hd.rounded_rectangle([x, y, x + size - 1, y + size - 1], radius=10, outline=(225, 247, 255, 220), width=2)
+
+    return {
+        "x": x,
+        "y": y,
+        "bg": _encode_png(bg_hole),
+        "piece": _encode_png(piece),
+        "width": ENERGY_SLIDER_W,
+        "height": ENERGY_SLIDER_H,
+        "piece_size": size,
+    }
 
 
 @csrf_exempt
@@ -154,6 +223,71 @@ def captcha(request):
     return ok({"captcha_id": captcha_id, "image_base64": image})
 
 
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def energy_slider(request):
+    token = uuid.uuid4().hex
+    payload = _build_energy_slider_image()
+    _cache_set(
+        f"energy_slider:{token}",
+        {"x": payload["x"], "created_ts": timezone.now().timestamp(), "fail_count": 0},
+        ENERGY_SLIDER_TTL,
+    )
+    return ok(
+        {
+            "token": token,
+            "bg": payload["bg"],
+            "piece": payload["piece"],
+            "y": payload["y"],
+            "width": payload["width"],
+            "height": payload["height"],
+            "piece_size": payload["piece_size"],
+            "expires_in": ENERGY_SLIDER_TTL,
+        }
+    )
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def energy_slider_verify(request):
+    s = EnergySliderVerifySerializer(data=request.data)
+    if not s.is_valid():
+        return bad("参数错误")
+
+    token = s.validated_data["token"]
+    offset_x = s.validated_data["offset_x"]
+    track = s.validated_data.get("track") or []
+    slider_data = _cache_get(f"energy_slider:{token}")
+    if not slider_data:
+        return bad("验证码已过期，请刷新", 400)
+
+    target_x = int(slider_data.get("x", -1))
+    created_ts = float(slider_data.get("created_ts", 0))
+    fail_count = int(slider_data.get("fail_count", 0))
+
+    if abs(offset_x - target_x) > 6:
+        fail_count += 1
+        slider_data["fail_count"] = fail_count
+        _cache_set(f"energy_slider:{token}", slider_data, ENERGY_SLIDER_TTL)
+        if fail_count >= 5:
+            _cache_delete(f"energy_slider:{token}")
+            return bad("尝试次数过多，请刷新验证码", 429)
+        return bad("能量偏移，结界未闭合", 400)
+
+    # Simple anti-bot checks based on interaction duration/track points.
+    elapsed_ms = max(int((timezone.now().timestamp() - created_ts) * 1000), 0)
+    if elapsed_ms < 350:
+        return bad("验证过快，请重试", 400)
+    if track and len(track) < 6:
+        return bad("轨迹异常，请重试", 400)
+
+    ticket = uuid.uuid4().hex
+    _cache_set(f"energy_ticket:{ticket}", "1", ENERGY_SLIDER_TTL)
+    _cache_delete(f"energy_slider:{token}")
+    return ok({"captcha_ticket": ticket, "expires_in": ENERGY_SLIDER_TTL})
+
+
 @csrf_exempt
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -164,13 +298,21 @@ def login_view(request):
 
     username = s.validated_data["username"].strip()
     password = s.validated_data["password"]
-    captcha_id = s.validated_data["captcha_id"]
-    captcha_code = s.validated_data["captcha_code"].strip().lower()
+    captcha_ticket = (s.validated_data.get("captcha_ticket") or "").strip()
 
-    code = _cache_get(f"captcha:{captcha_id}")
-    if not code or str(code).lower() != captcha_code:
-        return bad("图形验证码错误或已过期")
-    _cache_delete(f"captcha:{captcha_id}")
+    if captcha_ticket:
+        if not _cache_get(f"energy_ticket:{captcha_ticket}"):
+            return bad("结界验证已失效，请重新验证")
+        _cache_delete(f"energy_ticket:{captcha_ticket}")
+    else:
+        captcha_id = (s.validated_data.get("captcha_id") or "").strip()
+        captcha_code = (s.validated_data.get("captcha_code") or "").strip().lower()
+        if not captcha_id or not captcha_code:
+            return bad("请完成验证码校验")
+        code = _cache_get(f"captcha:{captcha_id}")
+        if not code or str(code).lower() != captcha_code:
+            return bad("图形验证码错误或已过期")
+        _cache_delete(f"captcha:{captcha_id}")
 
     user = authenticate(request, username=username, password=password)
     if not user:

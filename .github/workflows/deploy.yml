@@ -18,6 +18,18 @@ jobs:
       DEPLOY_USER: ${{ secrets.SERVER_USER || vars.SERVER_USER }}
       DEPLOY_KEY: ${{ secrets.SERVER_SSH_KEY || vars.SERVER_SSH_KEY }}
     steps:
+      - name: SSH Smoke Test
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT }}
+          script_stop: true
+          script: |
+            whoami
+            hostname
+            echo "SSH OK"
       - name: Checkout
         uses: actions/checkout@v4
 

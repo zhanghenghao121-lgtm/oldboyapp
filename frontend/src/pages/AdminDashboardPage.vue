@@ -194,15 +194,73 @@ const handleBackgroundUpload = async (item, event) => {
 
   item.uploading = true
   try {
-    const res = await uploadToCos(file, 'images/backgrounds')
+    const compressed = await compressImageBeforeUpload(file)
+    const res = await uploadToCos(compressed, 'images/backgrounds')
     item.image_url = res.data.url
     await updateConsoleBackground(item.scene, { image_url: item.image_url || '' })
-    ElMessage.success('上传并保存成功（已存入COS）')
+    const before = formatSize(file.size)
+    const after = formatSize(compressed.size)
+    ElMessage.success(`上传并保存成功（已存入COS，${before} -> ${after}）`)
   } catch (e) {
     ElMessage.error(e)
   } finally {
     item.uploading = false
   }
+}
+
+const formatSize = (bytes) => {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+}
+
+const loadImage = (file) =>
+  new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('图片读取失败'))
+    img.src = URL.createObjectURL(file)
+  })
+
+const toBlob = (canvas, type, quality) =>
+  new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), type, quality)
+  })
+
+const compressImageBeforeUpload = async (file) => {
+  const mime = file.type || 'image/jpeg'
+  if (!mime.startsWith('image/')) return file
+
+  const img = await loadImage(file)
+  const maxW = 1920
+  const maxH = 1920
+  let { width, height } = img
+  const ratio = Math.min(maxW / width, maxH / height, 1)
+  width = Math.round(width * ratio)
+  height = Math.round(height * ratio)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(img, 0, 0, width, height)
+
+  const targetType = mime === 'image/png' ? 'image/webp' : mime
+  const quality = targetType === 'image/jpeg' || targetType === 'image/webp' ? 0.82 : undefined
+  const blob = await toBlob(canvas, targetType, quality)
+  URL.revokeObjectURL(img.src)
+
+  if (!blob) return file
+  if (blob.size >= file.size) return file
+
+  const extMap = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+  }
+  const ext = extMap[targetType] || 'jpg'
+  const nextName = file.name.replace(/\.[^.]+$/, '') + `.${ext}`
+  return new File([blob], nextName, { type: targetType })
 }
 
 const loadUsers = async (targetPage = page.value) => {

@@ -49,7 +49,19 @@ jobs:
             echo "Skip creating remote dir due to missing deploy inputs"
             exit 0
           fi
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${port}" "${DEPLOY_USER}@${DEPLOY_HOST}" "mkdir -p /root/.openclaw/workspace/oldboyapp"
+          ok=0
+          for i in {1..5}; do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=12 -o ServerAliveInterval=8 -o ServerAliveCountMax=3 -i ~/.ssh/id_rsa -p "${port}" "${DEPLOY_USER}@${DEPLOY_HOST}" "mkdir -p /root/.openclaw/workspace/oldboyapp"; then
+              ok=1
+              break
+            fi
+            echo "Ensure remote project dir retry ${i}/5 failed, waiting..."
+            sleep 6
+          done
+          if [ "${ok}" -ne 1 ]; then
+            echo "Failed to connect server in Ensure remote project dir step"
+            exit 255
+          fi
 
       - name: Run deploy on server
         id: deploy_step
@@ -64,7 +76,7 @@ jobs:
             code=99
           else
             target="${DEPLOY_USER}@${DEPLOY_HOST}"
-            ssh_opts="-o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p ${port}"
+            ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=12 -o ServerAliveInterval=8 -o ServerAliveCountMax=3 -i ~/.ssh/id_rsa -p ${port}"
             rsync -az --delete --exclude='.git' --exclude='.github' --exclude='frontend/node_modules' --exclude='frontend/dist' --exclude='backend/.venv' --exclude='backend/db.sqlite3' --exclude='deploy/env.prod' -e "ssh ${ssh_opts}" ./ "${target}:/root/.openclaw/workspace/oldboyapp/" 2>&1 | tee deploy_output.log
             sync_code=${PIPESTATUS[0]}
             if [ "${sync_code}" -ne 0 ]; then
@@ -76,8 +88,17 @@ jobs:
             if [ "${sync_code}" -ne 0 ]; then
               code=${sync_code}
             else
-              ssh ${ssh_opts} "${target}" "cd /root/.openclaw/workspace/oldboyapp && bash scripts/server_deploy.sh" 2>&1 | tee -a deploy_output.log
-              code=${PIPESTATUS[0]}
+              deploy_code=1
+              for i in {1..3}; do
+                ssh ${ssh_opts} "${target}" "cd /root/.openclaw/workspace/oldboyapp && bash scripts/server_deploy.sh" 2>&1 | tee -a deploy_output.log
+                deploy_code=${PIPESTATUS[0]}
+                if [ "${deploy_code}" -eq 0 ]; then
+                  break
+                fi
+                echo "Remote deploy retry ${i}/3 failed, waiting..." | tee -a deploy_output.log
+                sleep 8
+              done
+              code=${deploy_code}
             fi
           fi
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
@@ -90,7 +111,7 @@ jobs:
           if [ -z "${DEPLOY_HOST}" ] || [ -z "${DEPLOY_USER}" ] || [ -z "${DEPLOY_KEY}" ]; then
             echo "Skip server log collection due to missing deploy inputs" > deploy_logs.txt
           else
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p "${port}" "${DEPLOY_USER}@${DEPLOY_HOST}" "cd /root/.openclaw/workspace/oldboyapp/deploy && echo '## docker compose ps' && docker compose --env-file env.prod ps && echo && echo '## backend logs' && docker compose --env-file env.prod logs --tail=300 backend && echo && echo '## nginx logs' && docker compose --env-file env.prod logs --tail=300 nginx" > deploy_logs.txt 2>&1 || true
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=12 -o ServerAliveInterval=8 -o ServerAliveCountMax=3 -i ~/.ssh/id_rsa -p "${port}" "${DEPLOY_USER}@${DEPLOY_HOST}" "cd /root/.openclaw/workspace/oldboyapp/deploy && echo '## docker compose ps' && docker compose --env-file env.prod ps && echo && echo '## backend logs' && docker compose --env-file env.prod logs --tail=300 backend && echo && echo '## nginx logs' && docker compose --env-file env.prod logs --tail=300 nginx" > deploy_logs.txt 2>&1 || true
           fi
 
       - name: Build failure report

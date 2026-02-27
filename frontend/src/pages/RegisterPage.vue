@@ -12,6 +12,10 @@
         show-icon
         class="mb-3"
       />
+      <el-space wrap class="mb-3">
+        <el-tag type="primary" effect="light">仅支持 .com 邮箱</el-tag>
+        <el-tag type="success" effect="light">用户名 3-20 位</el-tag>
+      </el-space>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" class="auth-form pt-1">
         <el-form-item label="用户名" prop="username"><el-input v-model="form.username" /></el-form-item>
         <el-form-item label="邮箱" prop="email"><el-input v-model="form.email" /></el-form-item>

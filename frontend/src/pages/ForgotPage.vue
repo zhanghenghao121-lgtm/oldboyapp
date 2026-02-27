@@ -12,6 +12,10 @@
         show-icon
         class="mb-3"
       />
+      <el-space wrap class="mb-3">
+        <el-tag type="warning" effect="light">验证码 6 位</el-tag>
+        <el-tag type="danger" effect="light">重置后请重新登录</el-tag>
+      </el-space>
       <el-form :model="form" label-width="90px" class="auth-form pt-1">
         <el-form-item label="邮箱"><el-input v-model="form.email" /></el-form-item>
         <el-form-item label="邮箱验证码">

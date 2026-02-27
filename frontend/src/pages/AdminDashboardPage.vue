@@ -1,103 +1,116 @@
 <template>
-  <div class="admin-dashboard">
-    <header class="dash-header container-xl">
-      <div>
-        <h2 class="fw-bold mb-1">网站管理后台</h2>
-        <p v-if="adminUser">当前管理员：{{ adminUser.username }} / {{ adminUser.email }}</p>
+  <div class="admin-shell">
+    <aside class="admin-sidebar">
+      <div class="side-head">
+        <h2>管理后台</h2>
+        <p v-if="adminUser">{{ adminUser.username }}</p>
       </div>
-      <el-button type="danger" plain @click="handleLogout">退出后台</el-button>
-    </header>
 
-    <el-row :gutter="12" class="container-xl mx-auto mb-2">
-      <el-col :xs="24" :sm="8">
-        <el-card class="metric-card" shadow="never">
-          <el-statistic title="背景图已配置" :value="configuredBackgrounds" />
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="8">
-        <el-card class="metric-card" shadow="never">
-          <el-statistic title="注册用户总数" :value="total" />
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="8">
-        <el-card class="metric-card" shadow="never">
-          <el-statistic title="当前页码" :value="page" />
-        </el-card>
-      </el-col>
-    </el-row>
+      <button class="side-btn" :class="{ active: activeModule === 'stats' }" @click="activeModule = 'stats'">
+        信息统计
+      </button>
+      <button class="side-btn" :class="{ active: activeModule === 'page' }" @click="activeModule = 'page'">
+        页面管理
+      </button>
+      <button class="side-btn" :class="{ active: activeModule === 'users' }" @click="activeModule = 'users'">
+        用户信息
+      </button>
+      <button class="side-btn" :class="{ active: activeModule === 'script' }" @click="activeModule = 'script'">
+        剧本优化
+      </button>
+    </aside>
 
-    <el-row :gutter="16" class="container-xl mx-auto">
-      <el-col :xs="24" :lg="10">
-        <el-card shadow="never" class="dash-card">
-          <template #header>
-            <div>
-              <span class="fw-semibold">背景图管理</span>
-              <p class="tiny-tip">图片/视频/音频资源请统一上传至 COS 存储</p>
-            </div>
-          </template>
-          <div class="bg-form-item" v-for="item in backgroundItems" :key="item.scene">
-            <p class="bg-label fw-semibold">{{ item.label }}</p>
-            <div class="bg-thumb">
-              <img v-if="item.image_url" :src="item.image_url" alt="background preview" />
-              <span v-else>待上传图片</span>
-            </div>
-            <el-input v-model="item.image_url" placeholder="请输入背景图 URL，留空表示使用默认背景" />
-            <input
-              :id="`bg-upload-${item.scene}`"
-              type="file"
-              accept="image/*"
-              class="file-hidden"
-              @change="handleBackgroundUpload(item, $event)"
-            />
-            <div class="bg-actions">
-              <el-button class="main-btn" type="primary" @click="saveBackground(item)">保存</el-button>
-              <el-button plain :loading="item.uploading" @click="pickBackgroundFile(item.scene)">上传图片</el-button>
-            </div>
+    <main class="admin-main">
+      <header class="main-head">
+        <h3>{{ moduleTitle }}</h3>
+        <el-button type="danger" plain @click="handleLogout">退出后台</el-button>
+      </header>
+
+      <section v-if="activeModule === 'stats'" class="panel-card">
+        <el-row :gutter="12">
+          <el-col :xs="24" :sm="8">
+            <el-card class="metric-card" shadow="never">
+              <el-statistic title="注册用户总数" :value="total" />
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-card class="metric-card" shadow="never">
+              <el-statistic title="背景图已配置" :value="configuredBackgrounds" />
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-card class="metric-card" shadow="never">
+              <el-statistic title="当前管理员" :value="adminUser ? 1 : 0" />
+            </el-card>
+          </el-col>
+        </el-row>
+      </section>
+
+      <section v-if="activeModule === 'page'" class="panel-card">
+        <div class="panel-tip">页面管理：管理背景图片（统一上传到 COS）</div>
+        <div class="bg-form-item" v-for="item in backgroundItems" :key="item.scene">
+          <p class="bg-label fw-semibold">{{ item.label }}</p>
+          <div class="bg-thumb">
+            <img v-if="item.image_url" :src="item.image_url" alt="background preview" />
+            <span v-else>待上传图片</span>
           </div>
-        </el-card>
-      </el-col>
-
-      <el-col :xs="24" :lg="14">
-        <el-card shadow="never" class="dash-card">
-          <template #header>
-            <div class="user-header">
-              <span class="fw-semibold">注册用户管理</span>
-              <div class="user-filter">
-                <el-input v-model="keyword" clearable placeholder="用户名/邮箱" @keyup.enter="loadUsers(1)" />
-                <el-button @click="loadUsers(1)">搜索</el-button>
-              </div>
-            </div>
-          </template>
-
-          <el-table :data="users" style="width: 100%" stripe>
-            <el-table-column prop="username" label="用户名" min-width="120" />
-            <el-table-column prop="email" label="邮箱" min-width="180" />
-            <el-table-column prop="is_active" label="状态" width="90">
-              <template #default="scope">
-                <el-tag :type="scope.row.is_active ? 'success' : 'danger'">{{ scope.row.is_active ? '启用' : '停用' }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="date_joined" label="注册时间" min-width="170" />
-            <el-table-column label="操作" width="100">
-              <template #default="scope">
-                <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-
-          <div class="pager-wrap">
-            <el-pagination
-              background
-              layout="prev, pager, next"
-              :current-page="page"
-              :page-size="pageSize"
-              :total="total"
-              @current-change="loadUsers"
-            />
+          <el-input v-model="item.image_url" placeholder="请输入背景图 URL，留空表示使用默认背景" />
+          <input
+            :id="`bg-upload-${item.scene}`"
+            type="file"
+            accept="image/*"
+            class="file-hidden"
+            @change="handleBackgroundUpload(item, $event)"
+          />
+          <div class="bg-actions">
+            <el-button class="main-btn" type="primary" @click="saveBackground(item)">保存</el-button>
+            <el-button plain :loading="item.uploading" @click="pickBackgroundFile(item.scene)">上传图片</el-button>
           </div>
-        </el-card>
-      </el-col>
-    </el-row>
+        </div>
+      </section>
+
+      <section v-if="activeModule === 'users'" class="panel-card">
+        <div class="user-header">
+          <span class="fw-semibold">注册用户信息</span>
+          <div class="user-filter">
+            <el-input v-model="keyword" clearable placeholder="用户名/邮箱" @keyup.enter="loadUsers(1)" />
+            <el-button @click="loadUsers(1)">搜索</el-button>
+          </div>
+        </div>
+
+        <el-table :data="users" style="width: 100%" stripe>
+          <el-table-column prop="username" label="用户名" min-width="120" />
+          <el-table-column prop="email" label="邮箱" min-width="180" />
+          <el-table-column prop="is_active" label="状态" width="90">
+            <template #default="scope">
+              <el-tag :type="scope.row.is_active ? 'success' : 'danger'">{{ scope.row.is_active ? '启用' : '停用' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="date_joined" label="注册时间" min-width="170" />
+          <el-table-column label="操作" width="100">
+            <template #default="scope">
+              <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="pager-wrap">
+          <el-pagination
+            background
+            layout="prev, pager, next"
+            :current-page="page"
+            :page-size="pageSize"
+            :total="total"
+            @current-change="loadUsers"
+          />
+        </div>
+      </section>
+
+      <section v-if="activeModule === 'script'" class="panel-card">
+        <h4 class="placeholder-title">剧本优化</h4>
+        <p class="placeholder-sub">该功能模块已预留，暂不开发。</p>
+      </section>
+    </main>
 
     <el-dialog v-model="editVisible" title="编辑用户" width="460px">
       <el-form :model="editForm" label-width="80px">
@@ -131,6 +144,14 @@ import {
 
 const router = useRouter()
 const adminUser = ref(null)
+const activeModule = ref('stats')
+
+const moduleTitle = computed(() => {
+  if (activeModule.value === 'stats') return '信息统计'
+  if (activeModule.value === 'page') return '页面管理'
+  if (activeModule.value === 'users') return '用户信息'
+  return '剧本优化'
+})
 
 const backgroundItems = ref([
   { scene: 'login', label: '登录页面背景图', image_url: '', uploading: false },
@@ -175,37 +196,6 @@ const saveBackground = async (item) => {
 const pickBackgroundFile = (scene) => {
   const input = document.getElementById(`bg-upload-${scene}`)
   if (input) input.click()
-}
-
-const handleBackgroundUpload = async (item, event) => {
-  const file = event.target.files?.[0]
-  event.target.value = ''
-  if (!file) return
-  const isImage = file.type.startsWith('image/')
-  const limit = 10 * 1024 * 1024
-  if (!isImage) {
-    ElMessage.warning('请上传图片文件')
-    return
-  }
-  if (file.size > limit) {
-    ElMessage.warning('图片大小不能超过10MB')
-    return
-  }
-
-  item.uploading = true
-  try {
-    const compressed = await compressImageBeforeUpload(file)
-    const res = await uploadToCos(compressed, 'images/backgrounds')
-    item.image_url = res.data.url
-    await updateConsoleBackground(item.scene, { image_url: item.image_url || '' })
-    const before = formatSize(file.size)
-    const after = formatSize(compressed.size)
-    ElMessage.success(`上传并保存成功（已存入COS，${before} -> ${after}）`)
-  } catch (e) {
-    ElMessage.error(e)
-  } finally {
-    item.uploading = false
-  }
 }
 
 const formatSize = (bytes) => {
@@ -261,6 +251,37 @@ const compressImageBeforeUpload = async (file) => {
   const ext = extMap[targetType] || 'jpg'
   const nextName = file.name.replace(/\.[^.]+$/, '') + `.${ext}`
   return new File([blob], nextName, { type: targetType })
+}
+
+const handleBackgroundUpload = async (item, event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  const isImage = file.type.startsWith('image/')
+  const limit = 10 * 1024 * 1024
+  if (!isImage) {
+    ElMessage.warning('请上传图片文件')
+    return
+  }
+  if (file.size > limit) {
+    ElMessage.warning('图片大小不能超过10MB')
+    return
+  }
+
+  item.uploading = true
+  try {
+    const compressed = await compressImageBeforeUpload(file)
+    const res = await uploadToCos(compressed, 'images/backgrounds')
+    item.image_url = res.data.url
+    await updateConsoleBackground(item.scene, { image_url: item.image_url || '' })
+    const before = formatSize(file.size)
+    const after = formatSize(compressed.size)
+    ElMessage.success(`上传并保存成功（已存入COS，${before} -> ${after}）`)
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    item.uploading = false
+  }
 }
 
 const loadUsers = async (targetPage = page.value) => {
@@ -319,63 +340,88 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.admin-dashboard {
+.admin-shell {
   min-height: 100vh;
-  padding: 24px 16px 36px;
-  background:
-    radial-gradient(900px 340px at 0% 0%, rgba(15, 124, 134, 0.14), transparent 60%),
-    radial-gradient(760px 300px at 100% -8%, rgba(227, 124, 65, 0.16), transparent 60%),
-    linear-gradient(160deg, #f3f8ff, #f8eee4);
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  background: #1a1b20;
 }
-.dash-header {
-  margin: 0 auto 16px;
-  padding-top: 8px;
+.admin-sidebar {
+  background: #fff;
+  border-right: 1px solid #e9edf4;
+  padding: 24px 14px;
+}
+.side-head h2 {
+  margin: 0;
+}
+.side-head p {
+  margin: 6px 0 16px;
+  color: #7d8597;
+}
+.side-btn {
+  width: 100%;
+  border: 1px solid #dce4f1;
+  background: #fff;
+  border-radius: 10px;
+  text-align: left;
+  padding: 11px 10px;
+  margin-bottom: 10px;
+}
+.side-btn.active {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(130deg, #2b63d9, #3c86f0);
+}
+.admin-main {
+  padding: 18px 20px;
+}
+.main-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
 }
-.dash-header p {
-  margin: 8px 0 0;
-  color: var(--ink-700);
+.main-head h3 {
+  margin: 0;
+  color: #eef2ff;
 }
-.dash-card {
-  margin: 0 auto 8px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.9);
+.panel-card {
+  margin-top: 14px;
+  border: 1px solid #343848;
+  border-radius: 14px;
+  background: #242731;
+  padding: 16px;
+  color: #d8ddeb;
+}
+.panel-tip {
+  margin-bottom: 12px;
+  color: #aab4cb;
 }
 .metric-card {
   border-radius: 12px;
-  border: 1px solid var(--line-soft);
-  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #3b4153;
+  background: #2a2f3b;
 }
 .bg-form-item {
   padding: 10px 0 14px;
-  border-bottom: 1px solid var(--line-soft);
+  border-bottom: 1px solid #393f50;
 }
 .bg-form-item:last-child {
   border-bottom: 0;
 }
 .bg-label {
   margin: 0 0 8px;
-  font-weight: 600;
-  color: var(--ink-700);
-}
-.tiny-tip {
-  margin: 4px 0 0;
-  color: var(--ink-700);
-  font-size: 12px;
+  color: #e8edf8;
 }
 .bg-thumb {
   height: 120px;
   border-radius: 10px;
-  border: 1px dashed #aac4e8;
-  background: #f6faff;
+  border: 1px dashed #5f6d8e;
+  background: #1f222b;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6f87a8;
+  color: #8b97b1;
   margin-bottom: 8px;
 }
 .bg-thumb img {
@@ -397,6 +443,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  margin-bottom: 10px;
 }
 .user-filter {
   display: flex;
@@ -407,19 +454,20 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
 }
-@media (max-width: 991px) {
-  .dash-header {
-    align-items: stretch;
-    flex-direction: column;
-  }
+.placeholder-title {
+  margin: 0;
 }
-@media (max-width: 767px) {
-  .user-header {
-    align-items: stretch;
-    flex-direction: column;
+.placeholder-sub {
+  margin-top: 8px;
+  color: #aab4cb;
+}
+@media (max-width: 980px) {
+  .admin-shell {
+    grid-template-columns: 1fr;
   }
-  .user-filter {
-    width: 100%;
+  .admin-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #e9edf4;
   }
 }
 </style>

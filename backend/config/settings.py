@@ -28,6 +28,12 @@ DEBUG = env("DJANGO_DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
 
+# 线上有时会只配置 apex 域名，导致通过 www 访问时 API 返回 400 (DisallowedHost)。
+# 这里补齐站点默认域名，避免登录页验证码、背景等接口加载失败。
+DEFAULT_ALLOWED_HOSTS = ["oldboyai.com", "www.oldboyai.com", "localhost", "127.0.0.1"]
+if "*" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS = list(dict.fromkeys([*ALLOWED_HOSTS, *DEFAULT_ALLOWED_HOSTS]))
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

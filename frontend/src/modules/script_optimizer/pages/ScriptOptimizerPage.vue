@@ -1,22 +1,6 @@
 <template>
   <div class="page-shell optimizer-shell" :style="pageStyle">
     <el-card class="surface-card module-card" shadow="never">
-      <header class="panel-head">
-        <span></span>
-        <el-dropdown @command="onUserAction">
-          <div class="avatar-entry">
-            <el-avatar :src="user?.avatar_url || defaultAvatar" :size="40" />
-            <span>{{ user?.username || '用户' }}</span>
-          </div>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">用户信息</el-dropdown-item>
-              <el-dropdown-item command="home">返回首页</el-dropdown-item>
-              <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </header>
       <div class="title-block">
         <h2>剧本分镜工作台</h2>
         <p>支持剧本分镜和段落分镜，默认模型为 deepseek-reasoner。</p>
@@ -65,7 +49,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { generateParagraphStoryboard, generateStoryboard } from '../../../api/scriptOptimizer'
 import { getSiteBackgrounds } from '../../../api/site'
-import { logout, me } from '../../../api/auth'
+import { me } from '../../../api/auth'
 
 const router = useRouter()
 const mode = ref('storyboard')
@@ -73,8 +57,6 @@ const loading = ref(false)
 const script = ref('')
 const result = ref('')
 const backgroundUrl = ref('')
-const defaultAvatar = ref('')
-const user = ref(null)
 const withVersion = (url, version) => {
   if (!url) return ''
   const sep = url.includes('?') ? '&' : '?'
@@ -105,23 +87,8 @@ const loadBackground = async () => {
     const res = await getSiteBackgrounds()
     const version = res.data._version
     backgroundUrl.value = withVersion(res.data.script_optimizer || res.data.home || '', version)
-    defaultAvatar.value = res.data.default_avatar || ''
   } catch {
     backgroundUrl.value = ''
-  }
-}
-
-const loadMe = async () => {
-  const res = await me()
-  user.value = res.data.user
-}
-
-const onUserAction = async (cmd) => {
-  if (cmd === 'profile') return router.push('/profile')
-  if (cmd === 'home') return router.push('/home')
-  if (cmd === 'logout') {
-    await logout()
-    router.push('/login')
   }
 }
 
@@ -152,7 +119,7 @@ const runOptimize = async () => {
 
 onMounted(async () => {
   try {
-    await Promise.all([loadBackground(), loadMe()])
+    await Promise.all([loadBackground(), me()])
   } catch {
     router.push('/login')
   }
@@ -163,21 +130,6 @@ onMounted(async () => {
 .module-card { width: min(680px, 100%); }
 .optimizer-shell {
   min-height: 100vh;
-}
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.avatar-entry {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  border-radius: 999px;
-  padding: 4px 10px 4px 4px;
-  background: rgba(255, 255, 255, 0.75);
 }
 .tool-actions {
   display: flex;

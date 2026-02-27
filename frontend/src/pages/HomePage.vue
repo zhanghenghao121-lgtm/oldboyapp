@@ -72,6 +72,11 @@ const user = ref(null)
 const fallbackBg = 'https://zy2000zh-1257453885.cos.ap-shanghai.myqcloud.com/image/1.png'
 const backgroundUrl = ref('')
 const defaultAvatar = ref('')
+const withVersion = (url, version) => {
+  if (!url) return ''
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}v=${version || Date.now()}`
+}
 
 const pageStyle = computed(() =>
   backgroundUrl.value
@@ -85,10 +90,11 @@ const pageStyle = computed(() =>
 const loadBackground = async () => {
   try {
     const res = await getSiteBackgrounds()
-    backgroundUrl.value = res.data.home || fallbackBg
+    const version = res.data._version
+    backgroundUrl.value = withVersion(res.data.home || fallbackBg, version)
     defaultAvatar.value = res.data.default_avatar || ''
   } catch {
-    backgroundUrl.value = fallbackBg
+    backgroundUrl.value = withVersion(fallbackBg)
   }
 }
 

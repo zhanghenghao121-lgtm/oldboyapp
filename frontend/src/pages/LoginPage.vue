@@ -114,6 +114,11 @@ const pieceSize = ref(44)
 const track = ref([])
 const trackStartAt = ref(0)
 const energyParticles = ref([])
+const withVersion = (url, version) => {
+  if (!url) return ''
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}v=${version || Date.now()}`
+}
 
 const pageStyle = computed(() =>
   backgroundUrl.value
@@ -142,9 +147,10 @@ const buildEnergyParticles = () => {
 const loadBackground = async () => {
   try {
     const res = await getSiteBackgrounds()
-    backgroundUrl.value = res.data.login || fallbackBg
+    const version = res.data._version
+    backgroundUrl.value = withVersion(res.data.login || fallbackBg, version)
   } catch {
-    backgroundUrl.value = fallbackBg
+    backgroundUrl.value = withVersion(fallbackBg)
   }
 }
 

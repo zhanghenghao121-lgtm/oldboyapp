@@ -37,9 +37,14 @@ def _ensure_scene_defaults():
 @permission_classes([AllowAny])
 def public_backgrounds(request):
     _ensure_scene_defaults()
-    scene_map = {item.scene: item.image_url for item in SiteBackground.objects.all()}
+    items = list(SiteBackground.objects.all())
+    scene_map = {item.scene: item.image_url for item in items}
+    latest = max((item.updated_at for item in items), default=None)
+    scene_map["_version"] = int(latest.timestamp()) if latest else 0
     scene_map["default_avatar"] = getattr(settings, "DEFAULT_AVATAR_URL", "")
-    return ok(scene_map)
+    res = ok(scene_map)
+    res["Cache-Control"] = "no-store"
+    return res
 
 
 @csrf_exempt

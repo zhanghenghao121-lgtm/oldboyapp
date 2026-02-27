@@ -51,6 +51,11 @@ const router = useRouter()
 const saving = ref(false)
 const backgroundUrl = ref('')
 const defaultAvatar = ref('')
+const withVersion = (url, version) => {
+  if (!url) return ''
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}v=${version || Date.now()}`
+}
 const form = reactive({
   avatar_url: '',
   username: '',
@@ -70,7 +75,8 @@ const pageStyle = computed(() =>
 const loadBackground = async () => {
   try {
     const res = await getSiteBackgrounds()
-    backgroundUrl.value = res.data.profile || res.data.home || ''
+    const version = res.data._version
+    backgroundUrl.value = withVersion(res.data.profile || res.data.home || '', version)
     defaultAvatar.value = res.data.default_avatar || ''
   } catch {
     backgroundUrl.value = ''

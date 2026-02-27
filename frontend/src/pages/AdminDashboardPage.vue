@@ -37,6 +37,10 @@
           </template>
           <div class="bg-form-item" v-for="item in backgroundItems" :key="item.scene">
             <p class="bg-label fw-semibold">{{ item.label }}</p>
+            <div class="bg-thumb">
+              <img v-if="item.image_url" :src="item.image_url" alt="background preview" />
+              <span v-else>待上传图片</span>
+            </div>
             <el-input v-model="item.image_url" placeholder="请输入背景图 URL，留空表示使用默认背景" />
             <input
               :id="`bg-upload-${item.scene}`"
@@ -48,7 +52,6 @@
             <div class="bg-actions">
               <el-button class="main-btn" type="primary" @click="saveBackground(item)">保存</el-button>
               <el-button plain :loading="item.uploading" @click="pickBackgroundFile(item.scene)">上传图片</el-button>
-              <el-link v-if="item.image_url" :href="item.image_url" target="_blank" type="primary">预览</el-link>
             </div>
           </div>
         </el-card>
@@ -304,6 +307,23 @@ onMounted(async () => {
   margin: 4px 0 0;
   color: var(--ink-700);
   font-size: 12px;
+}
+.bg-thumb {
+  height: 120px;
+  border-radius: 10px;
+  border: 1px dashed #aac4e8;
+  background: #f6faff;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6f87a8;
+  margin-bottom: 8px;
+}
+.bg-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .bg-actions {
   margin-top: 8px;

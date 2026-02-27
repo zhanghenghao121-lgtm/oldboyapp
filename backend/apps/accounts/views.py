@@ -298,17 +298,27 @@ def login_view(request):
     if not s.is_valid():
         return bad("参数错误")
 
-    account = s.validated_data["username"].strip()
+    username = s.validated_data["username"].strip()
     password = s.validated_data["password"]
-    username = account
-    if "@" in account:
-        u = User.objects.filter(email=account.lower()).only("username").first()
-        if u:
-            username = u.username
+    captcha_ticket = (s.validated_data.get("captcha_ticket") or "").strip()
+
+    if captcha_ticket:
+        if not _cache_get(f"energy_ticket:{captcha_ticket}"):
+            return bad("结界验证已失效，请重新验证")
+        _cache_delete(f"energy_ticket:{captcha_ticket}")
+    else:
+        captcha_id = (s.validated_data.get("captcha_id") or "").strip()
+        captcha_code = (s.validated_data.get("captcha_code") or "").strip().lower()
+        if not captcha_id or not captcha_code:
+            return bad("请完成验证码校验")
+        code = _cache_get(f"captcha:{captcha_id}")
+        if not code or str(code).lower() != captcha_code:
+            return bad("图形验证码错误或已过期")
+        _cache_delete(f"captcha:{captcha_id}")
 
     user = authenticate(request, username=username, password=password)
     if not user:
-        return bad("用户名/邮箱或密码错误", 401)
+        return bad("用户名或密码错误", 401)
 
     login(request, user)
     return ok(

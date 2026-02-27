@@ -29,12 +29,25 @@
     <el-row :gutter="16" class="container-xl mx-auto">
       <el-col :xs="24" :lg="10">
         <el-card shadow="never" class="dash-card">
-          <template #header><span class="fw-semibold">背景图管理</span></template>
+          <template #header>
+            <div>
+              <span class="fw-semibold">背景图管理</span>
+              <p class="tiny-tip">图片/视频/音频资源请统一上传至 COS 存储</p>
+            </div>
+          </template>
           <div class="bg-form-item" v-for="item in backgroundItems" :key="item.scene">
             <p class="bg-label fw-semibold">{{ item.label }}</p>
             <el-input v-model="item.image_url" placeholder="请输入背景图 URL，留空表示使用默认背景" />
+            <input
+              :id="`bg-upload-${item.scene}`"
+              type="file"
+              accept="image/*"
+              class="file-hidden"
+              @change="handleBackgroundUpload(item, $event)"
+            />
             <div class="bg-actions">
               <el-button class="main-btn" type="primary" @click="saveBackground(item)">保存</el-button>
+              <el-button plain :loading="item.uploading" @click="pickBackgroundFile(item.scene)">上传图片</el-button>
               <el-link v-if="item.image_url" :href="item.image_url" target="_blank" type="primary">预览</el-link>
             </div>
           </div>
@@ -103,6 +116,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { uploadToCos } from '../api/storage'
 import {
   consoleLogout,
   consoleMe,
@@ -116,10 +130,10 @@ const router = useRouter()
 const adminUser = ref(null)
 
 const backgroundItems = ref([
-  { scene: 'login', label: '登录页面背景图', image_url: '' },
-  { scene: 'home', label: '首页背景图', image_url: '' },
-  { scene: 'script_optimizer', label: '剧本优化页背景图', image_url: '' },
-  { scene: 'profile', label: '用户信息页背景图', image_url: '' },
+  { scene: 'login', label: '登录页面背景图', image_url: '', uploading: false },
+  { scene: 'home', label: '首页背景图', image_url: '', uploading: false },
+  { scene: 'script_optimizer', label: '剧本优化页背景图', image_url: '', uploading: false },
+  { scene: 'profile', label: '用户信息页背景图', image_url: '', uploading: false },
 ])
 
 const users = ref([])
@@ -152,6 +166,34 @@ const saveBackground = async (item) => {
     ElMessage.success('背景图已更新')
   } catch (e) {
     ElMessage.error(e)
+  }
+}
+
+const pickBackgroundFile = (scene) => {
+  const input = document.getElementById(`bg-upload-${scene}`)
+  if (input) input.click()
+}
+
+const handleBackgroundUpload = async (item, event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  const isImage = file.type.startsWith('image/')
+  if (!isImage) {
+    ElMessage.warning('请上传图片文件')
+    return
+  }
+
+  item.uploading = true
+  try {
+    const res = await uploadToCos(file, 'images/backgrounds')
+    item.image_url = res.data.url
+    await updateConsoleBackground(item.scene, { image_url: item.image_url || '' })
+    ElMessage.success('上传并保存成功（已存入COS）')
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    item.uploading = false
   }
 }
 
@@ -253,11 +295,19 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--ink-700);
 }
+.tiny-tip {
+  margin: 4px 0 0;
+  color: var(--ink-700);
+  font-size: 12px;
+}
 .bg-actions {
   margin-top: 8px;
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.file-hidden {
+  display: none;
 }
 .user-header {
   display: flex;

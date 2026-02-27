@@ -1,9 +1,9 @@
 <template>
   <div class="page-shell py-4" :style="pageStyle">
     <el-card class="surface-card auth-card shadow-sm" shadow="never">
-      <div class="title-block">
+      <div class="title-block title-center">
         <h2 class="fw-bold">欢迎回来</h2>
-        <p class="mb-3">登录后进入章鱼工作台。</p>
+        <p class="mb-3">登录后进入章鱼结界。</p>
       </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" class="auth-form pt-1">
@@ -219,6 +219,9 @@ onMounted(loadBackground)
 
 <style scoped>
 .auth-card { padding: 10px 6px 4px; }
+.title-center {
+  text-align: center;
+}
 .energy-entry {
   width: 100%;
   display: flex;

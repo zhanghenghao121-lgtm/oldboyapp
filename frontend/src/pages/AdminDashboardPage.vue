@@ -118,6 +118,8 @@ const adminUser = ref(null)
 const backgroundItems = ref([
   { scene: 'login', label: '登录页面背景图', image_url: '' },
   { scene: 'home', label: '首页背景图', image_url: '' },
+  { scene: 'script_optimizer', label: '剧本优化页背景图', image_url: '' },
+  { scene: 'profile', label: '用户信息页背景图', image_url: '' },
 ])
 
 const users = ref([])

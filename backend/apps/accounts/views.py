@@ -19,6 +19,7 @@ from .serializers import (
     RegisterSerializer,
     LoginSerializer,
     EnergySliderVerifySerializer,
+    ProfileUpdateSerializer,
     ResetPasswordSerializer,
 )
 from .utils import valid_com_email, valid_password, gen_numeric_code, gen_captcha_text, captcha_base64
@@ -28,6 +29,7 @@ ENERGY_SLIDER_TTL = 120
 ENERGY_SLIDER_PIECE = 44
 ENERGY_SLIDER_W = 320
 ENERGY_SLIDER_H = 160
+DEFAULT_AVATAR = getattr(settings, "DEFAULT_AVATAR_URL", "")
 
 
 def ok(data=None):
@@ -207,7 +209,7 @@ def register(request):
     if not bind_username or str(bind_username) != username:
         return bad("邮箱验证码与用户名不匹配，请重新获取验证码")
 
-    User.objects.create_user(username=username, email=email, password=password)
+    User.objects.create_user(username=username, email=email, password=password, avatar_url=DEFAULT_AVATAR)
     _cache_delete(f"email_code:register:{email}")
     _cache_delete(f"email_bind:register:{email}")
     return ok()
@@ -319,13 +321,82 @@ def login_view(request):
         return bad("用户名或密码错误", 401)
 
     login(request, user)
-    return ok({"user": {"username": user.username, "email": user.email}})
+    return ok(
+        {
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "avatar_url": user.avatar_url or DEFAULT_AVATAR,
+                "signature": user.signature or "",
+            }
+        }
+    )
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def me(request):
-    return ok({"user": {"username": request.user.username, "email": request.user.email}})
+    user = request.user
+    return ok(
+        {
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "avatar_url": user.avatar_url or DEFAULT_AVATAR,
+                "signature": user.signature or "",
+            }
+        }
+    )
+
+
+@csrf_exempt
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+def profile_update(request):
+    s = ProfileUpdateSerializer(data=request.data, partial=True)
+    if not s.is_valid():
+        errors = s.errors
+        first_error = next(iter(errors.values()))[0] if errors else "参数错误"
+        return bad(first_error)
+
+    user = request.user
+    payload = s.validated_data
+    if not payload:
+        return bad("没有可更新字段")
+
+    if "username" in payload:
+        username = payload["username"].strip()
+        if User.objects.filter(username=username).exclude(id=user.id).exists():
+            return bad("用户名已存在")
+        user.username = username
+
+    if "email" in payload:
+        email = payload["email"].strip().lower()
+        if not valid_com_email(email):
+            return bad("邮箱必须以.com结尾")
+        if User.objects.filter(email=email).exclude(id=user.id).exists():
+            return bad("邮箱已存在")
+        user.email = email
+
+    if "avatar_url" in payload:
+        user.avatar_url = payload.get("avatar_url", "").strip()
+    if "signature" in payload:
+        user.signature = payload.get("signature", "").strip()
+
+    user.save()
+    return ok(
+        {
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "avatar_url": user.avatar_url or DEFAULT_AVATAR,
+                "signature": user.signature or "",
+            }
+        }
+    )
 
 
 @csrf_exempt

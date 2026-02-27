@@ -7,6 +7,7 @@ from .views import (
     energy_slider_verify,
     login_view,
     me,
+    profile_update,
     logout_view,
     reset_password,
 )
@@ -19,6 +20,7 @@ urlpatterns = [
     path("energy-slider/verify", energy_slider_verify),
     path("login", login_view),
     path("me", me),
+    path("profile", profile_update),
     path("logout", logout_view),
     path("reset-password", reset_password),
 ]

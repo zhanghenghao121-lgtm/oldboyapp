@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core.paginator import Paginator
 from django.db.models import Q
@@ -37,6 +38,7 @@ def _ensure_scene_defaults():
 def public_backgrounds(request):
     _ensure_scene_defaults()
     scene_map = {item.scene: item.image_url for item in SiteBackground.objects.all()}
+    scene_map["default_avatar"] = getattr(settings, "DEFAULT_AVATAR_URL", "")
     return ok(scene_map)
 
 

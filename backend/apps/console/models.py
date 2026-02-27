@@ -5,9 +5,13 @@ from django.db import models
 class SiteBackground(models.Model):
     SCENE_LOGIN = "login"
     SCENE_HOME = "home"
+    SCENE_SCRIPT = "script_optimizer"
+    SCENE_PROFILE = "profile"
     SCENE_CHOICES = [
         (SCENE_LOGIN, "登录页"),
         (SCENE_HOME, "首页"),
+        (SCENE_SCRIPT, "剧本优化页"),
+        (SCENE_PROFILE, "用户信息页"),
     ]
 
     scene = models.CharField(max_length=32, choices=SCENE_CHOICES, unique=True)

@@ -75,7 +75,6 @@
           </div>
           <div class="entry-row">
             <el-button type="primary" class="main-btn" @click="$router.push('/script-optimizer')">进入完整剧本优化页</el-button>
-            <el-button class="main-btn ghost-btn" @click="activePanel = 'assistant'">切换 AI章鱼助手</el-button>
           </div>
         </div>
 
@@ -102,7 +101,6 @@
           </div>
           <div class="entry-row">
             <el-button type="primary" class="main-btn" @click="$router.push('/ai-customer')">进入 AI章鱼助手</el-button>
-            <el-button class="main-btn ghost-btn" @click="activePanel = 'script'">返回剧本小优</el-button>
           </div>
         </div>
       </section>
@@ -407,10 +405,6 @@ onMounted(async () => {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-}
-.ghost-btn {
-  background: linear-gradient(130deg, rgba(56, 161, 243, 0.56), rgba(73, 80, 200, 0.58));
-  border: 1px solid rgba(161, 218, 255, 0.42);
 }
 @keyframes floaty {
   0% { transform: translateY(0px) translateX(0px); }

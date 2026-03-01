@@ -7,7 +7,7 @@
 
       <div class="avatar-panel">
         <div class="avatar-wrap">
-          <el-avatar :src="form.avatar_url || defaultAvatar || fallbackAvatar" :size="96" />
+          <el-avatar :src="displayAvatarSrc" :size="96" @error="handleAvatarError" />
           <button class="avatar-edit-btn" type="button" @click="pickAvatar">
             <el-icon><Edit /></el-icon>
           </button>
@@ -40,7 +40,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -54,6 +54,7 @@ const backgroundUrl = ref('')
 const defaultAvatar = ref('')
 const fallbackAvatar = '/octopus-avatar.svg'
 const avatarInputRef = ref()
+const avatarLoadFailed = ref(false)
 const withVersion = (url, version) => {
   if (!url) return ''
   const sep = url.includes('?') ? '&' : '?'
@@ -65,6 +66,12 @@ const form = reactive({
   email: '',
   signature: '',
   points: 0,
+})
+const avatarSource = computed(() => (form.avatar_url || defaultAvatar.value || fallbackAvatar).trim())
+const displayAvatarSrc = computed(() => (avatarLoadFailed.value ? fallbackAvatar : avatarSource.value))
+
+watch(avatarSource, () => {
+  avatarLoadFailed.value = false
 })
 
 const pageStyle = computed(() =>
@@ -90,7 +97,7 @@ const loadBackground = async () => {
 
 const loadMe = async () => {
   const res = await me()
-  Object.assign(form, res.data.user)
+  Object.assign(form, res.data.user, { avatar_url: (res.data.user?.avatar_url || '').trim() })
 }
 
 const pickAvatar = () => {
@@ -115,10 +122,16 @@ const handleAvatarUpload = async (event) => {
     const res = await uploadToCos(compressed, 'images/avatars')
     await updateProfile({ avatar_url: res.data.url })
     form.avatar_url = res.data.url
+    avatarLoadFailed.value = false
     ElMessage.success('头像上传成功')
   } catch (e) {
     ElMessage.error(e)
   }
+}
+
+const handleAvatarError = () => {
+  avatarLoadFailed.value = true
+  return false
 }
 
 const loadImage = (file) =>

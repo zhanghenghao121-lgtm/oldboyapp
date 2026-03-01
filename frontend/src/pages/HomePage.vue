@@ -1,7 +1,10 @@
 <template>
   <div class="workspace-shell">
     <aside class="sidebar">
+      <div class="side-aura side-aura-top"></div>
+      <div class="side-aura side-aura-bottom"></div>
       <div class="side-brand">
+        <span class="brand-badge">Neon Console</span>
         <h2>章鱼工作台</h2>
         <p>创作工作区</p>
       </div>
@@ -181,38 +184,97 @@ onMounted(async () => {
   background: #13131c;
 }
 .sidebar {
-  background: #ffffff;
-  border-right: 1px solid #e9edf4;
-  padding: 24px 14px;
+  background:
+    radial-gradient(220px 160px at 20% 6%, rgba(90, 210, 255, 0.24), transparent 68%),
+    radial-gradient(260px 180px at 85% 20%, rgba(255, 120, 220, 0.2), transparent 70%),
+    linear-gradient(165deg, #0f1838, #111f4a 44%, #13133a);
+  border-right: 1px solid rgba(140, 203, 255, 0.3);
+  padding: 22px 14px;
   position: relative;
   z-index: 3;
+  overflow: hidden;
+}
+.side-aura {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(18px);
+  opacity: 0.68;
+}
+.side-aura-top {
+  width: 180px;
+  height: 180px;
+  top: -80px;
+  left: -40px;
+  background: rgba(84, 217, 255, 0.35);
+}
+.side-aura-bottom {
+  width: 220px;
+  height: 220px;
+  right: -90px;
+  bottom: -120px;
+  background: rgba(255, 99, 217, 0.28);
 }
 .side-brand h2 {
   margin: 0;
-  color: #1a2444;
+  color: #eef7ff;
   font-family: "Orbitron", "Plus Jakarta Sans", sans-serif;
+  text-shadow: 0 0 12px rgba(88, 204, 255, 0.46);
 }
 .side-brand p {
   margin: 6px 0 18px;
-  color: #7a84a2;
+  color: #a9bfeb;
   font-size: 12px;
   letter-spacing: 1.2px;
 }
+.brand-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 10px;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.9px;
+  color: #d9f2ff;
+  border: 1px solid rgba(145, 225, 255, 0.52);
+  background: rgba(58, 133, 212, 0.35);
+  box-shadow: 0 0 10px rgba(88, 192, 255, 0.3);
+}
 .side-btn {
   width: 100%;
-  border: 1px solid #dde4f0;
-  border-radius: 10px;
-  background: #fff;
-  color: #2b3140;
-  padding: 12px 10px;
+  border: 1px solid rgba(146, 190, 255, 0.35);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(25, 39, 86, 0.84), rgba(26, 32, 78, 0.86));
+  color: #d7e7ff;
+  padding: 12px 12px;
   text-align: left;
   margin-bottom: 10px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+.side-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 18%, rgba(132, 225, 255, 0.22), transparent 62%);
+  transform: translateX(-110%);
+  transition: transform 0.35s ease;
+}
+.side-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(153, 223, 255, 0.62);
+  box-shadow: 0 10px 18px rgba(6, 16, 52, 0.5);
+}
+.side-btn:hover::after {
+  transform: translateX(0%);
 }
 .side-btn.active {
-  background: linear-gradient(130deg, #5f53ff, #3cc9ff, #ff4dc5);
+  background: linear-gradient(125deg, #3e9dff, #4f63ff, #53d8ff);
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 10px 24px rgba(69, 120, 255, 0.35);
+  box-shadow: 0 0 0 1px rgba(176, 226, 255, 0.24), 0 0 22px rgba(73, 187, 255, 0.38);
 }
 .main-panel {
   position: relative;

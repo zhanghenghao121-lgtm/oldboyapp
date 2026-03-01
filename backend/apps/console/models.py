@@ -30,3 +30,31 @@ class SiteBackground(models.Model):
 
     def __str__(self):
         return f"{self.scene}: {self.image_url}"
+
+
+class SiteConfig(models.Model):
+    KEY_DEFAULT_AVATAR = "default_avatar_url"
+    KEY_STORYBOARD_PROMPT = "storyboard_default_prompt"
+    KEY_PARAGRAPH_PROMPT = "paragraph_default_prompt"
+    KEY_CHOICES = [
+        (KEY_DEFAULT_AVATAR, "默认头像URL"),
+        (KEY_STORYBOARD_PROMPT, "剧本分镜默认提示词"),
+        (KEY_PARAGRAPH_PROMPT, "段落分镜默认提示词"),
+    ]
+
+    key = models.CharField(max_length=64, choices=KEY_CHOICES, unique=True)
+    value = models.TextField(blank=True, default="")
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="updated_site_configs",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["key"]
+
+    def __str__(self):
+        return f"{self.key}"

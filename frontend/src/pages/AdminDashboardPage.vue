@@ -51,7 +51,7 @@
         <div class="bg-form-item" v-for="item in backgroundItems" :key="item.scene">
           <p class="bg-label fw-semibold">{{ item.label }}</p>
           <div class="bg-thumb">
-            <img v-if="item.image_url" :src="item.image_url" alt="background preview" />
+            <img v-if="item.image_url" :src="thumbSrc(item.image_url, item.updated_at)" alt="background preview" />
             <span v-else>待上传图片</span>
           </div>
           <el-input v-model="item.image_url" placeholder="请输入背景图 URL，留空表示使用默认背景" />
@@ -65,6 +65,28 @@
           <div class="bg-actions">
             <el-button class="main-btn" type="primary" @click="saveBackground(item)">保存</el-button>
             <el-button plain :loading="item.uploading" @click="pickBackgroundFile(item.scene)">上传图片</el-button>
+          </div>
+        </div>
+
+        <div class="bg-form-item">
+          <p class="bg-label fw-semibold">用户默认头像</p>
+          <div class="bg-thumb avatar-thumb">
+            <img v-if="defaultAvatarUrl" :src="thumbSrc(defaultAvatarUrl)" alt="default avatar" />
+            <span v-else>待上传图片</span>
+          </div>
+          <el-input v-model="defaultAvatarUrl" placeholder="请输入默认头像 URL，留空使用系统默认" />
+          <input
+            id="default-avatar-upload"
+            type="file"
+            accept="image/*"
+            class="file-hidden"
+            @change="handleDefaultAvatarUpload"
+          />
+          <div class="bg-actions">
+            <el-button class="main-btn" type="primary" @click="saveDefaultAvatar">保存</el-button>
+            <el-button plain :loading="defaultAvatarUploading" @click="pickDefaultAvatarFile">
+              上传图片
+            </el-button>
           </div>
         </div>
       </section>
@@ -107,8 +129,17 @@
       </section>
 
       <section v-if="activeModule === 'script'" class="panel-card">
-        <h4 class="placeholder-title">剧本优化</h4>
-        <p class="placeholder-sub">该功能模块已预留，暂不开发。</p>
+        <h4 class="placeholder-title">剧本优化默认提示词</h4>
+        <p class="placeholder-sub">修改后会同步到网站剧本优化页面输入框默认内容。</p>
+        <el-form label-width="130px" class="mt-3">
+          <el-form-item label="剧本分镜提示词">
+            <el-input v-model="scriptStoryboardPrompt" type="textarea" :rows="4" />
+          </el-form-item>
+          <el-form-item label="段落分镜提示词">
+            <el-input v-model="scriptParagraphPrompt" type="textarea" :rows="4" />
+          </el-form-item>
+        </el-form>
+        <el-button type="primary" class="main-btn" :loading="savingPrompts" @click="saveScriptPrompts">保存设置</el-button>
       </section>
     </main>
 
@@ -134,11 +165,13 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { uploadToCos } from '../api/storage'
 import {
+  getConsoleConfigs,
   consoleLogout,
   consoleMe,
   getConsoleBackgrounds,
   getConsoleUsers,
   updateConsoleBackground,
+  updateConsoleConfig,
   updateConsoleUser,
 } from '../api/console'
 
@@ -166,6 +199,11 @@ const page = ref(1)
 const pageSize = ref(10)
 const keyword = ref('')
 const configuredBackgrounds = computed(() => backgroundItems.value.filter((item) => !!item.image_url).length)
+const defaultAvatarUrl = ref('')
+const defaultAvatarUploading = ref(false)
+const scriptStoryboardPrompt = ref('')
+const scriptParagraphPrompt = ref('')
+const savingPrompts = ref(false)
 
 const editVisible = ref(false)
 const editForm = reactive({ id: null, username: '', email: '', is_active: true })
@@ -177,17 +215,36 @@ const loadAdminMe = async () => {
 
 const loadBackgrounds = async () => {
   const res = await getConsoleBackgrounds()
-  const map = Object.fromEntries(res.data.map((item) => [item.scene, item.image_url]))
+  const map = Object.fromEntries(res.data.map((item) => [item.scene, item]))
   backgroundItems.value = backgroundItems.value.map((item) => ({
     ...item,
-    image_url: map[item.scene] || '',
+    image_url: map[item.scene]?.image_url || '',
+    updated_at: map[item.scene]?.updated_at || '',
   }))
+}
+
+const loadConfigs = async () => {
+  const res = await getConsoleConfigs()
+  const map = Object.fromEntries(res.data.map((item) => [item.key, item.value]))
+  defaultAvatarUrl.value = map.default_avatar_url || ''
+  scriptStoryboardPrompt.value = map.storyboard_default_prompt || ''
+  scriptParagraphPrompt.value = map.paragraph_default_prompt || ''
 }
 
 const saveBackground = async (item) => {
   try {
     await updateConsoleBackground(item.scene, { image_url: item.image_url || '' })
+    item.updated_at = new Date().toISOString()
     ElMessage.success('背景图已更新')
+  } catch (e) {
+    ElMessage.error(e)
+  }
+}
+
+const saveDefaultAvatar = async () => {
+  try {
+    await updateConsoleConfig('default_avatar_url', { value: defaultAvatarUrl.value || '' })
+    ElMessage.success('默认头像已更新')
   } catch (e) {
     ElMessage.error(e)
   }
@@ -195,6 +252,10 @@ const saveBackground = async (item) => {
 
 const pickBackgroundFile = (scene) => {
   const input = document.getElementById(`bg-upload-${scene}`)
+  if (input) input.click()
+}
+const pickDefaultAvatarFile = () => {
+  const input = document.getElementById('default-avatar-upload')
   if (input) input.click()
 }
 
@@ -274,6 +335,7 @@ const handleBackgroundUpload = async (item, event) => {
     const res = await uploadToCos(compressed, 'images/backgrounds')
     item.image_url = res.data.url
     await updateConsoleBackground(item.scene, { image_url: item.image_url || '' })
+    item.updated_at = new Date().toISOString()
     const before = formatSize(file.size)
     const after = formatSize(compressed.size)
     ElMessage.success(`上传并保存成功（已存入COS，${before} -> ${after}）`)
@@ -282,6 +344,53 @@ const handleBackgroundUpload = async (item, event) => {
   } finally {
     item.uploading = false
   }
+}
+
+const handleDefaultAvatarUpload = async (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请上传图片文件')
+    return
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    ElMessage.warning('默认头像不能超过5MB')
+    return
+  }
+
+  defaultAvatarUploading.value = true
+  try {
+    const compressed = await compressImageBeforeUpload(file)
+    const res = await uploadToCos(compressed, 'images/avatars')
+    defaultAvatarUrl.value = res.data.url
+    await updateConsoleConfig('default_avatar_url', { value: defaultAvatarUrl.value })
+    ElMessage.success('默认头像上传并保存成功')
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    defaultAvatarUploading.value = false
+  }
+}
+
+const saveScriptPrompts = async () => {
+  savingPrompts.value = true
+  try {
+    await updateConsoleConfig('storyboard_default_prompt', { value: scriptStoryboardPrompt.value || '' })
+    await updateConsoleConfig('paragraph_default_prompt', { value: scriptParagraphPrompt.value || '' })
+    ElMessage.success('默认提示词已保存')
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    savingPrompts.value = false
+  }
+}
+
+const thumbSrc = (url, updatedAt) => {
+  if (!url) return ''
+  const sep = url.includes('?') ? '&' : '?'
+  const version = updatedAt ? Date.parse(updatedAt) : Date.now()
+  return `${url}${sep}v=${version}`
 }
 
 const loadUsers = async (targetPage = page.value) => {
@@ -332,7 +441,7 @@ const handleLogout = async () => {
 onMounted(async () => {
   try {
     await loadAdminMe()
-    await Promise.all([loadBackgrounds(), loadUsers(1)])
+    await Promise.all([loadBackgrounds(), loadConfigs(), loadUsers(1)])
   } catch {
     router.push('/admin/login')
   }
@@ -428,6 +537,10 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.avatar-thumb img {
+  object-fit: contain;
+  background: #171921;
 }
 .bg-actions {
   margin-top: 8px;

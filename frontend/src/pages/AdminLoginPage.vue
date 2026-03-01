@@ -18,10 +18,10 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { consoleLogin } from '../api/console'
+import { clearConsoleToken, consoleLogin } from '../api/console'
 
 const router = useRouter()
 const formRef = ref()
@@ -43,6 +43,10 @@ const submit = async () => {
     ElMessage.error(e)
   }
 }
+
+onMounted(() => {
+  clearConsoleToken()
+})
 </script>
 
 <style scoped>

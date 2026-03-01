@@ -1,9 +1,13 @@
 <template>
   <div class="page-shell optimizer-shell" :style="pageStyle">
     <el-card class="surface-card module-card" shadow="never">
+      <header class="panel-head">
+        <span></span>
+        <el-button @click="$router.push('/home')">返回首页</el-button>
+      </header>
       <div class="title-block">
         <h2>剧本分镜工作台</h2>
-        <p>支持剧本分镜和段落分镜，默认模型为 deepseek-reasoner。</p>
+        <p>支持剧本分镜和段落分镜。</p>
       </div>
       <div class="tool-actions">
         <el-button :type="mode === 'storyboard' ? 'primary' : 'default'" class="main-btn" @click="mode = 'storyboard'">剧本分镜</el-button>
@@ -33,7 +37,6 @@
 
       <div class="d-flex gap-2 mt-2 flex-wrap">
         <el-button type="primary" class="main-btn" :loading="loading" @click="runOptimize">开始生成</el-button>
-        <el-button @click="$router.push('/home')">返回首页</el-button>
       </div>
 
       <el-divider />
@@ -63,14 +66,11 @@ const withVersion = (url, version) => {
   return `${url}${sep}v=${version || Date.now()}`
 }
 
-const defaultPrompts = {
-  storyboard: '将输入的剧本生成分镜提示词，模板是分镜号、分镜画面、景别、特效。',
-  paragraph: '将输入的剧本按照**秒～**秒的格式，生成15s以内的分镜提示词。',
-}
-
-const prompt = ref(defaultPrompts.storyboard)
+const defaultStoryboardPrompt = ref('将输入的剧本生成分镜提示词，模板是分镜号、分镜画面、景别、特效。')
+const defaultParagraphPrompt = ref('将输入的剧本按照**秒～**秒的格式，生成15s以内的分镜提示词。')
+const prompt = ref(defaultStoryboardPrompt.value)
 watch(mode, (val) => {
-  prompt.value = defaultPrompts[val]
+  prompt.value = val === 'storyboard' ? defaultStoryboardPrompt.value : defaultParagraphPrompt.value
 })
 
 const pageStyle = computed(() =>
@@ -87,6 +87,9 @@ const loadBackground = async () => {
     const res = await getSiteBackgrounds()
     const version = res.data._version
     backgroundUrl.value = withVersion(res.data.script_optimizer || res.data.home || '', version)
+    defaultStoryboardPrompt.value = res.data.script_storyboard_prompt || defaultStoryboardPrompt.value
+    defaultParagraphPrompt.value = res.data.script_paragraph_prompt || defaultParagraphPrompt.value
+    prompt.value = mode.value === 'storyboard' ? defaultStoryboardPrompt.value : defaultParagraphPrompt.value
   } catch {
     backgroundUrl.value = ''
   }
@@ -130,6 +133,12 @@ onMounted(async () => {
 .module-card { width: min(680px, 100%); }
 .optimizer-shell {
   min-height: 100vh;
+}
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
 }
 .tool-actions {
   display: flex;

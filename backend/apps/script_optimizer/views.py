@@ -11,6 +11,18 @@ DEFAULT_PARAGRAPH_PROMPT = (
 )
 
 
+def _get_default_prompt(key: str, fallback: str):
+    try:
+        from apps.console.models import SiteConfig
+
+        obj = SiteConfig.objects.filter(key=key).first()
+        if obj and obj.value.strip():
+            return obj.value.strip()
+    except Exception:
+        pass
+    return fallback
+
+
 def ok(data=None):
     return Response({"ok": True, **({"data": data} if data is not None else {})})
 
@@ -64,7 +76,9 @@ def ping(request):
 @permission_classes([IsAuthenticated])
 def storyboard(request):
     script_text = str(request.data.get("script", "")).strip()
-    prompt = str(request.data.get("prompt", "")).strip() or DEFAULT_STORYBOARD_PROMPT
+    prompt = str(request.data.get("prompt", "")).strip() or _get_default_prompt(
+        "storyboard_default_prompt", DEFAULT_STORYBOARD_PROMPT
+    )
     if not script_text:
         return bad("请输入剧本内容")
     if len(script_text) > 10000:
@@ -85,7 +99,9 @@ def storyboard(request):
 @permission_classes([IsAuthenticated])
 def paragraph_storyboard(request):
     script_text = str(request.data.get("script", "")).strip()
-    prompt = str(request.data.get("prompt", "")).strip() or DEFAULT_PARAGRAPH_PROMPT
+    prompt = str(request.data.get("prompt", "")).strip() or _get_default_prompt(
+        "paragraph_default_prompt", DEFAULT_PARAGRAPH_PROMPT
+    )
     if not script_text:
         return bad("请输入剧本内容")
     if len(script_text) > 10000:

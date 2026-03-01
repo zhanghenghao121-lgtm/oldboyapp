@@ -30,7 +30,8 @@
             v-if="item.role === 'user'"
             class="msg-avatar"
             :size="34"
-            :src="userAvatar"
+            :src="userAvatarSrc"
+            @error="handleUserAvatarError"
           />
         </div>
       </div>
@@ -57,7 +58,7 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getAiCustomerHistory } from '../api/aiCustomer'
@@ -73,6 +74,9 @@ const fileInputRef = ref()
 const chatWindowRef = ref()
 const userAvatar = ref('/octopus-avatar.svg')
 const aiAvatar = '/octopus-avatar.svg'
+const userAvatarFailed = ref(false)
+const fallbackAvatar = '/octopus-avatar.svg'
+const userAvatarSrc = computed(() => (userAvatarFailed.value ? fallbackAvatar : (userAvatar.value || fallbackAvatar)))
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -95,6 +99,12 @@ const loadHistory = async () => {
 const loadMe = async () => {
   const res = await me()
   userAvatar.value = res.data.user?.avatar_url || '/octopus-avatar.svg'
+  userAvatarFailed.value = false
+}
+
+const handleUserAvatarError = () => {
+  userAvatarFailed.value = true
+  return false
 }
 
 const pickFiles = () => {

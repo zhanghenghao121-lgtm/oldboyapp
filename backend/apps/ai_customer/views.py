@@ -1,4 +1,5 @@
 import json
+import logging
 import requests
 from django.conf import settings
 from django.http import StreamingHttpResponse
@@ -10,6 +11,8 @@ from rest_framework.response import Response
 from apps.ai_customer.models import AICustomerSetting, ChatMessage, HumanHandoverTicket
 from apps.ai_customer.services import build_system_prompt, search_context, stream_llm_answer
 
+logger = logging.getLogger(__name__)
+
 
 def ok(data=None):
     return Response({"ok": True, **({"data": data} if data is not None else {})})
@@ -17,6 +20,11 @@ def ok(data=None):
 
 def bad(message, status=400):
     return Response({"ok": False, "message": message}, status=status)
+
+
+def _sse_error(message: str, status: int = 400):
+    body = "data: " + json.dumps({"type": "error", "message": message}, ensure_ascii=False) + "\n\n"
+    return StreamingHttpResponse(body, status=status, content_type="text/event-stream")
 
 
 def _notify_feishu_if_needed(setting: AICustomerSetting, ticket: HumanHandoverTicket):
@@ -67,45 +75,51 @@ def chat_history(request):
 @csrf_exempt
 def chat_stream(request):
     if not request.user.is_authenticated:
-        return StreamingHttpResponse("data: {\"type\":\"error\",\"message\":\"请先登录\"}\n\n", status=401)
+        return _sse_error("请先登录", 401)
 
     if request.method != "POST":
-        return StreamingHttpResponse("data: {\"type\":\"error\",\"message\":\"Method not allowed\"}\n\n", status=405)
+        return _sse_error("Method not allowed", 405)
 
     try:
-        payload = json.loads((request.body or b"{}").decode("utf-8"))
-    except Exception:
-        payload = {}
+        try:
+            payload = json.loads((request.body or b"{}").decode("utf-8"))
+        except Exception:
+            payload = {}
 
-    message = str(payload.get("message", "")).strip()
-    attachments = payload.get("attachments") or []
-    if not message:
-        return StreamingHttpResponse("data: {\"type\":\"error\",\"message\":\"消息不能为空\"}\n\n", status=400)
+        message = str(payload.get("message", "")).strip()
+        attachments = payload.get("attachments") or []
+        if not isinstance(attachments, list):
+            attachments = []
+        if not message:
+            return _sse_error("消息不能为空", 400)
 
-    setting = AICustomerSetting.singleton()
-    if not setting.enabled:
-        return StreamingHttpResponse("data: {\"type\":\"error\",\"message\":\"AI客服已关闭\"}\n\n", status=403)
+        setting = AICustomerSetting.singleton()
+        if not setting.enabled:
+            return _sse_error("AI客服已关闭", 403)
 
-    ChatMessage.objects.create(
-        user=request.user,
-        role=ChatMessage.ROLE_USER,
-        content=message,
-        attachments=attachments,
-    )
+        ChatMessage.objects.create(
+            user=request.user,
+            role=ChatMessage.ROLE_USER,
+            content=message,
+            attachments=attachments,
+        )
 
-    context_hits = []
-    try:
-        context_hits = search_context(message, top_k=settings.AI_CS_TOP_K)
-    except Exception:
         context_hits = []
+        try:
+            context_hits = search_context(message, top_k=settings.AI_CS_TOP_K)
+        except Exception:
+            context_hits = []
 
-    system_prompt = build_system_prompt(setting, context_hits)
-    recent = ChatMessage.objects.filter(user=request.user).order_by("-id")[:8]
-    recent_messages = []
-    for row in reversed(list(recent)):
-        recent_messages.append({"role": row.role, "content": row.content})
+        system_prompt = build_system_prompt(setting, context_hits)
+        recent = ChatMessage.objects.filter(user=request.user).order_by("-id")[:8]
+        recent_messages = []
+        for row in reversed(list(recent)):
+            recent_messages.append({"role": row.role, "content": row.content})
 
-    llm_messages = [{"role": "system", "content": system_prompt}, *recent_messages]
+        llm_messages = [{"role": "system", "content": system_prompt}, *recent_messages]
+    except Exception as exc:
+        logger.exception("chat_stream preflight error: %s", exc)
+        return _sse_error("服务暂时不可用，请稍后重试", 500)
 
     def gen():
         full = ""

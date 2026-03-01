@@ -389,7 +389,8 @@ const saveScriptPrompts = async () => {
 const thumbSrc = (url, updatedAt) => {
   if (!url) return ''
   const sep = url.includes('?') ? '&' : '?'
-  const version = updatedAt ? Date.parse(updatedAt) : Date.now()
+  const parsed = updatedAt ? Date.parse(updatedAt) : NaN
+  const version = Number.isFinite(parsed) ? parsed : Date.now()
   return `${url}${sep}v=${version}`
 }
 

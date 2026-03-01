@@ -38,7 +38,7 @@ def _ensure_scene_defaults():
 
 def _config_defaults():
     return {
-        SiteConfig.KEY_DEFAULT_AVATAR: getattr(settings, "DEFAULT_AVATAR_URL", ""),
+        SiteConfig.KEY_DEFAULT_AVATAR: getattr(settings, "DEFAULT_AVATAR_URL", "/octopus-avatar.svg") or "/octopus-avatar.svg",
         SiteConfig.KEY_STORYBOARD_PROMPT: "将输入的剧本生成分镜提示词，模板是分镜号、分镜画面、景别、特效。",
         SiteConfig.KEY_PARAGRAPH_PROMPT: "将输入的剧本按照**秒～**秒的格式，生成15s以内的分镜提示词。",
     }

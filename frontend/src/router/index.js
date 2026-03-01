@@ -45,4 +45,8 @@ router.beforeEach(async (to) => {
   return true
 })
 
+router.afterEach((to) => {
+  document.title = to.path.startsWith('/admin') ? 'OldBoyAdmin' : 'OldBoyAI'
+})
+
 export default router

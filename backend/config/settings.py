@@ -151,6 +151,6 @@ COS_BASE_URL = env("COS_BASE_URL", default="")
 UPLOAD_LIMIT_10MB = 10 * 1024 * 1024
 MAX_UPLOAD_SIZE = min(env.int("MAX_UPLOAD_SIZE", default=UPLOAD_LIMIT_10MB), UPLOAD_LIMIT_10MB)
 EMAIL_CODE_DAILY_LIMIT = env.int("EMAIL_CODE_DAILY_LIMIT", default=10)
-DEFAULT_AVATAR_URL = env("DEFAULT_AVATAR_URL", default=f"{COS_BASE_URL}/images/octopus-default.png" if COS_BASE_URL else "")
+DEFAULT_AVATAR_URL = env("DEFAULT_AVATAR_URL", default=f"{COS_BASE_URL}/images/octopus-default.png" if COS_BASE_URL else "/octopus-avatar.svg")
 DEEPSEEK_API_KEY = env("DEEPSEEK_API_KEY", default="")
 DEEPSEEK_BASE_URL = env("DEEPSEEK_BASE_URL", default="https://api.deepseek.com")

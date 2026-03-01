@@ -8,7 +8,7 @@
     <el-card class="surface-card module-card neon-card" shadow="never">
       <header class="panel-head">
         <span></span>
-        <el-button class="home-btn" @click="$router.push('/home')">返回首页</el-button>
+        <el-button class="home-btn" @click="goHome">返回首页</el-button>
       </header>
       <div class="title-block">
         <h2>剧本分镜工作台</h2>
@@ -54,7 +54,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { generateParagraphStoryboard, generateStoryboard } from '../../../api/scriptOptimizer'
 import { getSiteBackgrounds } from '../../../api/site'
 import { me } from '../../../api/auth'
@@ -122,6 +122,36 @@ const runOptimize = async () => {
     ElMessage.error(e)
   } finally {
     loading.value = false
+  }
+}
+
+const hasUnsavedContent = computed(() => {
+  const hasScript = !!script.value.trim()
+  const hasPromptChanged = mode.value === 'storyboard'
+    ? prompt.value.trim() !== defaultStoryboardPrompt.value.trim()
+    : prompt.value.trim() !== defaultParagraphPrompt.value.trim()
+  const hasResult = !!result.value.trim()
+  return hasScript || hasPromptChanged || hasResult
+})
+
+const goHome = async () => {
+  if (!hasUnsavedContent.value) {
+    router.push('/home')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      '检测到你有未保存的内容，仍然返回首页吗？',
+      '离开确认',
+      {
+        confirmButtonText: '仍然退出',
+        cancelButtonText: '继续编辑',
+        type: 'warning',
+      }
+    )
+    router.push('/home')
+  } catch {
+    // user canceled
   }
 }
 

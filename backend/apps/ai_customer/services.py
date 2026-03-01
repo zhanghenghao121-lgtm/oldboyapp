@@ -155,13 +155,14 @@ def search_context(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
 
 
 def stream_llm_answer(messages):
-    base_url = settings.GLM_FREE_BASE_URL.rstrip("/")
-    model = settings.GLM_FREE_MODEL
-    api_key = settings.GLM_FREE_API_KEY.strip()
-    url = f"{base_url}/v1/chat/completions"
+    base_url = settings.AI_CS_LLM_BASE_URL.rstrip("/")
+    model = settings.AI_CS_LLM_MODEL
+    api_key = settings.AI_CS_LLM_API_KEY.strip()
+    if not api_key:
+        raise RuntimeError("AI_CS_LLM_API_KEY 未配置")
+    url = f"{base_url}/chat/completions"
     headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    headers["Authorization"] = f"Bearer {api_key}"
 
     payload = {
         "model": model,

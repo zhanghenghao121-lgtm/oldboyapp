@@ -67,7 +67,7 @@ def _call_deepseek(system_prompt: str, user_prompt: str):
     base_url = settings.DEEPSEEK_BASE_URL.rstrip("/")
     url = f"{base_url}/chat/completions"
     payload = {
-        "model": "deepseek-reasoner",
+        "model": settings.DEEPSEEK_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},

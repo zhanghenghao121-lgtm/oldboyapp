@@ -70,23 +70,23 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     if not api_key:
         raise RuntimeError("ARK_API_KEY 未配置")
     url = settings.ARK_EMBEDDING_BASE_URL.rstrip("/") + "/embeddings"
-
-    vectors = []
-    for text in texts:
-        payload = {"model": settings.ARK_EMBEDDING_MODEL, "input": text}
-        resp = requests.post(
-            url,
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=60,
-        )
-        if resp.status_code >= 400:
-            raise RuntimeError(f"Embedding 接口错误({resp.status_code})")
-        data = resp.json()
-        items = data.get("data") or []
-        if not items or "embedding" not in items[0]:
-            raise RuntimeError("Embedding 返回为空")
-        vectors.append(items[0]["embedding"])
+    payload = {"model": settings.ARK_EMBEDDING_MODEL, "input": texts}
+    resp = requests.post(
+        url,
+        json=payload,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        timeout=120,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Embedding 接口错误({resp.status_code})")
+    data = resp.json()
+    items = data.get("data") or []
+    if not items:
+        raise RuntimeError("Embedding 返回为空")
+    items = sorted(items, key=lambda x: x.get("index", 0))
+    vectors = [item.get("embedding") for item in items if item.get("embedding")]
+    if len(vectors) != len(texts):
+        raise RuntimeError("Embedding 返回数量异常")
     return vectors
 
 

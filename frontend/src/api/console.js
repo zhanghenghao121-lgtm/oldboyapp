@@ -32,10 +32,11 @@ export const updateConsoleUser = (userId, payload) => http.patch(`/console/users
 export const getAICsSettings = () => http.get('/console/ai-cs/settings', consoleHeaders())
 export const updateAICsSettings = (payload) => http.put('/console/ai-cs/settings', payload, consoleHeaders())
 export const getAICsDocs = () => http.get('/console/ai-cs/knowledge/docs', consoleHeaders())
-export const uploadAICsKnowledge = (formData) =>
-  http.post('/console/ai-cs/knowledge/upload', formData, {
-    ...consoleHeaders(),
-    headers: { ...consoleHeaders().headers, 'Content-Type': 'multipart/form-data' },
+export const uploadAICsKnowledge = (formData) => {
+  const headers = consoleHeaders().headers
+  return http.post('/console/ai-cs/knowledge/upload', formData, {
+    headers: { ...headers, 'Content-Type': 'multipart/form-data' },
   })
+}
 export const getAICsTickets = () => http.get('/console/ai-cs/tickets', consoleHeaders())
 export const updateAICsTicket = (ticketId, payload) => http.patch(`/console/ai-cs/tickets/${ticketId}`, payload, consoleHeaders())

@@ -1,7 +1,5 @@
-import json
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from apps.ai_customer.models import (
@@ -22,6 +20,21 @@ def bad(message, status=400):
     return Response({"ok": False, "message": message}, status=status)
 
 
+def _to_bool(value, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 @api_view(["GET", "PUT"])
 @permission_classes([IsConsoleAdmin])
 @csrf_exempt
@@ -40,7 +53,7 @@ def ai_cs_settings(request):
         )
 
     payload = request.data or {}
-    setting.enabled = bool(payload.get("enabled", setting.enabled))
+    setting.enabled = _to_bool(payload.get("enabled"), setting.enabled)
     setting.tone_style = str(payload.get("tone_style", setting.tone_style)).strip() or setting.tone_style
     setting.base_prompt = str(payload.get("base_prompt", setting.base_prompt)).strip() or setting.base_prompt
     setting.no_answer_text = str(payload.get("no_answer_text", setting.no_answer_text)).strip() or setting.no_answer_text

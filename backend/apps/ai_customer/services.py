@@ -69,8 +69,21 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     api_key = settings.ARK_API_KEY.strip()
     if not api_key:
         raise RuntimeError("ARK_API_KEY 未配置")
-    url = settings.ARK_EMBEDDING_BASE_URL.rstrip("/") + "/embeddings"
+    endpoint = (getattr(settings, "ARK_EMBEDDING_ENDPOINT", "/embeddings/multimodal") or "/embeddings/multimodal").strip()
+    if not endpoint.startswith("/"):
+        endpoint = "/" + endpoint
+    url = settings.ARK_EMBEDDING_BASE_URL.rstrip("/") + endpoint
     payload = {"model": settings.ARK_EMBEDDING_MODEL, "input": texts}
+    if "multimodal" in endpoint:
+        payload = {
+            "model": settings.ARK_EMBEDDING_MODEL,
+            "instructions": settings.ARK_EMBEDDING_INSTRUCTIONS,
+            "input": [{"type": "text", "text": text} for text in texts],
+            "dimensions": settings.ARK_EMBEDDING_DIMENSIONS,
+            "multi_embedding": {"type": "enabled"},
+            "sparse_embedding": {"type": "enabled"},
+            "encoding_format": "float",
+        }
     timeout_s = max(int(getattr(settings, "ARK_EMBEDDING_TIMEOUT", 8)), 3)
     try:
         resp = requests.post(
@@ -88,7 +101,22 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     if not items:
         raise RuntimeError("Embedding 返回为空")
     items = sorted(items, key=lambda x: x.get("index", 0))
-    vectors = [item.get("embedding") for item in items if item.get("embedding")]
+
+    def pick_dense_embedding(item):
+        if item.get("embedding"):
+            return item.get("embedding")
+        if item.get("dense_embedding"):
+            return item.get("dense_embedding")
+        emb = item.get("embeddings") or {}
+        if isinstance(emb, dict):
+            if emb.get("dense_embedding"):
+                return emb.get("dense_embedding")
+            if emb.get("embedding"):
+                return emb.get("embedding")
+        return None
+
+    vectors = [pick_dense_embedding(item) for item in items]
+    vectors = [vec for vec in vectors if vec]
     if len(vectors) != len(texts):
         raise RuntimeError("Embedding 返回数量异常")
     return vectors

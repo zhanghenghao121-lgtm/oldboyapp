@@ -23,6 +23,9 @@
         <el-form-item label="用户邮箱">
           <el-input v-model="form.email" disabled />
         </el-form-item>
+        <el-form-item label="用户积分">
+          <el-input :model-value="Number(form.points || 0).toFixed(2)" disabled />
+        </el-form-item>
         <el-form-item label="用户签名">
           <el-input v-model="form.signature" maxlength="120" show-word-limit />
         </el-form-item>
@@ -61,6 +64,7 @@ const form = reactive({
   username: '',
   email: '',
   signature: '',
+  points: 0,
 })
 
 const pageStyle = computed(() =>

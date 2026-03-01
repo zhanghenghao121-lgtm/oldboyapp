@@ -36,6 +36,7 @@
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="profile">用户信息</el-dropdown-item>
+              <el-dropdown-item command="recharge">积分充值</el-dropdown-item>
               <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -109,6 +110,7 @@ const doLogout = async () => {
 
 const onUserAction = async (command) => {
   if (command === 'profile') return router.push('/profile')
+  if (command === 'recharge') return router.push('/recharge')
   if (command === 'logout') {
     try {
       await doLogout()

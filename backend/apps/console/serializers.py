@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from decimal import Decimal
 from rest_framework import serializers
 from apps.console.models import SiteConfig
 
@@ -21,9 +22,11 @@ class SiteConfigUpdateSerializer(serializers.Serializer):
 
 
 class ConsoleUserSerializer(serializers.ModelSerializer):
+    points = serializers.DecimalField(max_digits=12, decimal_places=2, coerce_to_string=False)
+
     class Meta:
         model = User
-        fields = ["id", "username", "email", "avatar_url", "signature", "is_active", "date_joined", "last_login"]
+        fields = ["id", "username", "email", "avatar_url", "signature", "points", "is_active", "date_joined", "last_login"]
 
 
 class ConsoleUserUpdateSerializer(serializers.Serializer):
@@ -31,6 +34,13 @@ class ConsoleUserUpdateSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False)
     avatar_url = serializers.URLField(max_length=500, required=False, allow_blank=True)
     signature = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    points = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0"),
+        required=False,
+        coerce_to_string=False,
+    )
     is_active = serializers.BooleanField(required=False)
 
     def validate_username(self, value):

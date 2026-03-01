@@ -1,8 +1,14 @@
 import requests
+from decimal import Decimal
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.db import transaction
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+
+User = get_user_model()
+POINTS_COST_PER_CHAR = Decimal("0.01")
 
 DEFAULT_STORYBOARD_PROMPT = "将输入的剧本生成分镜提示词，模板是分镜号、分镜画面、景别、特效。"
 DEFAULT_PARAGRAPH_PROMPT = (
@@ -29,6 +35,28 @@ def ok(data=None):
 
 def bad(message, status=400):
     return Response({"ok": False, "message": message}, status=status)
+
+
+def _calc_required_points(script_text: str) -> Decimal:
+    return Decimal(len(script_text)) * POINTS_COST_PER_CHAR
+
+
+def _consume_user_points(user_id: int, required_points: Decimal):
+    with transaction.atomic():
+        user = User.objects.select_for_update().get(id=user_id)
+        balance = Decimal(user.points or 0)
+        if balance < required_points:
+            return None, f"积分不足（当前 {balance:.2f}，需 {required_points:.2f}）"
+        user.points = balance - required_points
+        user.save(update_fields=["points"])
+        return Decimal(user.points), None
+
+
+def _refund_user_points(user_id: int, points: Decimal):
+    with transaction.atomic():
+        user = User.objects.select_for_update().get(id=user_id)
+        user.points = Decimal(user.points or 0) + points
+        user.save(update_fields=["points"])
 
 
 def _call_deepseek(system_prompt: str, user_prompt: str):
@@ -83,6 +111,10 @@ def storyboard(request):
         return bad("请输入剧本内容")
     if len(script_text) > 10000:
         return bad("剧本最多10000字")
+    required_points = _calc_required_points(script_text)
+    remaining_points, err = _consume_user_points(request.user.id, required_points)
+    if err:
+        return bad(err, 402)
 
     system_prompt = (
         "你是专业分镜导演。输出必须结构化、可直接用于绘图/拍摄。"
@@ -91,8 +123,16 @@ def storyboard(request):
     user_prompt = f"要求：{prompt}\n\n剧本：\n{script_text}"
     content, err = _call_deepseek(system_prompt, user_prompt)
     if err:
+        _refund_user_points(request.user.id, required_points)
         return bad(err, 502)
-    return ok({"result": content, "mode": "storyboard"})
+    return ok(
+        {
+            "result": content,
+            "mode": "storyboard",
+            "cost_points": float(required_points),
+            "remaining_points": float(remaining_points),
+        }
+    )
 
 
 @api_view(["POST"])
@@ -106,6 +146,10 @@ def paragraph_storyboard(request):
         return bad("请输入剧本内容")
     if len(script_text) > 10000:
         return bad("剧本最多10000字")
+    required_points = _calc_required_points(script_text)
+    remaining_points, err = _consume_user_points(request.user.id, required_points)
+    if err:
+        return bad(err, 402)
 
     system_prompt = (
         "你是动画分镜导演。把内容压缩为15秒内的段落分镜。"
@@ -114,5 +158,13 @@ def paragraph_storyboard(request):
     user_prompt = f"要求：{prompt}\n\n剧本：\n{script_text}"
     content, err = _call_deepseek(system_prompt, user_prompt)
     if err:
+        _refund_user_points(request.user.id, required_points)
         return bad(err, 502)
-    return ok({"result": content, "mode": "paragraph_storyboard"})
+    return ok(
+        {
+            "result": content,
+            "mode": "paragraph_storyboard",
+            "cost_points": float(required_points),
+            "remaining_points": float(remaining_points),
+        }
+    )

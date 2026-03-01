@@ -18,6 +18,10 @@
         <el-button :type="mode === 'storyboard' ? 'primary' : 'default'" class="main-btn mode-btn" @click="mode = 'storyboard'">剧本分镜</el-button>
         <el-button :type="mode === 'paragraph' ? 'primary' : 'default'" class="main-btn mode-btn" @click="mode = 'paragraph'">段落分镜</el-button>
       </div>
+      <div class="points-panel">
+        <span>当前积分：{{ userPoints.toFixed(2) }}</span>
+        <span>预计消耗：{{ estimatedCost.toFixed(2) }}</span>
+      </div>
 
       <el-form label-width="100px" class="mt-3 neon-form">
         <el-form-item label="剧本内容" class="neon-item">
@@ -65,6 +69,8 @@ const loading = ref(false)
 const script = ref('')
 const result = ref('')
 const backgroundUrl = ref('')
+const userPoints = ref(0)
+const COST_PER_CHAR = 0.01
 const withVersion = (url, version) => {
   if (!url) return ''
   const sep = url.includes('?') ? '&' : '?'
@@ -86,6 +92,7 @@ const pageStyle = computed(() =>
       }
     : {}
 )
+const estimatedCost = computed(() => script.value.length * COST_PER_CHAR)
 
 const loadBackground = async () => {
   try {
@@ -109,6 +116,24 @@ const runOptimize = async () => {
     ElMessage.warning('剧本最多10000字')
     return
   }
+  if (estimatedCost.value > userPoints.value) {
+    try {
+      await ElMessageBox.confirm(
+        '积分不够，是否需要充值？',
+        '积分不足',
+        {
+          confirmButtonText: '是，去充值',
+          cancelButtonText: '否，继续编辑',
+          customClass: 'anime-neon-message-box',
+        }
+      )
+      router.push('/recharge')
+    } catch {
+      // user chose to stay on current page
+    }
+    return
+  }
+
   loading.value = true
   try {
     const payload = { script: script.value, prompt: prompt.value }
@@ -117,9 +142,33 @@ const runOptimize = async () => {
         ? await generateStoryboard(payload)
         : await generateParagraphStoryboard(payload)
     result.value = res.data.result
+    if (typeof res.data.remaining_points === 'number') {
+      userPoints.value = res.data.remaining_points
+    } else {
+      const meRes = await me()
+      userPoints.value = Number(meRes.data.user.points || 0)
+    }
     ElMessage.success('生成完成')
   } catch (e) {
-    ElMessage.error(e)
+    const message = String(e || '')
+    if (message.includes('积分不足')) {
+      try {
+        await ElMessageBox.confirm(
+          '积分不够，是否需要充值？',
+          '积分不足',
+          {
+            confirmButtonText: '是，去充值',
+            cancelButtonText: '否，继续编辑',
+            customClass: 'anime-neon-message-box',
+          }
+        )
+        router.push('/recharge')
+      } catch {
+        // user chose to stay on current page
+      }
+      return
+    }
+    ElMessage.error(message)
   } finally {
     loading.value = false
   }
@@ -157,7 +206,8 @@ const goHome = async () => {
 
 onMounted(async () => {
   try {
-    await Promise.all([loadBackground(), me()])
+    const [, meRes] = await Promise.all([loadBackground(), me()])
+    userPoints.value = Number(meRes.data.user.points || 0)
   } catch {
     router.push('/login')
   }
@@ -235,6 +285,24 @@ onMounted(async () => {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+.points-panel {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.points-panel span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: #e7f3ff;
+  font-size: 13px;
+  border: 1px solid rgba(134, 204, 255, 0.46);
+  background: linear-gradient(130deg, rgba(36, 98, 165, 0.48), rgba(42, 40, 117, 0.52));
+  box-shadow: inset 0 0 0 1px rgba(166, 225, 255, 0.12), 0 0 14px rgba(101, 194, 255, 0.22);
 }
 .mode-btn {
   border-radius: 12px;

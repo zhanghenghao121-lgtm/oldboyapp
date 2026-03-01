@@ -40,6 +40,17 @@ def bad(message, status=400):
     return Response({"ok": False, "message": message}, status=status)
 
 
+def _user_payload(user):
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "avatar_url": user.avatar_url or DEFAULT_AVATAR,
+        "signature": user.signature or "",
+        "points": float(user.points or 0),
+    }
+
+
 def _client_ip(request):
     xff = request.META.get("HTTP_X_FORWARDED_FOR")
     return xff.split(",")[0].strip() if xff else request.META.get("REMOTE_ADDR", "unknown")
@@ -334,34 +345,14 @@ def login_view(request):
 
     _cache_delete(login_limit_key)
     login(request, user)
-    return ok(
-        {
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "avatar_url": user.avatar_url or DEFAULT_AVATAR,
-                "signature": user.signature or "",
-            }
-        }
-    )
+    return ok({"user": _user_payload(user)})
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def me(request):
     user = request.user
-    return ok(
-        {
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "avatar_url": user.avatar_url or DEFAULT_AVATAR,
-                "signature": user.signature or "",
-            }
-        }
-    )
+    return ok({"user": _user_payload(user)})
 
 
 @csrf_exempt
@@ -394,17 +385,7 @@ def profile_update(request):
         user.signature = payload.get("signature", "").strip()
 
     user.save()
-    return ok(
-        {
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "avatar_url": user.avatar_url or DEFAULT_AVATAR,
-                "signature": user.signature or "",
-            }
-        }
-    )
+    return ok({"user": _user_payload(user)})
 
 
 @csrf_exempt

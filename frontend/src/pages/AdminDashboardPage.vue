@@ -70,6 +70,11 @@
         <el-table :data="users" style="width: 100%" stripe>
           <el-table-column prop="username" label="用户名" min-width="120" />
           <el-table-column prop="email" label="邮箱" min-width="180" />
+          <el-table-column prop="points" label="积分" width="110">
+            <template #default="scope">
+              {{ Number(scope.row.points || 0).toFixed(2) }}
+            </template>
+          </el-table-column>
           <el-table-column prop="is_active" label="状态" width="90">
             <template #default="scope">
               <el-tag :type="scope.row.is_active ? 'success' : 'danger'">{{ scope.row.is_active ? '启用' : '停用' }}</el-tag>
@@ -113,6 +118,9 @@
       <el-form :model="editForm" label-width="80px">
         <el-form-item label="用户名"><el-input v-model="editForm.username" /></el-form-item>
         <el-form-item label="邮箱"><el-input v-model="editForm.email" /></el-form-item>
+        <el-form-item label="积分">
+          <el-input-number v-model="editForm.points" :min="0" :precision="2" :step="1" :controls="false" style="width: 100%" />
+        </el-form-item>
         <el-form-item label="状态">
           <el-switch v-model="editForm.is_active" active-text="启用" inactive-text="停用" />
         </el-form-item>
@@ -162,7 +170,7 @@ const scriptParagraphPrompt = ref('')
 const savingPrompts = ref(false)
 
 const editVisible = ref(false)
-const editForm = reactive({ id: null, username: '', email: '', is_active: true })
+const editForm = reactive({ id: null, username: '', email: '', points: 0, is_active: true })
 
 const loadAdminMe = async () => {
   const res = await consoleMe()
@@ -287,6 +295,7 @@ const openEdit = (row) => {
   editForm.id = row.id
   editForm.username = row.username
   editForm.email = row.email
+  editForm.points = Number(row.points || 0)
   editForm.is_active = row.is_active
   editVisible.value = true
 }
@@ -297,6 +306,7 @@ const saveUser = async () => {
     await updateConsoleUser(editForm.id, {
       username: editForm.username,
       email: editForm.email,
+      points: Number(editForm.points || 0),
       is_active: editForm.is_active,
     })
     ElMessage.success('用户信息已更新')

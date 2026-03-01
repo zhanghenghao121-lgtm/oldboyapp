@@ -1,21 +1,26 @@
 <template>
   <div class="page-shell optimizer-shell" :style="pageStyle">
-    <el-card class="surface-card module-card" shadow="never">
+    <div class="neon-lights">
+      <span class="orb orb-a"></span>
+      <span class="orb orb-b"></span>
+      <span class="orb orb-c"></span>
+    </div>
+    <el-card class="surface-card module-card neon-card" shadow="never">
       <header class="panel-head">
         <span></span>
-        <el-button @click="$router.push('/home')">返回首页</el-button>
+        <el-button class="home-btn" @click="$router.push('/home')">返回首页</el-button>
       </header>
       <div class="title-block">
         <h2>剧本分镜工作台</h2>
         <p>支持剧本分镜和段落分镜。</p>
       </div>
       <div class="tool-actions">
-        <el-button :type="mode === 'storyboard' ? 'primary' : 'default'" class="main-btn" @click="mode = 'storyboard'">剧本分镜</el-button>
-        <el-button :type="mode === 'paragraph' ? 'primary' : 'default'" class="main-btn" @click="mode = 'paragraph'">段落分镜</el-button>
+        <el-button :type="mode === 'storyboard' ? 'primary' : 'default'" class="main-btn mode-btn" @click="mode = 'storyboard'">剧本分镜</el-button>
+        <el-button :type="mode === 'paragraph' ? 'primary' : 'default'" class="main-btn mode-btn" @click="mode = 'paragraph'">段落分镜</el-button>
       </div>
 
-      <el-form label-width="100px" class="mt-3">
-        <el-form-item label="剧本内容">
+      <el-form label-width="100px" class="mt-3 neon-form">
+        <el-form-item label="剧本内容" class="neon-item">
           <el-input
             v-model="script"
             type="textarea"
@@ -25,7 +30,7 @@
             placeholder="请输入剧本（最多10000字）"
           />
         </el-form-item>
-        <el-form-item label="提示词">
+        <el-form-item label="提示词" class="neon-item">
           <el-input
             v-model="prompt"
             type="textarea"
@@ -36,12 +41,12 @@
       </el-form>
 
       <div class="d-flex gap-2 mt-2 flex-wrap">
-        <el-button type="primary" class="main-btn" :loading="loading" @click="runOptimize">开始生成</el-button>
+        <el-button type="primary" class="main-btn action-btn" :loading="loading" @click="runOptimize">开始生成</el-button>
       </div>
 
       <el-divider />
       <h3 class="result-title">输出结果</h3>
-      <el-input v-model="result" type="textarea" :rows="14" readonly placeholder="结果将显示在这里" />
+      <el-input v-model="result" type="textarea" :rows="14" readonly placeholder="结果将显示在这里" class="neon-item" />
     </el-card>
   </div>
 </template>
@@ -130,9 +135,54 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.module-card { width: min(680px, 100%); }
+.module-card { width: min(760px, 100%); }
 .optimizer-shell {
   min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+.neon-lights {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(18px);
+  opacity: 0.58;
+  animation: drift 9s ease-in-out infinite;
+}
+.orb-a {
+  width: 220px;
+  height: 220px;
+  left: 6%;
+  top: 15%;
+  background: rgba(80, 215, 255, 0.38);
+}
+.orb-b {
+  width: 260px;
+  height: 260px;
+  right: 8%;
+  top: 8%;
+  background: rgba(255, 84, 214, 0.34);
+  animation-delay: 1.2s;
+}
+.orb-c {
+  width: 240px;
+  height: 240px;
+  right: 24%;
+  bottom: -60px;
+  background: rgba(255, 184, 75, 0.28);
+  animation-delay: 2.2s;
+}
+.neon-card {
+  position: relative;
+  z-index: 2;
+  border: 1px solid rgba(143, 168, 255, 0.45);
+  background: linear-gradient(150deg, rgba(24, 23, 57, 0.86), rgba(15, 12, 38, 0.88));
+  box-shadow: inset 0 0 0 1px rgba(168, 222, 255, 0.16), 0 20px 46px rgba(4, 8, 29, 0.58);
 }
 .panel-head {
   display: flex;
@@ -140,13 +190,61 @@ onMounted(async () => {
   align-items: center;
   margin-bottom: 8px;
 }
+.home-btn {
+  border: 1px solid rgba(160, 228, 255, 0.9);
+  border-radius: 999px;
+  color: #eaf3ff;
+  background: linear-gradient(130deg, rgba(65, 193, 255, 0.9), rgba(121, 102, 255, 0.9), rgba(255, 82, 208, 0.88));
+  box-shadow: 0 0 0 1px rgba(206, 241, 255, 0.36), 0 0 18px rgba(108, 201, 255, 0.52);
+}
+.home-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
 .tool-actions {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
 }
+.mode-btn {
+  border-radius: 12px;
+  min-width: 112px;
+}
+.neon-form :deep(.el-form-item__label) {
+  color: #b7c5ee;
+  font-weight: 700;
+}
+.neon-item :deep(.el-input__wrapper),
+.neon-item :deep(.el-textarea__inner) {
+  border-radius: 12px;
+  border: 1px solid rgba(149, 194, 255, 0.55);
+  background: linear-gradient(145deg, rgba(22, 22, 52, 0.8), rgba(14, 14, 36, 0.84));
+  box-shadow: inset 0 0 0 1px rgba(183, 214, 255, 0.12), 0 0 14px rgba(95, 182, 255, 0.25);
+  color: #eef3ff;
+}
+.neon-item :deep(.el-input__inner),
+.neon-item :deep(.el-textarea__inner) {
+  color: #edf2ff;
+}
+.neon-item :deep(.el-input__inner::placeholder),
+.neon-item :deep(.el-textarea__inner::placeholder) {
+  color: rgba(192, 206, 241, 0.72);
+}
+.neon-item :deep(.el-input__wrapper.is-focus),
+.neon-item :deep(.el-textarea__inner:focus) {
+  box-shadow: inset 0 0 0 1px rgba(201, 237, 255, 0.5), 0 0 0 2px rgba(110, 203, 255, 0.25), 0 0 20px rgba(97, 187, 255, 0.42);
+}
+.action-btn {
+  min-width: 128px;
+}
 .result-title {
   margin: 0 0 10px;
-  color: var(--ink-700);
+  color: #d8e4ff;
+  text-shadow: 0 0 10px rgba(114, 193, 255, 0.34);
+}
+@keyframes drift {
+  0% { transform: translateY(0) translateX(0); }
+  50% { transform: translateY(-16px) translateX(12px); }
+  100% { transform: translateY(0) translateX(0); }
 }
 </style>

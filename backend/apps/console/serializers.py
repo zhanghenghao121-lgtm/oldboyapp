@@ -1,6 +1,6 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
-from apps.console.models import SiteBackground, SiteConfig
+from apps.console.models import SiteConfig
 
 User = get_user_model()
 
@@ -8,16 +8,6 @@ User = get_user_model()
 class ConsoleLoginSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     password = serializers.CharField(max_length=128)
-
-
-class SiteBackgroundSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SiteBackground
-        fields = ["scene", "image_url", "updated_at"]
-
-
-class BackgroundUpdateSerializer(serializers.Serializer):
-    image_url = serializers.URLField(max_length=500, allow_blank=True)
 
 
 class SiteConfigSerializer(serializers.ModelSerializer):

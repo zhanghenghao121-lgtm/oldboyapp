@@ -2,8 +2,8 @@
   <div class="workspace-shell">
     <aside class="sidebar">
       <div class="side-brand">
-        <h2>Octopus</h2>
-        <p>Neon Anime Workspace</p>
+        <h2>章鱼工作台</h2>
+        <p>创作工作区</p>
       </div>
 
       <button
@@ -30,7 +30,7 @@
         </div>
         <el-dropdown @command="onUserAction">
           <div class="avatar-entry">
-            <el-avatar :src="user?.avatar_url || defaultAvatar" :size="40" />
+            <el-avatar :src="avatarSrc" :size="40" @error="handleAvatarError" />
             <span class="name">{{ user?.username || '用户' }}</span>
           </div>
           <template #dropdown>
@@ -79,8 +79,13 @@ const activePanel = ref('script')
 const user = ref(null)
 const defaultAvatar = ref('')
 const fallbackAvatar = '/octopus-avatar.svg'
+const avatarLoadFailed = ref(false)
 
 const panelTitle = computed(() => (activePanel.value === 'script' ? '剧本小优' : '工作台'))
+const avatarSrc = computed(() => {
+  if (avatarLoadFailed.value) return fallbackAvatar
+  return user.value?.avatar_url || defaultAvatar.value || fallbackAvatar
+})
 
 const loadMe = async () => {
   const res = await me()
@@ -111,6 +116,11 @@ const onUserAction = async (command) => {
       ElMessage.error(e)
     }
   }
+}
+
+const handleAvatarError = () => {
+  avatarLoadFailed.value = true
+  return false
 }
 
 onMounted(async () => {

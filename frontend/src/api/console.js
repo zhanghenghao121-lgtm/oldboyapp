@@ -23,9 +23,6 @@ export const consoleLogout = async () => {
   }
 }
 
-export const getConsoleBackgrounds = () => http.get('/console/backgrounds', consoleHeaders())
-export const updateConsoleBackground = (scene, payload) => http.put(`/console/backgrounds/${scene}`, payload, consoleHeaders())
-
 export const getConsoleConfigs = () => http.get('/console/configs', consoleHeaders())
 export const updateConsoleConfig = (key, payload) => http.put(`/console/configs/${key}`, payload, consoleHeaders())
 

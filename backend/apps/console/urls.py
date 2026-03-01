@@ -1,8 +1,6 @@
 from django.urls import path
 
 from apps.console.views import (
-    console_background_update,
-    console_backgrounds,
     console_config_update,
     console_configs,
     console_login,
@@ -18,8 +16,6 @@ urlpatterns = [
     path("console/login", console_login),
     path("console/me", console_me),
     path("console/logout", console_logout),
-    path("console/backgrounds", console_backgrounds),
-    path("console/backgrounds/<str:scene>", console_background_update),
     path("console/configs", console_configs),
     path("console/configs/<str:key>", console_config_update),
     path("console/users", console_users),

@@ -6,18 +6,10 @@
         <p v-if="adminUser">{{ adminUser.username }}</p>
       </div>
 
-      <button class="side-btn" :class="{ active: activeModule === 'stats' }" @click="activeModule = 'stats'">
-        信息统计
-      </button>
-      <button class="side-btn" :class="{ active: activeModule === 'page' }" @click="activeModule = 'page'">
-        页面管理
-      </button>
-      <button class="side-btn" :class="{ active: activeModule === 'users' }" @click="activeModule = 'users'">
-        用户信息
-      </button>
-      <button class="side-btn" :class="{ active: activeModule === 'script' }" @click="activeModule = 'script'">
-        剧本优化
-      </button>
+      <button class="side-btn" :class="{ active: activeModule === 'stats' }" @click="activeModule = 'stats'">信息统计</button>
+      <button class="side-btn" :class="{ active: activeModule === 'page' }" @click="activeModule = 'page'">页面管理</button>
+      <button class="side-btn" :class="{ active: activeModule === 'users' }" @click="activeModule = 'users'">用户信息</button>
+      <button class="side-btn" :class="{ active: activeModule === 'script' }" @click="activeModule = 'script'">剧本优化</button>
     </aside>
 
     <main class="admin-main">
@@ -35,11 +27,6 @@
           </el-col>
           <el-col :xs="24" :sm="8">
             <el-card class="metric-card" shadow="never">
-              <el-statistic title="背景图已配置" :value="configuredBackgrounds" />
-            </el-card>
-          </el-col>
-          <el-col :xs="24" :sm="8">
-            <el-card class="metric-card" shadow="never">
               <el-statistic title="当前管理员" :value="adminUser ? 1 : 0" />
             </el-card>
           </el-col>
@@ -47,42 +34,11 @@
       </section>
 
       <section v-if="activeModule === 'page'" class="panel-card">
-        <div class="panel-tip">页面管理：管理背景图片（统一上传到 COS）</div>
-        <div class="bg-list">
-          <div class="bg-row" v-for="item in backgroundItems" :key="item.scene">
-            <div class="bg-row-left">
-              <p class="bg-label fw-semibold">{{ item.label }}</p>
-              <div class="bg-thumb">
-                <img
-                  v-if="item.image_url"
-                  :src="thumbSrc(item.image_url, item.updated_at)"
-                  alt="background preview"
-                  @error="item.image_url = ''"
-                />
-                <span v-else>待上传图片</span>
-              </div>
-            </div>
-            <div class="bg-row-right">
-              <el-input v-model="item.image_url" placeholder="请输入背景图 URL，留空表示使用默认背景" />
-              <input
-                :id="`bg-upload-${item.scene}`"
-                type="file"
-                accept="image/*"
-                class="file-hidden"
-                @change="handleBackgroundUpload(item, $event)"
-              />
-              <div class="bg-actions">
-                <el-button class="main-btn" type="primary" @click="saveBackground(item)">保存</el-button>
-                <el-button plain :loading="item.uploading" @click="pickBackgroundFile(item.scene)">上传图片</el-button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="bg-row">
-          <div class="bg-row-left">
-            <p class="bg-label fw-semibold">用户默认头像</p>
-            <div class="bg-thumb avatar-thumb">
+        <div class="panel-tip">页面管理：仅保留用户默认头像上传管理（COS）</div>
+        <div class="avatar-row">
+          <div class="avatar-left">
+            <p class="row-label">用户默认头像</p>
+            <div class="avatar-thumb">
               <img
                 v-if="defaultAvatarUrl"
                 :src="thumbSrc(defaultAvatarUrl)"
@@ -92,20 +48,12 @@
               <span v-else>待上传图片</span>
             </div>
           </div>
-          <div class="bg-row-right">
+          <div class="avatar-right">
             <el-input v-model="defaultAvatarUrl" placeholder="请输入默认头像 URL，留空使用系统默认" />
-            <input
-              id="default-avatar-upload"
-              type="file"
-              accept="image/*"
-              class="file-hidden"
-              @change="handleDefaultAvatarUpload"
-            />
-            <div class="bg-actions">
+            <input id="default-avatar-upload" type="file" accept="image/*" class="file-hidden" @change="handleDefaultAvatarUpload" />
+            <div class="row-actions">
               <el-button class="main-btn" type="primary" @click="saveDefaultAvatar">保存</el-button>
-              <el-button plain :loading="defaultAvatarUploading" @click="pickDefaultAvatarFile">
-                上传图片
-              </el-button>
+              <el-button plain :loading="defaultAvatarUploading" @click="pickDefaultAvatarFile">上传图片</el-button>
             </div>
           </div>
         </div>
@@ -119,7 +67,6 @@
             <el-button @click="loadUsers(1)">搜索</el-button>
           </div>
         </div>
-
         <el-table :data="users" style="width: 100%" stripe>
           <el-table-column prop="username" label="用户名" min-width="120" />
           <el-table-column prop="email" label="邮箱" min-width="180" />
@@ -135,7 +82,6 @@
             </template>
           </el-table-column>
         </el-table>
-
         <div class="pager-wrap">
           <el-pagination
             background
@@ -188,9 +134,7 @@ import {
   getConsoleConfigs,
   consoleLogout,
   consoleMe,
-  getConsoleBackgrounds,
   getConsoleUsers,
-  updateConsoleBackground,
   updateConsoleConfig,
   updateConsoleUser,
 } from '../api/console'
@@ -206,19 +150,11 @@ const moduleTitle = computed(() => {
   return '剧本优化'
 })
 
-const backgroundItems = ref([
-  { scene: 'login', label: '登录页面背景图', image_url: '', uploading: false },
-  { scene: 'home', label: '首页背景图', image_url: '', uploading: false },
-  { scene: 'script_optimizer', label: '剧本优化页背景图', image_url: '', uploading: false },
-  { scene: 'profile', label: '用户信息页背景图', image_url: '', uploading: false },
-])
-
 const users = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 const keyword = ref('')
-const configuredBackgrounds = computed(() => backgroundItems.value.filter((item) => !!item.image_url).length)
 const defaultAvatarUrl = ref('')
 const defaultAvatarUploading = ref(false)
 const scriptStoryboardPrompt = ref('')
@@ -233,56 +169,26 @@ const loadAdminMe = async () => {
   adminUser.value = res.data.user
 }
 
-const loadBackgrounds = async () => {
-  const res = await getConsoleBackgrounds()
-  const map = Object.fromEntries(res.data.map((item) => [item.scene, item]))
-  backgroundItems.value = backgroundItems.value.map((item) => ({
-    ...item,
-    image_url: map[item.scene]?.image_url || '',
-    updated_at: map[item.scene]?.updated_at || '',
-  }))
-}
-
 const loadConfigs = async () => {
   const res = await getConsoleConfigs()
   const map = Object.fromEntries(res.data.map((item) => [item.key, item.value]))
-  defaultAvatarUrl.value = map.default_avatar_url || ''
+  defaultAvatarUrl.value = map.default_avatar_url || '/octopus-avatar.svg'
   scriptStoryboardPrompt.value = map.storyboard_default_prompt || ''
   scriptParagraphPrompt.value = map.paragraph_default_prompt || ''
 }
 
-const saveBackground = async (item) => {
-  try {
-    await updateConsoleBackground(item.scene, { image_url: item.image_url || '' })
-    item.updated_at = new Date().toISOString()
-    ElMessage.success('背景图已更新')
-  } catch (e) {
-    ElMessage.error(e)
-  }
-}
-
 const saveDefaultAvatar = async () => {
   try {
-    await updateConsoleConfig('default_avatar_url', { value: defaultAvatarUrl.value || '' })
+    await updateConsoleConfig('default_avatar_url', { value: defaultAvatarUrl.value || '/octopus-avatar.svg' })
     ElMessage.success('默认头像已更新')
   } catch (e) {
     ElMessage.error(e)
   }
 }
 
-const pickBackgroundFile = (scene) => {
-  const input = document.getElementById(`bg-upload-${scene}`)
-  if (input) input.click()
-}
 const pickDefaultAvatarFile = () => {
   const input = document.getElementById('default-avatar-upload')
   if (input) input.click()
-}
-
-const formatSize = (bytes) => {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
 
 const loadImage = (file) =>
@@ -301,7 +207,6 @@ const toBlob = (canvas, type, quality) =>
 const compressImageBeforeUpload = async (file) => {
   const mime = file.type || 'image/jpeg'
   if (!mime.startsWith('image/')) return file
-
   const img = await loadImage(file)
   const maxW = 1920
   const maxH = 1920
@@ -320,64 +225,19 @@ const compressImageBeforeUpload = async (file) => {
   const quality = targetType === 'image/jpeg' || targetType === 'image/webp' ? 0.82 : undefined
   const blob = await toBlob(canvas, targetType, quality)
   URL.revokeObjectURL(img.src)
-
-  if (!blob) return file
-  if (blob.size >= file.size) return file
-
-  const extMap = {
-    'image/jpeg': 'jpg',
-    'image/png': 'png',
-    'image/webp': 'webp',
-  }
+  if (!blob || blob.size >= file.size) return file
+  const extMap = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
   const ext = extMap[targetType] || 'jpg'
   const nextName = file.name.replace(/\.[^.]+$/, '') + `.${ext}`
   return new File([blob], nextName, { type: targetType })
-}
-
-const handleBackgroundUpload = async (item, event) => {
-  const file = event.target.files?.[0]
-  event.target.value = ''
-  if (!file) return
-  const isImage = file.type.startsWith('image/')
-  const limit = 10 * 1024 * 1024
-  if (!isImage) {
-    ElMessage.warning('请上传图片文件')
-    return
-  }
-  if (file.size > limit) {
-    ElMessage.warning('图片大小不能超过10MB')
-    return
-  }
-
-  item.uploading = true
-  try {
-    const compressed = await compressImageBeforeUpload(file)
-    const res = await uploadToCos(compressed, 'images/backgrounds')
-    item.image_url = res.data.url
-    await updateConsoleBackground(item.scene, { image_url: item.image_url || '' })
-    item.updated_at = new Date().toISOString()
-    const before = formatSize(file.size)
-    const after = formatSize(compressed.size)
-    ElMessage.success(`上传并保存成功（已存入COS，${before} -> ${after}）`)
-  } catch (e) {
-    ElMessage.error(e)
-  } finally {
-    item.uploading = false
-  }
 }
 
 const handleDefaultAvatarUpload = async (event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
-  if (!file.type.startsWith('image/')) {
-    ElMessage.warning('请上传图片文件')
-    return
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    ElMessage.warning('默认头像不能超过5MB')
-    return
-  }
+  if (!file.type.startsWith('image/')) return ElMessage.warning('请上传图片文件')
+  if (file.size > 5 * 1024 * 1024) return ElMessage.warning('默认头像不能超过5MB')
 
   defaultAvatarUploading.value = true
   try {
@@ -406,12 +266,10 @@ const saveScriptPrompts = async () => {
   }
 }
 
-const thumbSrc = (url, updatedAt) => {
+const thumbSrc = (url) => {
   if (!url) return ''
   const sep = url.includes('?') ? '&' : '?'
-  const parsed = updatedAt ? Date.parse(updatedAt) : NaN
-  const version = Number.isFinite(parsed) ? parsed : Date.now()
-  return `${url}${sep}v=${version}`
+  return `${url}${sep}v=${Date.now()}`
 }
 
 const loadUsers = async (targetPage = page.value) => {
@@ -462,7 +320,7 @@ const handleLogout = async () => {
 onMounted(async () => {
   try {
     await loadAdminMe()
-    await Promise.all([loadBackgrounds(), loadConfigs(), loadUsers(1)])
+    await Promise.all([loadConfigs(), loadUsers(1)])
   } catch {
     router.push('/admin/login')
   }
@@ -481,13 +339,8 @@ onMounted(async () => {
   border-right: 1px solid #e9edf4;
   padding: 24px 14px;
 }
-.side-head h2 {
-  margin: 0;
-}
-.side-head p {
-  margin: 6px 0 16px;
-  color: #7d8597;
-}
+.side-head h2 { margin: 0; }
+.side-head p { margin: 6px 0 16px; color: #7d8597; }
 .side-btn {
   width: 100%;
   border: 1px solid #dce4f1;
@@ -497,23 +350,10 @@ onMounted(async () => {
   padding: 11px 10px;
   margin-bottom: 10px;
 }
-.side-btn.active {
-  border-color: transparent;
-  color: #fff;
-  background: linear-gradient(130deg, #2b63d9, #3c86f0);
-}
-.admin-main {
-  padding: 18px 20px;
-}
-.main-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.main-head h3 {
-  margin: 0;
-  color: #eef2ff;
-}
+.side-btn.active { border-color: transparent; color: #fff; background: linear-gradient(130deg, #2b63d9, #3c86f0); }
+.admin-main { padding: 18px 20px; }
+.main-head { display: flex; align-items: center; justify-content: space-between; }
+.main-head h3 { margin: 0; color: #eef2ff; }
 .panel-card {
   margin-top: 14px;
   border: 1px solid #343848;
@@ -522,39 +362,11 @@ onMounted(async () => {
   padding: 16px;
   color: #d8ddeb;
 }
-.panel-tip {
-  margin-bottom: 12px;
-  color: #aab4cb;
-}
-.metric-card {
-  border-radius: 12px;
-  border: 1px solid #3b4153;
-  background: #2a2f3b;
-}
-.bg-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.bg-row {
-  display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid #393f50;
-}
-.bg-row:last-child {
-  border-bottom: 0;
-}
-.bg-row-left,
-.bg-row-right {
-  min-width: 0;
-}
-.bg-label {
-  margin: 0 0 8px;
-  color: #e8edf8;
-}
-.bg-thumb {
+.panel-tip { margin-bottom: 12px; color: #aab4cb; }
+.metric-card { border-radius: 12px; border: 1px solid #3b4153; background: #2a2f3b; }
+.avatar-row { display: grid; grid-template-columns: 170px 1fr; gap: 12px; }
+.row-label { margin: 0 0 8px; color: #e8edf8; font-weight: 600; }
+.avatar-thumb {
   height: 82px;
   border-radius: 10px;
   border: 1px dashed #5f6d8e;
@@ -564,59 +376,18 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   color: #8b97b1;
-  margin-bottom: 8px;
 }
-.bg-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.avatar-thumb img {
-  object-fit: contain;
-  background: #171921;
-}
-.bg-actions {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.file-hidden {
-  display: none;
-}
-.user-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.user-filter {
-  display: flex;
-  gap: 8px;
-}
-.pager-wrap {
-  margin-top: 14px;
-  display: flex;
-  justify-content: flex-end;
-}
-.placeholder-title {
-  margin: 0;
-}
-.placeholder-sub {
-  margin-top: 8px;
-  color: #aab4cb;
-}
+.avatar-thumb img { width: 100%; height: 100%; object-fit: contain; background: #171921; }
+.row-actions { margin-top: 8px; display: flex; gap: 10px; }
+.file-hidden { display: none; }
+.user-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.user-filter { display: flex; gap: 8px; }
+.pager-wrap { margin-top: 14px; display: flex; justify-content: flex-end; }
+.placeholder-title { margin: 0; }
+.placeholder-sub { margin-top: 8px; color: #aab4cb; }
 @media (max-width: 980px) {
-  .admin-shell {
-    grid-template-columns: 1fr;
-  }
-  .admin-sidebar {
-    border-right: 0;
-    border-bottom: 1px solid #e9edf4;
-  }
-  .bg-row {
-    grid-template-columns: 1fr;
-  }
+  .admin-shell { grid-template-columns: 1fr; }
+  .admin-sidebar { border-right: 0; border-bottom: 1px solid #e9edf4; }
+  .avatar-row { grid-template-columns: 1fr; }
 }
 </style>

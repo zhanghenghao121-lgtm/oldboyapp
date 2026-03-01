@@ -8,16 +8,14 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from apps.console.auth import issue_console_token, resolve_console_user, revoke_console_token
-from apps.console.models import SiteBackground, SiteConfig
+from apps.console.models import SiteConfig
 from apps.console.permissions import IsConsoleAdmin
 from apps.console.serializers import (
-    BackgroundUpdateSerializer,
     ConsoleLoginSerializer,
     SiteConfigSerializer,
     SiteConfigUpdateSerializer,
     ConsoleUserSerializer,
     ConsoleUserUpdateSerializer,
-    SiteBackgroundSerializer,
 )
 
 User = get_user_model()
@@ -41,11 +39,6 @@ def _safe_int(raw, default, minimum=None, maximum=None):
     if maximum is not None:
         value = min(value, maximum)
     return value
-
-
-def _ensure_scene_defaults():
-    for scene, _ in SiteBackground.SCENE_CHOICES:
-        SiteBackground.objects.get_or_create(scene=scene)
 
 
 def _config_defaults():
@@ -76,26 +69,20 @@ def _get_admin_user(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def public_backgrounds(request):
-    _ensure_scene_defaults()
     _ensure_config_defaults()
-    items = list(SiteBackground.objects.all())
-    scene_map = {item.scene: item.image_url for item in items}
     configs = {item.key: item.value for item in SiteConfig.objects.all()}
     config_latest = max((item.updated_at for item in SiteConfig.objects.all()), default=None)
-    latest = max((item.updated_at for item in items), default=None)
-    if config_latest and (not latest or config_latest > latest):
-        latest = config_latest
-    scene_map["_version"] = int(latest.timestamp()) if latest else 0
-    scene_map["default_avatar"] = (
+    data = {"_version": int(config_latest.timestamp()) if config_latest else 0}
+    data["default_avatar"] = (
         configs.get(SiteConfig.KEY_DEFAULT_AVATAR) or _config_defaults()[SiteConfig.KEY_DEFAULT_AVATAR]
     )
-    scene_map["script_storyboard_prompt"] = configs.get(
+    data["script_storyboard_prompt"] = configs.get(
         SiteConfig.KEY_STORYBOARD_PROMPT, _config_defaults()[SiteConfig.KEY_STORYBOARD_PROMPT]
     )
-    scene_map["script_paragraph_prompt"] = configs.get(
+    data["script_paragraph_prompt"] = configs.get(
         SiteConfig.KEY_PARAGRAPH_PROMPT, _config_defaults()[SiteConfig.KEY_PARAGRAPH_PROMPT]
     )
-    res = ok(scene_map)
+    res = ok(data)
     res["Cache-Control"] = "no-store"
     return res
 
@@ -138,33 +125,6 @@ def console_logout(request):
     _, token = resolve_console_user(request)
     revoke_console_token(token)
     return ok()
-
-
-@api_view(["GET"])
-@permission_classes([IsConsoleAdmin])
-def console_backgrounds(request):
-    _ensure_scene_defaults()
-    serializer = SiteBackgroundSerializer(SiteBackground.objects.all(), many=True)
-    return ok(serializer.data)
-
-
-@csrf_exempt
-@api_view(["PUT"])
-@permission_classes([IsConsoleAdmin])
-def console_background_update(request, scene):
-    if scene not in [item[0] for item in SiteBackground.SCENE_CHOICES]:
-        return bad("场景不支持", 404)
-
-    s = BackgroundUpdateSerializer(data=request.data)
-    if not s.is_valid():
-        return bad("参数错误")
-
-    admin_user = _get_admin_user(request)
-    obj, _ = SiteBackground.objects.get_or_create(scene=scene)
-    obj.image_url = s.validated_data["image_url"]
-    obj.updated_by = admin_user
-    obj.save(update_fields=["image_url", "updated_by", "updated_at"])
-    return ok(SiteBackgroundSerializer(obj).data)
 
 
 @api_view(["GET"])

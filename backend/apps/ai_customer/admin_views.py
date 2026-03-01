@@ -78,8 +78,8 @@ def ai_cs_upload_knowledge(request):
     title = str(request.data.get("title", "")).strip()
     if not file_obj:
         return bad("请上传文件")
-    if file_obj.size > 20 * 1024 * 1024:
-        return bad("知识库文件不能超过20MB")
+    if file_obj.size > 10 * 1024 * 1024:
+        return bad("知识库文件不能超过10MB")
 
     doc = KnowledgeDocument.objects.create(
         title=title or file_obj.name,

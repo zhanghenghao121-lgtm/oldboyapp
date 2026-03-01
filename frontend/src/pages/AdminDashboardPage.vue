@@ -10,10 +10,28 @@
       <button class="side-btn" :class="{ active: activeModule === 'page' }" @click="activeModule = 'page'">页面管理</button>
       <button class="side-btn" :class="{ active: activeModule === 'users' }" @click="activeModule = 'users'">用户信息</button>
       <button class="side-btn" :class="{ active: activeModule === 'script' }" @click="activeModule = 'script'">剧本优化</button>
-      <button class="side-btn ai-side-btn" :class="{ active: activeModule === 'ai_cs' }" @click="activeModule = 'ai_cs'">
-        <span>AI知识库-AI客服</span>
-        <span v-if="aiUnreadCount > 0" class="unread-badge">{{ aiUnreadCount > 99 ? '99+' : aiUnreadCount }}</span>
+      <button class="side-btn ai-side-btn" :class="{ active: aiMenuOpen }" @click="toggleAiMenu">
+        <span>AI配置</span>
+        <span class="submenu-arrow">{{ aiMenuOpen ? '▾' : '▸' }}</span>
       </button>
+      <div v-if="aiMenuOpen" class="submenu-wrap">
+        <button class="submenu-btn" :class="{ active: activeModule === 'ai_knowledge' }" @click="activeModule = 'ai_knowledge'">AI知识库</button>
+        <button class="submenu-btn" :class="{ active: activeModule === 'ai_customer' }" @click="activeModule = 'ai_customer'">AI客服</button>
+      </div>
+
+      <button class="side-btn ai-side-btn" :class="{ active: humanMenuOpen || activeModule === 'human_service' }" @click="toggleHumanMenu">
+        <span>人工处理</span>
+        <span class="menu-right">
+          <span v-if="aiUnreadCount > 0" class="unread-badge">{{ aiUnreadCount > 99 ? '99+' : aiUnreadCount }}</span>
+          <span class="submenu-arrow">{{ humanMenuOpen ? '▾' : '▸' }}</span>
+        </span>
+      </button>
+      <div v-if="humanMenuOpen" class="submenu-wrap">
+        <button class="submenu-btn human-sub-btn" :class="{ active: activeModule === 'human_service' }" @click="activeModule = 'human_service'">
+          <span>人工客服</span>
+          <span v-if="aiUnreadCount > 0" class="unread-badge">{{ aiUnreadCount > 99 ? '99+' : aiUnreadCount }}</span>
+        </button>
+      </div>
     </aside>
 
     <main class="admin-main">
@@ -117,7 +135,7 @@
         <el-button type="primary" class="main-btn" :loading="savingPrompts" @click="saveScriptPrompts">保存设置</el-button>
       </section>
 
-      <section v-if="activeModule === 'ai_cs'" class="panel-card">
+      <section v-if="activeModule === 'ai_customer'" class="panel-card">
         <h4 class="placeholder-title">AI客服配置</h4>
         <el-form label-width="130px" class="mt-3">
           <el-form-item label="启用AI客服">
@@ -143,9 +161,9 @@
           <el-button class="main-btn" type="primary" :loading="savingAiSettings" @click="saveAiCsSettings">保存AI客服配置</el-button>
           <el-button plain @click="openFeishuIntegration">集成飞书</el-button>
         </div>
+      </section>
 
-        <el-divider />
-
+      <section v-if="activeModule === 'ai_knowledge'" class="panel-card">
         <h4 class="placeholder-title">AI知识库上传向量化</h4>
         <p class="placeholder-sub">支持 json / csv / xlsx / txt / md，上传后自动向量化存入 Qdrant。</p>
         <div class="kb-upload-row">
@@ -161,9 +179,9 @@
           <el-table-column prop="chunk_count" label="分块数" width="90" />
           <el-table-column prop="error_message" label="失败原因" min-width="220" />
         </el-table>
+      </section>
 
-        <el-divider />
-
+      <section v-if="activeModule === 'human_service'" class="panel-card">
         <h4 class="placeholder-title">AI客服转人工工单</h4>
         <el-button plain class="neon-btn" @click="loadAiCsTickets">刷新工单</el-button>
         <el-table :data="aiTickets" style="width: 100%; margin-top: 12px" stripe>
@@ -246,13 +264,17 @@ import {
 const router = useRouter()
 const adminUser = ref(null)
 const activeModule = ref('stats')
+const aiMenuOpen = ref(true)
+const humanMenuOpen = ref(true)
 
 const moduleTitle = computed(() => {
   if (activeModule.value === 'stats') return '信息统计'
   if (activeModule.value === 'page') return '页面管理'
   if (activeModule.value === 'users') return '用户信息'
   if (activeModule.value === 'script') return '剧本优化'
-  return 'AI知识库-AI客服'
+  if (activeModule.value === 'ai_knowledge') return 'AI知识库'
+  if (activeModule.value === 'ai_customer') return 'AI客服'
+  return '人工客服'
 })
 
 const users = ref([])
@@ -288,6 +310,14 @@ const replyVisible = ref(false)
 const replyText = ref('')
 const replying = ref(false)
 const replyTarget = reactive({ id: null, question: '' })
+
+const toggleAiMenu = () => {
+  aiMenuOpen.value = !aiMenuOpen.value
+}
+
+const toggleHumanMenu = () => {
+  humanMenuOpen.value = !humanMenuOpen.value
+}
 
 const loadAdminMe = async () => {
   const res = await consoleMe()
@@ -631,6 +661,51 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.menu-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.submenu-arrow {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.submenu-wrap {
+  margin: -4px 0 8px;
+  padding: 8px 6px 2px 8px;
+  border-left: 1px dashed rgba(151, 209, 255, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.submenu-btn {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(133, 189, 255, 0.34);
+  border-radius: 10px;
+  background: rgba(27, 43, 100, 0.62);
+  color: #cfe2ff;
+  text-align: left;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.submenu-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(161, 222, 255, 0.54);
+  box-shadow: 0 8px 16px rgba(9, 14, 50, 0.34);
+}
+.submenu-btn.active {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(126deg, rgba(73, 169, 255, 0.95), rgba(80, 98, 255, 0.95));
+  box-shadow: 0 0 0 1px rgba(172, 232, 255, 0.18), 0 0 16px rgba(96, 196, 255, 0.32);
+}
+.human-sub-btn .unread-badge {
+  margin-left: 8px;
 }
 .unread-badge {
   min-width: 20px;

@@ -136,7 +136,7 @@ def chat_stream(request):
                     question=message,
                     ai_reply=full,
                     attachments=attachments,
-                    status=HumanHandoverTicket.STATUS_OPEN,
+                    status=HumanHandoverTicket.STATUS_UNREAD,
                 )
                 ticket_id = ticket.id
                 _notify_feishu_if_needed(setting, ticket)

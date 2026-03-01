@@ -130,19 +130,24 @@ def ai_cs_upload_knowledge(request):
 @permission_classes([IsConsoleAdmin])
 def ai_cs_tickets(request):
     rows = HumanHandoverTicket.objects.select_related("user").all()[:200]
+    unread_count = HumanHandoverTicket.objects.filter(status=HumanHandoverTicket.STATUS_UNREAD).count()
     return ok(
-        [
-            {
-                "id": row.id,
-                "username": row.user.username,
-                "question": row.question,
-                "ai_reply": row.ai_reply,
-                "attachments": row.attachments,
-                "status": row.status,
-                "created_at": row.created_at,
-            }
-            for row in rows
-        ]
+        {
+            "list": [
+                {
+                    "id": row.id,
+                    "username": row.user.username,
+                    "question": row.question,
+                    "ai_reply": row.ai_reply,
+                    "admin_reply": row.admin_reply,
+                    "attachments": row.attachments,
+                    "status": row.status,
+                    "created_at": row.created_at,
+                }
+                for row in rows
+            ],
+            "unread_count": unread_count,
+        }
     )
 
 
@@ -153,9 +158,21 @@ def ai_cs_ticket_update(request, ticket_id: int):
     row = HumanHandoverTicket.objects.filter(id=ticket_id).first()
     if not row:
         return bad("工单不存在", 404)
-    status = str(request.data.get("status", "")).strip()
-    if status not in [HumanHandoverTicket.STATUS_OPEN, HumanHandoverTicket.STATUS_RESOLVED]:
-        return bad("状态不支持")
-    row.status = status
-    row.save(update_fields=["status", "updated_at"])
-    return ok({"id": row.id, "status": row.status})
+    action = str(request.data.get("action", "")).strip()
+    if action == "read":
+        row.status = HumanHandoverTicket.STATUS_READ
+        row.save(update_fields=["status", "updated_at"])
+        return ok({"id": row.id, "status": row.status})
+    if action == "ignore":
+        row.status = HumanHandoverTicket.STATUS_IGNORED
+        row.save(update_fields=["status", "updated_at"])
+        return ok({"id": row.id, "status": row.status})
+    if action == "reply":
+        reply = str(request.data.get("reply", "")).strip()
+        if not reply:
+            return bad("回复内容不能为空")
+        row.admin_reply = reply
+        row.status = HumanHandoverTicket.STATUS_READ
+        row.save(update_fields=["admin_reply", "status", "updated_at"])
+        return ok({"id": row.id, "status": row.status, "admin_reply": row.admin_reply})
+    return bad("操作不支持")

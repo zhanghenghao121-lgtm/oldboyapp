@@ -10,7 +10,10 @@
       <button class="side-btn" :class="{ active: activeModule === 'page' }" @click="activeModule = 'page'">页面管理</button>
       <button class="side-btn" :class="{ active: activeModule === 'users' }" @click="activeModule = 'users'">用户信息</button>
       <button class="side-btn" :class="{ active: activeModule === 'script' }" @click="activeModule = 'script'">剧本优化</button>
-      <button class="side-btn" :class="{ active: activeModule === 'ai_cs' }" @click="activeModule = 'ai_cs'">AI知识库-AI客服</button>
+      <button class="side-btn ai-side-btn" :class="{ active: activeModule === 'ai_cs' }" @click="activeModule = 'ai_cs'">
+        <span>AI知识库-AI客服</span>
+        <span v-if="aiUnreadCount > 0" class="unread-badge">{{ aiUnreadCount > 99 ? '99+' : aiUnreadCount }}</span>
+      </button>
     </aside>
 
     <main class="admin-main">
@@ -162,22 +165,24 @@
         <el-divider />
 
         <h4 class="placeholder-title">AI客服转人工工单</h4>
-        <el-button plain @click="loadAiCsTickets">刷新工单</el-button>
+        <el-button plain class="neon-btn" @click="loadAiCsTickets">刷新工单</el-button>
         <el-table :data="aiTickets" style="width: 100%; margin-top: 12px" stripe>
           <el-table-column prop="id" label="ID" width="70" />
           <el-table-column prop="username" label="用户" width="100" />
           <el-table-column prop="question" label="用户问题" min-width="200" />
-          <el-table-column prop="status" label="状态" width="100" />
-          <el-table-column label="操作" width="120">
+          <el-table-column prop="admin_reply" label="人工回复" min-width="180" />
+          <el-table-column label="状态" width="100">
             <template #default="scope">
-              <el-button
-                link
-                type="primary"
-                :disabled="scope.row.status === 'resolved'"
-                @click="resolveTicket(scope.row.id)"
-              >
-                标记已处理
-              </el-button>
+              <el-tag v-if="scope.row.status === 'unread'" type="danger">未读</el-tag>
+              <el-tag v-else-if="scope.row.status === 'read'" type="success">已读</el-tag>
+              <el-tag v-else type="info">忽略</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="230">
+            <template #default="scope">
+              <el-button link type="primary" @click="openReplyDialog(scope.row)">回复</el-button>
+              <el-button link type="warning" @click="markTicketRead(scope.row.id)">已读</el-button>
+              <el-button link type="info" @click="ignoreTicket(scope.row.id)">忽略</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -198,6 +203,21 @@
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" @click="saveUser">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="replyVisible" title="回复人工工单" width="520px">
+      <el-form label-width="70px">
+        <el-form-item label="用户问题">
+          <div class="reply-question">{{ replyTarget.question || '—' }}</div>
+        </el-form-item>
+        <el-form-item label="回复内容">
+          <el-input v-model="replyText" type="textarea" :rows="4" placeholder="请输入人工回复内容..." />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="replyVisible = false">取消</el-button>
+        <el-button type="primary" :loading="replying" @click="submitReply">发送回复</el-button>
       </template>
     </el-dialog>
   </div>
@@ -263,6 +283,11 @@ const knowledgeTitle = ref('')
 const knowledgeInputRef = ref()
 const uploadingKnowledge = ref(false)
 const aiTickets = ref([])
+const aiUnreadCount = ref(0)
+const replyVisible = ref(false)
+const replyText = ref('')
+const replying = ref(false)
+const replyTarget = reactive({ id: null, question: '' })
 
 const loadAdminMe = async () => {
   const res = await consoleMe()
@@ -476,19 +501,56 @@ const handleKnowledgeFile = async (event) => {
 const loadAiCsTickets = async () => {
   try {
     const res = await getAICsTickets()
-    aiTickets.value = res.data || []
+    aiTickets.value = res.data.list || []
+    aiUnreadCount.value = Number(res.data.unread_count || 0)
   } catch (e) {
     ElMessage.error(e)
   }
 }
 
-const resolveTicket = async (id) => {
+const markTicketRead = async (id) => {
   try {
-    await updateAICsTicket(id, { status: 'resolved' })
-    ElMessage.success('已标记为处理完成')
+    await updateAICsTicket(id, { action: 'read' })
+    ElMessage.success('已标记为已读')
     await loadAiCsTickets()
   } catch (e) {
     ElMessage.error(e)
+  }
+}
+
+const ignoreTicket = async (id) => {
+  try {
+    await updateAICsTicket(id, { action: 'ignore' })
+    ElMessage.success('已忽略该工单')
+    await loadAiCsTickets()
+  } catch (e) {
+    ElMessage.error(e)
+  }
+}
+
+const openReplyDialog = (row) => {
+  replyTarget.id = row.id
+  replyTarget.question = row.question
+  replyText.value = row.admin_reply || ''
+  replyVisible.value = true
+}
+
+const submitReply = async () => {
+  if (!replyTarget.id) return
+  if (!replyText.value.trim()) {
+    ElMessage.warning('请输入回复内容')
+    return
+  }
+  replying.value = true
+  try {
+    await updateAICsTicket(replyTarget.id, { action: 'reply', reply: replyText.value.trim() })
+    ElMessage.success('回复已发送并标记已读')
+    replyVisible.value = false
+    await loadAiCsTickets()
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    replying.value = false
   }
 }
 
@@ -525,50 +587,99 @@ onMounted(async () => {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 250px 1fr;
-  background: #1a1b20;
+  background:
+    radial-gradient(900px 380px at 8% -8%, rgba(91, 192, 255, 0.2), transparent 62%),
+    radial-gradient(680px 320px at 100% 0%, rgba(255, 103, 223, 0.16), transparent 62%),
+    linear-gradient(145deg, #161236, #1f1452 45%, #11193f);
 }
 .admin-sidebar {
-  background: #fff;
-  border-right: 1px solid #e9edf4;
+  background: linear-gradient(170deg, rgba(13, 24, 62, 0.96), rgba(20, 24, 68, 0.96));
+  border-right: 1px solid rgba(130, 195, 255, 0.28);
   padding: 24px 14px;
+  box-shadow: inset -1px 0 0 rgba(175, 226, 255, 0.08);
 }
-.side-head h2 { margin: 0; }
-.side-head p { margin: 6px 0 16px; color: #7d8597; }
+.side-head h2 {
+  margin: 0;
+  color: #eff8ff;
+  font-family: "Orbitron", "Plus Jakarta Sans", sans-serif;
+  text-shadow: 0 0 14px rgba(97, 202, 255, 0.45);
+}
+.side-head p { margin: 6px 0 16px; color: #b3c9ef; }
 .side-btn {
   width: 100%;
-  border: 1px solid #dce4f1;
-  background: #fff;
-  border-radius: 10px;
+  border: 1px solid rgba(141, 195, 255, 0.36);
+  background: linear-gradient(130deg, rgba(25, 43, 96, 0.86), rgba(21, 30, 76, 0.9));
+  color: #dceaff;
+  border-radius: 12px;
   text-align: left;
-  padding: 11px 10px;
+  padding: 11px 12px;
   margin-bottom: 10px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
-.side-btn.active { border-color: transparent; color: #fff; background: linear-gradient(130deg, #2b63d9, #3c86f0); }
+.side-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(160, 222, 255, 0.58);
+  box-shadow: 0 10px 20px rgba(6, 12, 44, 0.45);
+}
+.side-btn.active {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(125deg, #41bcff, #4a65ff, #5edbff);
+  box-shadow: 0 0 0 1px rgba(172, 232, 255, 0.2), 0 0 22px rgba(84, 196, 255, 0.36);
+}
+.ai-side-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.unread-badge {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  background: linear-gradient(130deg, #ff446f, #ff6c79);
+  box-shadow: 0 0 10px rgba(255, 85, 123, 0.6);
+}
 .admin-main { padding: 18px 20px; }
 .main-head { display: flex; align-items: center; justify-content: space-between; }
-.main-head h3 { margin: 0; color: #eef2ff; }
+.main-head h3 {
+  margin: 0;
+  color: #eef5ff;
+  text-shadow: 0 0 12px rgba(103, 206, 255, 0.4);
+}
 .panel-card {
   margin-top: 14px;
-  border: 1px solid #343848;
-  border-radius: 14px;
-  background: #242731;
+  border: 1px solid rgba(122, 168, 255, 0.32);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(28, 33, 74, 0.86), rgba(20, 19, 59, 0.88));
   padding: 16px;
-  color: #d8ddeb;
+  color: #d8e0f4;
+  box-shadow: inset 0 0 0 1px rgba(167, 218, 255, 0.1), 0 14px 30px rgba(7, 10, 36, 0.4);
 }
-.panel-tip { margin-bottom: 12px; color: #aab4cb; }
-.metric-card { border-radius: 12px; border: 1px solid #3b4153; background: #2a2f3b; }
+.panel-tip { margin-bottom: 12px; color: #aec0e3; }
+.metric-card {
+  border-radius: 12px;
+  border: 1px solid rgba(118, 171, 255, 0.34);
+  background: linear-gradient(135deg, rgba(31, 42, 94, 0.72), rgba(29, 32, 78, 0.74));
+}
 .avatar-row { display: grid; grid-template-columns: 170px 1fr; gap: 12px; }
 .row-label { margin: 0 0 8px; color: #e8edf8; font-weight: 600; }
 .avatar-thumb {
   height: 82px;
   border-radius: 10px;
-  border: 1px dashed #5f6d8e;
-  background: #1f222b;
+  border: 1px dashed rgba(124, 188, 255, 0.58);
+  background: rgba(18, 26, 64, 0.82);
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #8b97b1;
+  color: #a8badd;
 }
 .avatar-thumb img { width: 100%; height: 100%; object-fit: contain; background: #171921; }
 .row-actions { margin-top: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
@@ -577,15 +688,59 @@ onMounted(async () => {
 .user-filter { display: flex; gap: 8px; }
 .pager-wrap { margin-top: 14px; display: flex; justify-content: flex-end; }
 .placeholder-title { margin: 0; }
-.placeholder-sub { margin-top: 8px; color: #aab4cb; }
+.placeholder-sub { margin-top: 8px; color: #b2c4e8; }
 .kb-upload-row {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 10px;
 }
+.neon-btn {
+  border-color: rgba(146, 213, 255, 0.5);
+  color: #d8eeff;
+  background: rgba(21, 44, 95, 0.7);
+}
+.reply-question {
+  width: 100%;
+  border: 1px solid rgba(123, 192, 255, 0.35);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: #dbeeff;
+  background: rgba(21, 31, 78, 0.65);
+  min-height: 56px;
+  white-space: pre-wrap;
+}
+
+:deep(.el-table) {
+  --el-table-bg-color: rgba(21, 28, 72, 0.5);
+  --el-table-tr-bg-color: rgba(21, 28, 72, 0.5);
+  --el-table-border-color: rgba(125, 170, 255, 0.3);
+  --el-table-header-bg-color: rgba(36, 56, 122, 0.5);
+  --el-table-header-text-color: #e8f3ff;
+  --el-table-row-hover-bg-color: rgba(64, 125, 211, 0.2);
+  color: #dce8ff;
+}
+:deep(.el-input__wrapper),
+:deep(.el-textarea__inner),
+:deep(.el-input-number .el-input__wrapper) {
+  background: rgba(16, 32, 77, 0.75);
+  box-shadow: inset 0 0 0 1px rgba(117, 187, 255, 0.45) !important;
+  color: #eaf5ff;
+}
+:deep(.el-form-item__label) {
+  color: #c6dbf7;
+}
+:deep(.el-button) {
+  border-radius: 10px;
+}
+:deep(.main-btn.el-button) {
+  border: none;
+  background: linear-gradient(130deg, #47bfff, #4c69ff, #5ad7ff);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(171, 232, 255, 0.24), 0 10px 22px rgba(39, 109, 220, 0.4);
+}
 @media (max-width: 980px) {
   .admin-shell { grid-template-columns: 1fr; }
-  .admin-sidebar { border-right: 0; border-bottom: 1px solid #e9edf4; }
+  .admin-sidebar { border-right: 0; border-bottom: 1px solid rgba(142, 201, 255, 0.28); }
   .avatar-row { grid-template-columns: 1fr; }
   .kb-upload-row { grid-template-columns: 1fr; }
 }

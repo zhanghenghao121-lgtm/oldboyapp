@@ -72,18 +72,21 @@ class ChatMessage(models.Model):
 
 
 class HumanHandoverTicket(models.Model):
-    STATUS_OPEN = "open"
-    STATUS_RESOLVED = "resolved"
+    STATUS_UNREAD = "unread"
+    STATUS_READ = "read"
+    STATUS_IGNORED = "ignored"
     STATUS_CHOICES = (
-        (STATUS_OPEN, "待处理"),
-        (STATUS_RESOLVED, "已处理"),
+        (STATUS_UNREAD, "未读"),
+        (STATUS_READ, "已读"),
+        (STATUS_IGNORED, "忽略"),
     )
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     question = models.TextField()
     ai_reply = models.TextField(blank=True, default="")
+    admin_reply = models.TextField(blank=True, default="")
     attachments = models.JSONField(default=list, blank=True)
-    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_OPEN)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_UNREAD)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

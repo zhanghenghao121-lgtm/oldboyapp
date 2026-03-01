@@ -53,8 +53,8 @@
 
       <section class="main-content">
         <div v-if="activePanel === 'script'" class="panel-card">
-          <h4>剧本小优 · 霓虹控制台</h4>
-          <p>切换到剧本小优后，你可以在二次元风创作场中快速完成剧本分镜和段落分镜。</p>
+          <h4>剧本小优 · 剧本工坊</h4>
+          <p>进入剧本小优后，你可以在创作工坊中快速完成剧本分镜和段落分镜。</p>
           <div class="feature-grid">
             <div class="feature-item">
               <span>01</span>

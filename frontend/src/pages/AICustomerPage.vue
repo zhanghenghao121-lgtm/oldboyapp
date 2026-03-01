@@ -3,10 +3,10 @@
     <el-card class="surface-card ai-cs-card" shadow="never">
       <header class="chat-head">
         <div>
-          <h2>AI 客服</h2>
-          <p>基于知识库 + LLM + RAG 的在线客服助手</p>
+          <h2>AI章鱼助手</h2>
+          <p>一个个性化的助手</p>
         </div>
-        <el-button @click="$router.push('/home')">返回首页</el-button>
+        <el-button class="neon-btn" @click="$router.push('/home')">返回首页</el-button>
       </header>
 
       <div class="chat-window" ref="chatWindowRef">
@@ -22,13 +22,20 @@
 
       <div class="upload-row">
         <input ref="fileInputRef" type="file" class="file-hidden" multiple @change="handleFiles" />
-        <el-button plain @click="pickFiles">上传图片/视频/文档</el-button>
+        <el-button class="neon-btn" @click="pickFiles">上传图片/视频/文档</el-button>
         <span v-if="pendingFiles.length" class="file-tip">已选 {{ pendingFiles.length }} 个文件</span>
       </div>
 
       <div class="composer">
-        <el-input v-model="inputText" type="textarea" :rows="3" placeholder="输入你的问题..." @keydown.enter.exact.prevent="send" />
-        <el-button class="main-btn" type="primary" :loading="sending" @click="send">发送</el-button>
+        <el-input
+          v-model="inputText"
+          class="neon-input"
+          type="textarea"
+          :rows="3"
+          placeholder="输入你想咨询的问题..."
+          @keydown.enter.exact.prevent="send"
+        />
+        <el-button class="main-btn neon-send-btn" type="primary" :loading="sending" @click="send">发送</el-button>
       </div>
     </el-card>
   </div>
@@ -59,7 +66,7 @@ const scrollToBottom = async () => {
 const loadHistory = async () => {
   const res = await getAiCustomerHistory()
   if (!res.data.enabled) {
-    ElMessage.warning('AI客服当前未开放')
+    ElMessage.warning('AI章鱼助手当前未开放')
     router.push('/home')
     return
   }
@@ -140,7 +147,7 @@ const streamChat = async (payload, assistantMsg) => {
       if (data.type === 'done') {
         assistantMsg.content = data.content || assistantMsg.content
         if (data.handover) {
-          ElMessage.warning('当前问题已转人工客服处理')
+          ElMessage.warning('当前问题已转人工处理')
         }
       }
       if (data.type === 'error') {
@@ -194,6 +201,15 @@ onMounted(async () => {
 }
 .chat-head h2 { margin: 0; }
 .chat-head p { margin: 6px 0 0; color: #c1d3f3; }
+.neon-btn {
+  border: 1px solid rgba(164, 223, 255, 0.66);
+  color: #ebf8ff;
+  background: linear-gradient(125deg, rgba(39, 138, 227, 0.75), rgba(74, 76, 198, 0.72));
+  box-shadow: 0 0 0 1px rgba(171, 232, 255, 0.2), 0 0 16px rgba(98, 194, 255, 0.35);
+}
+.neon-btn:hover {
+  filter: brightness(1.05);
+}
 .chat-window {
   margin-top: 14px;
   height: 460px;
@@ -248,6 +264,25 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 10px;
+}
+.neon-send-btn {
+  min-width: 108px;
+}
+.neon-input :deep(.el-textarea__inner) {
+  background: linear-gradient(145deg, rgba(15, 31, 72, 0.92), rgba(19, 26, 70, 0.94));
+  border: 1px solid rgba(122, 199, 255, 0.5);
+  color: #e9f6ff;
+  box-shadow: inset 0 0 0 1px rgba(147, 219, 255, 0.12), 0 0 12px rgba(77, 183, 255, 0.25);
+}
+.neon-input :deep(.el-textarea__inner:focus) {
+  border-color: rgba(141, 224, 255, 0.72);
+  box-shadow:
+    inset 0 0 0 1px rgba(153, 232, 255, 0.3),
+    0 0 0 1px rgba(107, 199, 255, 0.52),
+    0 0 18px rgba(79, 189, 255, 0.42);
+}
+.neon-input :deep(.el-textarea__inner::placeholder) {
+  color: #97bcde;
 }
 @media (max-width: 900px) {
   .composer { grid-template-columns: 1fr; }

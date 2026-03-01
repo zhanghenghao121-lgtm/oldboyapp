@@ -13,8 +13,13 @@
       >
         剧本小优
       </button>
-
-      <button class="side-btn disabled" disabled>后续功能（待设计）</button>
+      <button
+        class="side-btn"
+        :class="{ active: activePanel === 'assistant' }"
+        @click="activePanel = 'assistant'"
+      >
+        AI章鱼助手
+      </button>
     </aside>
 
     <main class="main-panel">
@@ -62,12 +67,39 @@
             </div>
             <div class="feature-item">
               <span>04</span>
-              <p>AI客服问答</p>
+              <p>积分计费联动</p>
             </div>
           </div>
           <div class="entry-row">
             <el-button type="primary" class="main-btn" @click="$router.push('/script-optimizer')">进入完整剧本优化页</el-button>
-            <el-button class="main-btn ghost-btn" @click="$router.push('/ai-customer')">进入 AI 客服</el-button>
+            <el-button class="main-btn ghost-btn" @click="activePanel = 'assistant'">切换 AI章鱼助手</el-button>
+          </div>
+        </div>
+
+        <div v-if="activePanel === 'assistant'" class="panel-card">
+          <h4>AI章鱼助手 · 霓虹会话台</h4>
+          <p>一个个性化的助手，支持文本对话、图片视频文档上传，并可在无法回答时转人工处理。</p>
+          <div class="feature-grid">
+            <div class="feature-item">
+              <span>01</span>
+              <p>个性化语气回复</p>
+            </div>
+            <div class="feature-item">
+              <span>02</span>
+              <p>文档与多媒体附件</p>
+            </div>
+            <div class="feature-item">
+              <span>03</span>
+              <p>知识库检索回答</p>
+            </div>
+            <div class="feature-item">
+              <span>04</span>
+              <p>自动转人工工单</p>
+            </div>
+          </div>
+          <div class="entry-row">
+            <el-button type="primary" class="main-btn" @click="$router.push('/ai-customer')">进入 AI章鱼助手</el-button>
+            <el-button class="main-btn ghost-btn" @click="activePanel = 'script'">返回剧本小优</el-button>
           </div>
         </div>
       </section>
@@ -89,7 +121,7 @@ const defaultAvatar = ref('')
 const fallbackAvatar = '/octopus-avatar.svg'
 const avatarLoadFailed = ref(false)
 
-const panelTitle = computed(() => (activePanel.value === 'script' ? '剧本小优' : '工作台'))
+const panelTitle = computed(() => (activePanel.value === 'script' ? '剧本小优' : 'AI章鱼助手'))
 const avatarSrc = computed(() => {
   if (avatarLoadFailed.value) return fallbackAvatar
   return user.value?.avatar_url || defaultAvatar.value || fallbackAvatar
@@ -181,9 +213,6 @@ onMounted(async () => {
   border-color: transparent;
   color: #fff;
   box-shadow: 0 10px 24px rgba(69, 120, 255, 0.35);
-}
-.side-btn.disabled {
-  opacity: 0.55;
 }
 .main-panel {
   position: relative;

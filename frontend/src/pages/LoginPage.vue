@@ -7,11 +7,11 @@
       </div>
 
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" class="auth-form pt-1">
-        <el-form-item label="用户名" prop="username" class="anime-input-item">
+        <el-form-item label="账号" prop="username" class="anime-input-item">
           <div class="anime-shell">
             <span class="spark spark-a"></span>
             <span class="spark spark-b"></span>
-            <el-input v-model="form.username" placeholder="请输入用户名" />
+            <el-input v-model="form.username" placeholder="请输入用户名或邮箱" />
           </div>
         </el-form-item>
         <el-form-item label="密码" prop="password" class="anime-input-item">
@@ -93,7 +93,7 @@ const form = reactive({ username: '', password: '' })
 const fallbackBg = 'https://zy2000zh-1257453885.cos.ap-shanghai.myqcloud.com/image/1.png'
 const backgroundUrl = ref('')
 const rules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  username: [{ required: true, message: '请输入用户名或邮箱', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 

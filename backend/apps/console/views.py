@@ -31,6 +31,18 @@ def bad(message, status=400):
     return Response({"ok": False, "message": message}, status=status)
 
 
+def _safe_int(raw, default, minimum=None, maximum=None):
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = default
+    if minimum is not None:
+        value = max(value, minimum)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
+
+
 def _ensure_scene_defaults():
     for scene, _ in SiteBackground.SCENE_CHOICES:
         SiteBackground.objects.get_or_create(scene=scene)
@@ -187,8 +199,8 @@ def console_config_update(request, key):
 @permission_classes([IsConsoleAdmin])
 def console_users(request):
     keyword = request.query_params.get("keyword", "").strip()
-    page = max(int(request.query_params.get("page", 1)), 1)
-    page_size = min(max(int(request.query_params.get("page_size", 10)), 1), 100)
+    page = _safe_int(request.query_params.get("page", 1), 1, minimum=1)
+    page_size = _safe_int(request.query_params.get("page_size", 10), 10, minimum=1, maximum=100)
 
     qs = User.objects.all().order_by("-date_joined")
     if keyword:

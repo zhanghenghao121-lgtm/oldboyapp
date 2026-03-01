@@ -298,9 +298,14 @@ def login_view(request):
     if not s.is_valid():
         return bad("参数错误")
 
-    username = s.validated_data["username"].strip()
+    account = s.validated_data["username"].strip()
     password = s.validated_data["password"]
     captcha_ticket = (s.validated_data.get("captcha_ticket") or "").strip()
+    ip = _client_ip(request)
+    login_limit_key = f"login_limit:{ip}:{account.lower()}"
+    attempts = int(_cache_get(login_limit_key) or 0)
+    if attempts >= 8:
+        return bad("登录尝试过于频繁，请稍后再试", 429)
 
     if captcha_ticket:
         if not _cache_get(f"energy_ticket:{captcha_ticket}"):
@@ -316,10 +321,18 @@ def login_view(request):
             return bad("图形验证码错误或已过期")
         _cache_delete(f"captcha:{captcha_id}")
 
+    username = account
+    if "@" in account:
+        bind_user = User.objects.filter(email__iexact=account).only("username").first()
+        if bind_user:
+            username = bind_user.username
+
     user = authenticate(request, username=username, password=password)
     if not user:
-        return bad("用户名或密码错误", 401)
+        _cache_set(login_limit_key, attempts + 1, 300)
+        return bad("用户名/邮箱或密码错误", 401)
 
+    _cache_delete(login_limit_key)
     login(request, user)
     return ok(
         {

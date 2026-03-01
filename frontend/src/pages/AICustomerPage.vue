@@ -11,12 +11,27 @@
 
       <div class="chat-window" ref="chatWindowRef">
         <div v-for="item in messages" :key="item.id || item.localId" class="msg" :class="item.role">
+          <el-avatar
+            v-if="item.role === 'assistant'"
+            class="msg-avatar"
+            :size="34"
+            :src="aiAvatar"
+          />
           <div class="bubble">
-            <p>{{ item.content }}</p>
+            <p v-if="!item.waiting">{{ item.content }}</p>
+            <p v-else class="thinking-line">
+              AI思考中<span class="thinking-dots"><i></i><i></i><i></i></span>
+            </p>
             <div v-if="item.attachments?.length" class="attach-list">
               <a v-for="(f, idx) in item.attachments" :key="idx" :href="f.url" target="_blank" rel="noreferrer">{{ f.name || f.url }}</a>
             </div>
           </div>
+          <el-avatar
+            v-if="item.role === 'user'"
+            class="msg-avatar"
+            :size="34"
+            :src="userAvatar"
+          />
         </div>
       </div>
 
@@ -46,6 +61,7 @@ import { nextTick, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getAiCustomerHistory } from '../api/aiCustomer'
+import { me } from '../api/auth'
 import { uploadToCos } from '../api/storage'
 
 const router = useRouter()
@@ -55,6 +71,8 @@ const sending = ref(false)
 const pendingFiles = ref([])
 const fileInputRef = ref()
 const chatWindowRef = ref()
+const userAvatar = ref('/octopus-avatar.svg')
+const aiAvatar = '/octopus-avatar.svg'
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -70,8 +88,13 @@ const loadHistory = async () => {
     router.push('/home')
     return
   }
-  messages.value = res.data.messages || []
+  messages.value = (res.data.messages || []).map((item) => ({ ...item, waiting: false }))
   await scrollToBottom()
+}
+
+const loadMe = async () => {
+  const res = await me()
+  userAvatar.value = res.data.user?.avatar_url || '/octopus-avatar.svg'
 }
 
 const pickFiles = () => {
@@ -141,10 +164,12 @@ const streamChat = async (payload, assistantMsg) => {
       }
 
       if (data.type === 'delta') {
+        assistantMsg.waiting = false
         assistantMsg.content += data.content || ''
         await scrollToBottom()
       }
       if (data.type === 'done') {
+        assistantMsg.waiting = false
         assistantMsg.content = data.content || assistantMsg.content
         if (data.handover) {
           ElMessage.warning('当前问题已转人工处理')
@@ -164,16 +189,21 @@ const send = async () => {
   sending.value = true
   try {
     const attachments = await uploadPendingFiles()
-    const userMsg = { localId: Date.now(), role: 'user', content: text, attachments }
+    const userMsg = { localId: Date.now(), role: 'user', content: text, attachments, waiting: false }
     messages.value.push(userMsg)
     inputText.value = ''
 
-    const assistantMsg = { localId: Date.now() + 1, role: 'assistant', content: '', attachments: [] }
+    const assistantMsg = { localId: Date.now() + 1, role: 'assistant', content: '', attachments: [], waiting: true }
     messages.value.push(assistantMsg)
     await scrollToBottom()
 
     await streamChat({ message: text, attachments }, assistantMsg)
   } catch (e) {
+    const last = messages.value[messages.value.length - 1]
+    if (last && last.role === 'assistant' && last.waiting) {
+      last.waiting = false
+      last.content = '抱歉，当前响应失败，请稍后重试。'
+    }
     ElMessage.error(String(e || '发送失败'))
   } finally {
     sending.value = false
@@ -183,7 +213,7 @@ const send = async () => {
 
 onMounted(async () => {
   try {
-    await loadHistory()
+    await Promise.all([loadHistory(), loadMe()])
   } catch {
     router.push('/login')
   }
@@ -221,10 +251,17 @@ onMounted(async () => {
 }
 .msg {
   display: flex;
+  align-items: flex-end;
+  gap: 8px;
   margin-bottom: 10px;
 }
 .msg.user { justify-content: flex-end; }
 .msg.assistant { justify-content: flex-start; }
+.msg-avatar {
+  border: 1px solid rgba(158, 220, 255, 0.48);
+  box-shadow: 0 0 10px rgba(95, 193, 255, 0.28);
+  flex-shrink: 0;
+}
 .bubble {
   max-width: 78%;
   border-radius: 12px;
@@ -241,6 +278,26 @@ onMounted(async () => {
   margin: 0;
   color: #ecf5ff;
 }
+.thinking-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.thinking-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #9ce5ff;
+  box-shadow: 0 0 8px rgba(103, 209, 255, 0.62);
+  animation: thinking 1.1s infinite ease-in-out;
+}
+.thinking-dots i:nth-child(2) { animation-delay: 0.12s; }
+.thinking-dots i:nth-child(3) { animation-delay: 0.24s; }
 .attach-list {
   margin-top: 8px;
   display: flex;
@@ -283,6 +340,10 @@ onMounted(async () => {
 }
 .neon-input :deep(.el-textarea__inner::placeholder) {
   color: #97bcde;
+}
+@keyframes thinking {
+  0%, 80%, 100% { transform: scale(0.75); opacity: 0.55; }
+  40% { transform: scale(1); opacity: 1; }
 }
 @media (max-width: 900px) {
   .composer { grid-template-columns: 1fr; }

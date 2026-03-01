@@ -47,7 +47,10 @@ def _config_defaults():
 def _ensure_config_defaults():
     defaults = _config_defaults()
     for key, value in defaults.items():
-        SiteConfig.objects.get_or_create(key=key, defaults={"value": value})
+        obj, _ = SiteConfig.objects.get_or_create(key=key, defaults={"value": value})
+        if not (obj.value or "").strip():
+            obj.value = value
+            obj.save(update_fields=["value", "updated_at"])
 
 
 def _get_admin_user(request):
@@ -71,7 +74,9 @@ def public_backgrounds(request):
     if config_latest and (not latest or config_latest > latest):
         latest = config_latest
     scene_map["_version"] = int(latest.timestamp()) if latest else 0
-    scene_map["default_avatar"] = configs.get(SiteConfig.KEY_DEFAULT_AVATAR, _config_defaults()[SiteConfig.KEY_DEFAULT_AVATAR])
+    scene_map["default_avatar"] = (
+        configs.get(SiteConfig.KEY_DEFAULT_AVATAR) or _config_defaults()[SiteConfig.KEY_DEFAULT_AVATAR]
+    )
     scene_map["script_storyboard_prompt"] = configs.get(
         SiteConfig.KEY_STORYBOARD_PROMPT, _config_defaults()[SiteConfig.KEY_STORYBOARD_PROMPT]
     )

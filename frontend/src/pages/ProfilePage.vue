@@ -49,7 +49,7 @@ const router = useRouter()
 const saving = ref(false)
 const backgroundUrl = ref('')
 const defaultAvatar = ref('')
-const fallbackAvatar = 'https://zy2000zh-1257453885.cos.ap-shanghai.myqcloud.com/images/octopus-default.png'
+const fallbackAvatar = '/octopus-avatar.svg'
 const avatarInputRef = ref()
 const withVersion = (url, version) => {
   if (!url) return ''
@@ -77,9 +77,10 @@ const loadBackground = async () => {
     const res = await getSiteBackgrounds()
     const version = res.data._version
     backgroundUrl.value = withVersion(res.data.profile || res.data.home || '', version)
-    defaultAvatar.value = res.data.default_avatar || ''
+    defaultAvatar.value = res.data.default_avatar || fallbackAvatar
   } catch {
     backgroundUrl.value = ''
+    defaultAvatar.value = fallbackAvatar
   }
 }
 

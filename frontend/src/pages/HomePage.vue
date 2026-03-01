@@ -56,6 +56,7 @@ const router = useRouter()
 const activePanel = ref('script')
 const user = ref(null)
 const defaultAvatar = ref('')
+const fallbackAvatar = '/octopus-avatar.svg'
 
 const panelTitle = computed(() => (activePanel.value === 'script' ? '剧本小优' : '工作台'))
 
@@ -67,9 +68,9 @@ const loadMe = async () => {
 const loadSiteConfig = async () => {
   try {
     const res = await getSiteBackgrounds()
-    defaultAvatar.value = res.data.default_avatar || ''
+    defaultAvatar.value = res.data.default_avatar || fallbackAvatar
   } catch {
-    defaultAvatar.value = ''
+    defaultAvatar.value = fallbackAvatar
   }
 }
 

@@ -48,45 +48,65 @@
 
       <section v-if="activeModule === 'page'" class="panel-card">
         <div class="panel-tip">页面管理：管理背景图片（统一上传到 COS）</div>
-        <div class="bg-form-item" v-for="item in backgroundItems" :key="item.scene">
-          <p class="bg-label fw-semibold">{{ item.label }}</p>
-          <div class="bg-thumb">
-            <img v-if="item.image_url" :src="thumbSrc(item.image_url, item.updated_at)" alt="background preview" />
-            <span v-else>待上传图片</span>
-          </div>
-          <el-input v-model="item.image_url" placeholder="请输入背景图 URL，留空表示使用默认背景" />
-          <input
-            :id="`bg-upload-${item.scene}`"
-            type="file"
-            accept="image/*"
-            class="file-hidden"
-            @change="handleBackgroundUpload(item, $event)"
-          />
-          <div class="bg-actions">
-            <el-button class="main-btn" type="primary" @click="saveBackground(item)">保存</el-button>
-            <el-button plain :loading="item.uploading" @click="pickBackgroundFile(item.scene)">上传图片</el-button>
+        <div class="bg-list">
+          <div class="bg-row" v-for="item in backgroundItems" :key="item.scene">
+            <div class="bg-row-left">
+              <p class="bg-label fw-semibold">{{ item.label }}</p>
+              <div class="bg-thumb">
+                <img
+                  v-if="item.image_url"
+                  :src="thumbSrc(item.image_url, item.updated_at)"
+                  alt="background preview"
+                  @error="item.image_url = ''"
+                />
+                <span v-else>待上传图片</span>
+              </div>
+            </div>
+            <div class="bg-row-right">
+              <el-input v-model="item.image_url" placeholder="请输入背景图 URL，留空表示使用默认背景" />
+              <input
+                :id="`bg-upload-${item.scene}`"
+                type="file"
+                accept="image/*"
+                class="file-hidden"
+                @change="handleBackgroundUpload(item, $event)"
+              />
+              <div class="bg-actions">
+                <el-button class="main-btn" type="primary" @click="saveBackground(item)">保存</el-button>
+                <el-button plain :loading="item.uploading" @click="pickBackgroundFile(item.scene)">上传图片</el-button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="bg-form-item">
-          <p class="bg-label fw-semibold">用户默认头像</p>
-          <div class="bg-thumb avatar-thumb">
-            <img v-if="defaultAvatarUrl" :src="thumbSrc(defaultAvatarUrl)" alt="default avatar" />
-            <span v-else>待上传图片</span>
+        <div class="bg-row">
+          <div class="bg-row-left">
+            <p class="bg-label fw-semibold">用户默认头像</p>
+            <div class="bg-thumb avatar-thumb">
+              <img
+                v-if="defaultAvatarUrl"
+                :src="thumbSrc(defaultAvatarUrl)"
+                alt="default avatar"
+                @error="defaultAvatarUrl = '/octopus-avatar.svg'"
+              />
+              <span v-else>待上传图片</span>
+            </div>
           </div>
-          <el-input v-model="defaultAvatarUrl" placeholder="请输入默认头像 URL，留空使用系统默认" />
-          <input
-            id="default-avatar-upload"
-            type="file"
-            accept="image/*"
-            class="file-hidden"
-            @change="handleDefaultAvatarUpload"
-          />
-          <div class="bg-actions">
-            <el-button class="main-btn" type="primary" @click="saveDefaultAvatar">保存</el-button>
-            <el-button plain :loading="defaultAvatarUploading" @click="pickDefaultAvatarFile">
-              上传图片
-            </el-button>
+          <div class="bg-row-right">
+            <el-input v-model="defaultAvatarUrl" placeholder="请输入默认头像 URL，留空使用系统默认" />
+            <input
+              id="default-avatar-upload"
+              type="file"
+              accept="image/*"
+              class="file-hidden"
+              @change="handleDefaultAvatarUpload"
+            />
+            <div class="bg-actions">
+              <el-button class="main-btn" type="primary" @click="saveDefaultAvatar">保存</el-button>
+              <el-button plain :loading="defaultAvatarUploading" @click="pickDefaultAvatarFile">
+                上传图片
+              </el-button>
+            </div>
           </div>
         </div>
       </section>
@@ -511,19 +531,31 @@ onMounted(async () => {
   border: 1px solid #3b4153;
   background: #2a2f3b;
 }
-.bg-form-item {
-  padding: 10px 0 14px;
+.bg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bg-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 12px;
+  padding: 10px 0;
   border-bottom: 1px solid #393f50;
 }
-.bg-form-item:last-child {
+.bg-row:last-child {
   border-bottom: 0;
+}
+.bg-row-left,
+.bg-row-right {
+  min-width: 0;
 }
 .bg-label {
   margin: 0 0 8px;
   color: #e8edf8;
 }
 .bg-thumb {
-  height: 120px;
+  height: 82px;
   border-radius: 10px;
   border: 1px dashed #5f6d8e;
   background: #1f222b;
@@ -582,6 +614,9 @@ onMounted(async () => {
   .admin-sidebar {
     border-right: 0;
     border-bottom: 1px solid #e9edf4;
+  }
+  .bg-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

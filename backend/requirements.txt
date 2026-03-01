@@ -9,3 +9,5 @@ cos-python-sdk-v5==1.9.38
 requests==2.32.3
 PyMySQL==1.1.1
 gunicorn==23.0.0
+qdrant-client==1.11.1
+openpyxl==3.1.5

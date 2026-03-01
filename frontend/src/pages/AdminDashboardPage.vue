@@ -10,6 +10,7 @@
       <button class="side-btn" :class="{ active: activeModule === 'page' }" @click="activeModule = 'page'">页面管理</button>
       <button class="side-btn" :class="{ active: activeModule === 'users' }" @click="activeModule = 'users'">用户信息</button>
       <button class="side-btn" :class="{ active: activeModule === 'script' }" @click="activeModule = 'script'">剧本优化</button>
+      <button class="side-btn" :class="{ active: activeModule === 'ai_cs' }" @click="activeModule = 'ai_cs'">AI知识库-AI客服</button>
     </aside>
 
     <main class="admin-main">
@@ -112,6 +113,75 @@
         </el-form>
         <el-button type="primary" class="main-btn" :loading="savingPrompts" @click="saveScriptPrompts">保存设置</el-button>
       </section>
+
+      <section v-if="activeModule === 'ai_cs'" class="panel-card">
+        <h4 class="placeholder-title">AI客服配置</h4>
+        <el-form label-width="130px" class="mt-3">
+          <el-form-item label="启用AI客服">
+            <el-switch v-model="aiCsForm.enabled" />
+          </el-form-item>
+          <el-form-item label="回复语气">
+            <el-input v-model="aiCsForm.tone_style" type="textarea" :rows="3" placeholder="例如：温和、专业、简洁" />
+          </el-form-item>
+          <el-form-item label="系统提示词">
+            <el-input v-model="aiCsForm.base_prompt" type="textarea" :rows="5" />
+          </el-form-item>
+          <el-form-item label="无法回答文案">
+            <el-input v-model="aiCsForm.no_answer_text" />
+          </el-form-item>
+          <el-form-item label="飞书机器人配置页">
+            <el-input v-model="aiCsForm.feishu_bot_config_url" placeholder="https://open.feishu.cn/..." />
+          </el-form-item>
+          <el-form-item label="飞书告警Webhook">
+            <el-input v-model="aiCsForm.feishu_webhook_url" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." />
+          </el-form-item>
+        </el-form>
+        <div class="row-actions">
+          <el-button class="main-btn" type="primary" :loading="savingAiSettings" @click="saveAiCsSettings">保存AI客服配置</el-button>
+          <el-button plain @click="openFeishuIntegration">集成飞书</el-button>
+        </div>
+
+        <el-divider />
+
+        <h4 class="placeholder-title">AI知识库上传向量化</h4>
+        <p class="placeholder-sub">支持 json / csv / xlsx / txt / md，上传后自动向量化存入 Qdrant。</p>
+        <div class="kb-upload-row">
+          <el-input v-model="knowledgeTitle" placeholder="知识库标题（可选）" />
+          <input ref="knowledgeInputRef" type="file" class="file-hidden" accept=".json,.csv,.xlsx,.txt,.md" @change="handleKnowledgeFile" />
+          <el-button :loading="uploadingKnowledge" @click="pickKnowledgeFile">上传并向量化</el-button>
+        </div>
+
+        <el-table :data="knowledgeDocs" style="width: 100%; margin-top: 12px" stripe>
+          <el-table-column prop="title" label="标题" min-width="180" />
+          <el-table-column prop="source_name" label="来源文件" min-width="180" />
+          <el-table-column prop="status" label="状态" width="100" />
+          <el-table-column prop="chunk_count" label="分块数" width="90" />
+          <el-table-column prop="error_message" label="失败原因" min-width="220" />
+        </el-table>
+
+        <el-divider />
+
+        <h4 class="placeholder-title">AI客服转人工工单</h4>
+        <el-button plain @click="loadAiCsTickets">刷新工单</el-button>
+        <el-table :data="aiTickets" style="width: 100%; margin-top: 12px" stripe>
+          <el-table-column prop="id" label="ID" width="70" />
+          <el-table-column prop="username" label="用户" width="100" />
+          <el-table-column prop="question" label="用户问题" min-width="200" />
+          <el-table-column prop="status" label="状态" width="100" />
+          <el-table-column label="操作" width="120">
+            <template #default="scope">
+              <el-button
+                link
+                type="primary"
+                :disabled="scope.row.status === 'resolved'"
+                @click="resolveTicket(scope.row.id)"
+              >
+                标记已处理
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </section>
     </main>
 
     <el-dialog v-model="editVisible" title="编辑用户" width="460px">
@@ -139,12 +209,18 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { uploadToCos } from '../api/storage'
 import {
+  getAICsDocs,
+  getAICsSettings,
+  getAICsTickets,
   getConsoleConfigs,
   consoleLogout,
   consoleMe,
   getConsoleUsers,
+  updateAICsSettings,
+  updateAICsTicket,
   updateConsoleConfig,
   updateConsoleUser,
+  uploadAICsKnowledge,
 } from '../api/console'
 
 const router = useRouter()
@@ -155,7 +231,8 @@ const moduleTitle = computed(() => {
   if (activeModule.value === 'stats') return '信息统计'
   if (activeModule.value === 'page') return '页面管理'
   if (activeModule.value === 'users') return '用户信息'
-  return '剧本优化'
+  if (activeModule.value === 'script') return '剧本优化'
+  return 'AI知识库-AI客服'
 })
 
 const users = ref([])
@@ -171,6 +248,21 @@ const savingPrompts = ref(false)
 
 const editVisible = ref(false)
 const editForm = reactive({ id: null, username: '', email: '', points: 0, is_active: true })
+
+const aiCsForm = reactive({
+  enabled: true,
+  tone_style: '',
+  base_prompt: '',
+  no_answer_text: '',
+  feishu_bot_config_url: '',
+  feishu_webhook_url: '',
+})
+const savingAiSettings = ref(false)
+const knowledgeDocs = ref([])
+const knowledgeTitle = ref('')
+const knowledgeInputRef = ref()
+const uploadingKnowledge = ref(false)
+const aiTickets = ref([])
 
 const loadAdminMe = async () => {
   const res = await consoleMe()
@@ -284,8 +376,8 @@ const loadUsers = async (targetPage = page.value) => {
   page.value = targetPage
   try {
     const res = await getConsoleUsers({ page: page.value, page_size: pageSize.value, keyword: keyword.value })
-    users.value = res.data.list
-    total.value = res.data.total
+    users.value = res.data.list || []
+    total.value = Number(res.data.total || 0)
   } catch (e) {
     ElMessage.error(e)
   }
@@ -317,6 +409,89 @@ const saveUser = async () => {
   }
 }
 
+const loadAiCsSettings = async () => {
+  try {
+    const res = await getAICsSettings()
+    Object.assign(aiCsForm, res.data || {})
+  } catch (e) {
+    ElMessage.error(e)
+  }
+}
+
+const saveAiCsSettings = async () => {
+  savingAiSettings.value = true
+  try {
+    await updateAICsSettings({ ...aiCsForm })
+    ElMessage.success('AI客服配置已保存')
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    savingAiSettings.value = false
+  }
+}
+
+const openFeishuIntegration = () => {
+  const url = (aiCsForm.feishu_bot_config_url || '').trim()
+  if (!url) {
+    ElMessage.warning('请先在上方填写飞书机器人配置地址')
+    return
+  }
+  window.open(url, '_blank')
+}
+
+const loadAiCsDocs = async () => {
+  try {
+    const res = await getAICsDocs()
+    knowledgeDocs.value = res.data || []
+  } catch (e) {
+    ElMessage.error(e)
+  }
+}
+
+const pickKnowledgeFile = () => {
+  if (knowledgeInputRef.value) knowledgeInputRef.value.click()
+}
+
+const handleKnowledgeFile = async (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+
+  uploadingKnowledge.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('title', knowledgeTitle.value || '')
+    const res = await uploadAICsKnowledge(formData)
+    ElMessage.success(`向量化成功，分块 ${res.data.chunk_count} 条`)
+    knowledgeTitle.value = ''
+    await loadAiCsDocs()
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    uploadingKnowledge.value = false
+  }
+}
+
+const loadAiCsTickets = async () => {
+  try {
+    const res = await getAICsTickets()
+    aiTickets.value = res.data || []
+  } catch (e) {
+    ElMessage.error(e)
+  }
+}
+
+const resolveTicket = async (id) => {
+  try {
+    await updateAICsTicket(id, { status: 'resolved' })
+    ElMessage.success('已标记为处理完成')
+    await loadAiCsTickets()
+  } catch (e) {
+    ElMessage.error(e)
+  }
+}
+
 const handleLogout = async () => {
   try {
     await consoleLogout()
@@ -330,10 +505,18 @@ const handleLogout = async () => {
 onMounted(async () => {
   try {
     await loadAdminMe()
-    await Promise.all([loadConfigs(), loadUsers(1)])
   } catch {
     router.push('/admin/login')
+    return
   }
+
+  await Promise.allSettled([
+    loadConfigs(),
+    loadUsers(1),
+    loadAiCsSettings(),
+    loadAiCsDocs(),
+    loadAiCsTickets(),
+  ])
 })
 </script>
 
@@ -388,16 +571,22 @@ onMounted(async () => {
   color: #8b97b1;
 }
 .avatar-thumb img { width: 100%; height: 100%; object-fit: contain; background: #171921; }
-.row-actions { margin-top: 8px; display: flex; gap: 10px; }
+.row-actions { margin-top: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
 .file-hidden { display: none; }
 .user-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .user-filter { display: flex; gap: 8px; }
 .pager-wrap { margin-top: 14px; display: flex; justify-content: flex-end; }
 .placeholder-title { margin: 0; }
 .placeholder-sub { margin-top: 8px; color: #aab4cb; }
+.kb-upload-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
 @media (max-width: 980px) {
   .admin-shell { grid-template-columns: 1fr; }
   .admin-sidebar { border-right: 0; border-bottom: 1px solid #e9edf4; }
   .avatar-row { grid-template-columns: 1fr; }
+  .kb-upload-row { grid-template-columns: 1fr; }
 }
 </style>

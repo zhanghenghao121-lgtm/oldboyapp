@@ -60,8 +60,15 @@
               <span>03</span>
               <p>提示词可配置</p>
             </div>
+            <div class="feature-item">
+              <span>04</span>
+              <p>AI客服问答</p>
+            </div>
           </div>
-          <el-button type="primary" class="main-btn" @click="$router.push('/script-optimizer')">进入完整剧本优化页</el-button>
+          <div class="entry-row">
+            <el-button type="primary" class="main-btn" @click="$router.push('/script-optimizer')">进入完整剧本优化页</el-button>
+            <el-button class="main-btn ghost-btn" @click="$router.push('/ai-customer')">进入 AI 客服</el-button>
+          </div>
         </div>
       </section>
     </main>
@@ -285,7 +292,7 @@ onMounted(async () => {
 }
 .feature-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -305,6 +312,15 @@ onMounted(async () => {
   font-size: 13px;
   color: #d8def4;
 }
+.entry-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ghost-btn {
+  background: linear-gradient(130deg, rgba(56, 161, 243, 0.56), rgba(73, 80, 200, 0.58));
+  border: 1px solid rgba(161, 218, 255, 0.42);
+}
 @keyframes floaty {
   0% { transform: translateY(0px) translateX(0px); }
   50% { transform: translateY(-14px) translateX(10px); }
@@ -318,6 +334,11 @@ onMounted(async () => {
     border-right: 0;
     border-bottom: 1px solid #eceef4;
   }
+  .feature-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 640px) {
   .feature-grid {
     grid-template-columns: 1fr;
   }

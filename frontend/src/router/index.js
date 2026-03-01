@@ -5,6 +5,7 @@ import ForgotPage from '../pages/ForgotPage.vue'
 import HomePage from '../pages/HomePage.vue'
 import ProfilePage from '../pages/ProfilePage.vue'
 import RechargePage from '../pages/RechargePage.vue'
+import AICustomerPage from '../pages/AICustomerPage.vue'
 import AdminLoginPage from '../pages/AdminLoginPage.vue'
 import AdminDashboardPage from '../pages/AdminDashboardPage.vue'
 import ScriptOptimizerPage from '../modules/script_optimizer/pages/ScriptOptimizerPage.vue'
@@ -21,6 +22,7 @@ const router = createRouter({
     { path: '/home', component: HomePage, meta: { requiresAuth: true } },
     { path: '/profile', component: ProfilePage, meta: { requiresAuth: true } },
     { path: '/recharge', component: RechargePage, meta: { requiresAuth: true } },
+    { path: '/ai-customer', component: AICustomerPage, meta: { requiresAuth: true } },
     { path: '/admin/login', component: AdminLoginPage },
     { path: '/admin/dashboard', component: AdminDashboardPage, meta: { requiresConsoleAuth: true } },
     { path: '/script-optimizer', component: ScriptOptimizerPage, meta: { requiresAuth: true } },

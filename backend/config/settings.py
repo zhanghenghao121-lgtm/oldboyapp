@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.storage",
     "apps.script_optimizer",
     "apps.console",
+    "apps.ai_customer",
 ]
 
 MIDDLEWARE = [
@@ -170,3 +171,15 @@ EMAIL_CODE_DAILY_LIMIT = env.int("EMAIL_CODE_DAILY_LIMIT", default=10)
 DEFAULT_AVATAR_URL = env("DEFAULT_AVATAR_URL", default=f"{COS_BASE_URL}/images/octopus-default.png" if COS_BASE_URL else "/octopus-avatar.svg")
 DEEPSEEK_API_KEY = env("DEEPSEEK_API_KEY", default="")
 DEEPSEEK_BASE_URL = env("DEEPSEEK_BASE_URL", default="https://api.deepseek.com")
+
+ARK_API_KEY = env("ARK_API_KEY", default="")
+ARK_EMBEDDING_BASE_URL = env("ARK_EMBEDDING_BASE_URL", default="https://ark.cn-beijing.volces.com/api/v3")
+ARK_EMBEDDING_MODEL = env("ARK_EMBEDDING_MODEL", default="doubao-embedding-vision-251215")
+QDRANT_URL = env("QDRANT_URL", default="")
+QDRANT_API_KEY = env("QDRANT_API_KEY", default="")
+QDRANT_COLLECTION = env("QDRANT_COLLECTION", default="oldboy_ai_customer")
+GLM_FREE_BASE_URL = env("GLM_FREE_BASE_URL", default="http://127.0.0.1:8001")
+GLM_FREE_API_KEY = env("GLM_FREE_API_KEY", default="")
+GLM_FREE_MODEL = env("GLM_FREE_MODEL", default="glm-4-flash")
+AI_CS_TOP_K = env.int("AI_CS_TOP_K", default=5)
+AI_CS_CONTEXT_MIN_SCORE = env.float("AI_CS_CONTEXT_MIN_SCORE", default=0.25)

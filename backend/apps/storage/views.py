@@ -15,6 +15,17 @@ from .serializers import UploadSerializer
 from .models import UploadedFileRecord, UploadAuditLog
 
 ALLOWED_CONTENT_PREFIXES = ("image/", "video/", "audio/")
+ALLOWED_CONTENT_TYPES = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/json",
+    "text/plain",
+    "text/csv",
+    "text/markdown",
+}
 ALLOWED_FOLDER_PATTERN = re.compile(r"^[a-zA-Z0-9/_-]{1,100}$")
 
 
@@ -148,7 +159,7 @@ def upload(request):
         )
         return bad("文件超过大小限制（最大10MB）", 413)
 
-    if not any(content_type.startswith(prefix) for prefix in ALLOWED_CONTENT_PREFIXES):
+    if (not any(content_type.startswith(prefix) for prefix in ALLOWED_CONTENT_PREFIXES)) and (content_type not in ALLOWED_CONTENT_TYPES):
         _audit(
             request,
             status=UploadAuditLog.STATUS_REJECTED,
@@ -158,7 +169,7 @@ def upload(request):
             content_type=content_type,
             size=size,
         )
-        return bad("仅支持图片、视频或音频文件上传", 415)
+        return bad("仅支持图片、视频、音频或文档文件上传", 415)
 
     if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
         _audit(

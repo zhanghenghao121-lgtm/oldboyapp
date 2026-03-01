@@ -71,12 +71,16 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
         raise RuntimeError("ARK_API_KEY 未配置")
     url = settings.ARK_EMBEDDING_BASE_URL.rstrip("/") + "/embeddings"
     payload = {"model": settings.ARK_EMBEDDING_MODEL, "input": texts}
-    resp = requests.post(
-        url,
-        json=payload,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        timeout=120,
-    )
+    timeout_s = max(int(getattr(settings, "ARK_EMBEDDING_TIMEOUT", 8)), 3)
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=timeout_s,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Embedding 请求失败: {exc}")
     if resp.status_code >= 400:
         raise RuntimeError(f"Embedding 接口错误({resp.status_code})")
     data = resp.json()
@@ -133,6 +137,8 @@ def upsert_chunks(document_id: int, chunks: List[str], vectors: List[List[float]
 
 
 def search_context(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
+    if not getattr(settings, "AI_CS_ENABLE_RAG", True):
+        return []
     query = (query or "").strip()
     if not query:
         return []

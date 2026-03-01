@@ -14,6 +14,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from PIL import Image, ImageDraw, ImageFilter
+from .models import PointsUsageLog
 from .serializers import (
     EmailCodeSerializer,
     RegisterSerializer,
@@ -353,6 +354,24 @@ def login_view(request):
 def me(request):
     user = request.user
     return ok({"user": _user_payload(user)})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def points_logs(request):
+    rows = PointsUsageLog.objects.filter(user=request.user).order_by("-id")[:100]
+    data = [
+        {
+            "id": row.id,
+            "usage_type": row.usage_type,
+            "amount": float(row.amount),
+            "balance_after": float(row.balance_after),
+            "description": row.description,
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]
+    return ok({"list": data})
 
 
 @csrf_exempt

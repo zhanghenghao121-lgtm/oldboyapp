@@ -36,19 +36,25 @@
           <p class="kicker">WELCOME TO</p>
           <h3>{{ panelTitle }}</h3>
         </div>
-        <el-dropdown @command="onUserAction">
-          <div class="avatar-entry">
-            <el-avatar :src="avatarSrc" :size="40" @error="handleAvatarError" />
-            <span class="name">{{ user?.username || '用户' }}</span>
-          </div>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">用户信息</el-dropdown-item>
-              <el-dropdown-item command="recharge">积分充值</el-dropdown-item>
-              <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <div class="head-right">
+          <button class="points-pill" type="button" @click="openPointsDialog">
+            <span class="points-label">积分</span>
+            <span class="points-value">{{ Number(user?.points || 0).toFixed(2) }}</span>
+          </button>
+          <el-dropdown @command="onUserAction">
+            <div class="avatar-entry">
+              <el-avatar :src="avatarSrc" :size="40" @error="handleAvatarError" />
+              <span class="name">{{ user?.username || '用户' }}</span>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="profile">用户信息</el-dropdown-item>
+                <el-dropdown-item command="recharge">积分充值</el-dropdown-item>
+                <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
       </header>
 
       <section class="main-content">
@@ -105,6 +111,26 @@
         </div>
       </section>
     </main>
+
+    <el-dialog v-model="pointsDialogVisible" title="积分使用明细" width="640px" class="points-dialog">
+      <div v-loading="pointsLoading">
+        <div v-if="!pointsLogs.length" class="points-empty">暂无积分明细</div>
+        <div v-else class="points-log-list">
+          <div v-for="item in pointsLogs" :key="item.id" class="points-log-item">
+            <div class="points-log-left">
+              <p class="points-log-desc">{{ item.description || usageTypeText(item.usage_type) }}</p>
+              <p class="points-log-time">{{ formatDate(item.created_at) }}</p>
+            </div>
+            <div class="points-log-right">
+              <span class="points-log-amount" :class="{ refund: Number(item.amount) < 0 }">
+                {{ Number(item.amount) < 0 ? '+' : '-' }}{{ Math.abs(Number(item.amount)).toFixed(2) }}
+              </span>
+              <span class="points-log-balance">余额 {{ Number(item.balance_after || 0).toFixed(2) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -112,7 +138,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { me, logout } from '../api/auth'
+import { getPointsLogs, me, logout } from '../api/auth'
 import { getSiteBackgrounds } from '../api/site'
 
 const router = useRouter()
@@ -121,6 +147,9 @@ const user = ref(null)
 const defaultAvatar = ref('')
 const fallbackAvatar = '/octopus-avatar.svg'
 const avatarLoadFailed = ref(false)
+const pointsDialogVisible = ref(false)
+const pointsLogs = ref([])
+const pointsLoading = ref(false)
 
 const panelTitle = computed(() => (activePanel.value === 'script' ? '剧本小优' : 'AI章鱼助手'))
 const avatarSrc = computed(() => {
@@ -146,6 +175,35 @@ const doLogout = async () => {
   await logout()
   ElMessage.success('已退出')
   router.push('/login')
+}
+
+const usageTypeText = (usageType) => {
+  if (usageType === 'script_storyboard') return '剧本分镜消耗'
+  if (usageType === 'paragraph_storyboard') return '段落分镜消耗'
+  if (usageType === 'refund') return '失败退款'
+  return '积分变动'
+}
+
+const formatDate = (value) => {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return String(value)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(
+    d.getHours()
+  ).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+const openPointsDialog = async () => {
+  pointsDialogVisible.value = true
+  pointsLoading.value = true
+  try {
+    const res = await getPointsLogs()
+    pointsLogs.value = res.data.list || []
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    pointsLoading.value = false
+  }
 }
 
 const onUserAction = async (command) => {
@@ -326,6 +384,11 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
 }
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .headline .kicker {
   margin: 0;
   font-size: 12px;
@@ -353,6 +416,29 @@ onMounted(async () => {
 .avatar-entry .name {
   color: #fff;
   font-weight: 600;
+}
+.points-pill {
+  border: 1px solid rgba(147, 226, 255, 0.6);
+  border-radius: 999px;
+  min-height: 42px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(128deg, rgba(26, 102, 177, 0.75), rgba(44, 52, 152, 0.78));
+  color: #ebf7ff;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(180, 229, 255, 0.2), 0 0 16px rgba(92, 200, 255, 0.38);
+}
+.points-label {
+  font-size: 12px;
+  opacity: 0.9;
+}
+.points-value {
+  font-family: "Orbitron", "Plus Jakarta Sans", sans-serif;
+  font-size: 15px;
+  letter-spacing: 0.3px;
+  text-shadow: 0 0 9px rgba(128, 228, 255, 0.44);
 }
 .main-content {
   position: relative;
@@ -406,6 +492,55 @@ onMounted(async () => {
   gap: 10px;
   flex-wrap: wrap;
 }
+.points-empty {
+  text-align: center;
+  color: #b8cde9;
+  padding: 24px 0;
+}
+.points-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+}
+.points-log-item {
+  border: 1px solid rgba(126, 198, 255, 0.35);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  background: linear-gradient(130deg, rgba(22, 38, 87, 0.55), rgba(26, 29, 73, 0.58));
+}
+.points-log-desc {
+  margin: 0;
+  color: #e8f5ff;
+}
+.points-log-time {
+  margin: 6px 0 0;
+  color: #9cbde2;
+  font-size: 12px;
+}
+.points-log-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.points-log-amount {
+  font-family: "Orbitron", "Plus Jakarta Sans", sans-serif;
+  color: #ffb2d9;
+  font-size: 16px;
+  font-weight: 800;
+}
+.points-log-amount.refund {
+  color: #8fe8ff;
+}
+.points-log-balance {
+  margin-top: 4px;
+  color: #b7d6f4;
+  font-size: 12px;
+}
 @keyframes floaty {
   0% { transform: translateY(0px) translateX(0px); }
   50% { transform: translateY(-14px) translateX(10px); }
@@ -418,6 +553,13 @@ onMounted(async () => {
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid #eceef4;
+  }
+  .head-right {
+    gap: 6px;
+  }
+  .points-pill {
+    min-height: 38px;
+    padding: 0 10px;
   }
   .feature-grid {
     grid-template-columns: 1fr 1fr;

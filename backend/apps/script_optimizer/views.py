@@ -7,6 +7,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from apps.accounts.models import PointsUsageLog
+
 User = get_user_model()
 POINTS_COST_PER_CHAR = Decimal("0.01")
 
@@ -41,7 +43,7 @@ def _calc_required_points(script_text: str) -> Decimal:
     return Decimal(len(script_text)) * POINTS_COST_PER_CHAR
 
 
-def _consume_user_points(user_id: int, required_points: Decimal):
+def _consume_user_points(user_id: int, required_points: Decimal, usage_type: str, description: str):
     with transaction.atomic():
         user = User.objects.select_for_update().get(id=user_id)
         balance = Decimal(user.points or 0)
@@ -49,6 +51,13 @@ def _consume_user_points(user_id: int, required_points: Decimal):
             return None, f"积分不足（当前 {balance:.2f}，需 {required_points:.2f}）"
         user.points = balance - required_points
         user.save(update_fields=["points"])
+        PointsUsageLog.objects.create(
+            user=user,
+            usage_type=usage_type,
+            amount=required_points,
+            balance_after=user.points,
+            description=description[:255],
+        )
         return Decimal(user.points), None
 
 
@@ -57,6 +66,13 @@ def _refund_user_points(user_id: int, points: Decimal):
         user = User.objects.select_for_update().get(id=user_id)
         user.points = Decimal(user.points or 0) + points
         user.save(update_fields=["points"])
+        PointsUsageLog.objects.create(
+            user=user,
+            usage_type=PointsUsageLog.TYPE_REFUND,
+            amount=-points,
+            balance_after=user.points,
+            description="模型调用失败自动退款",
+        )
 
 
 def _call_deepseek(system_prompt: str, user_prompt: str):
@@ -112,7 +128,12 @@ def storyboard(request):
     if len(script_text) > 10000:
         return bad("剧本最多10000字")
     required_points = _calc_required_points(script_text)
-    remaining_points, err = _consume_user_points(request.user.id, required_points)
+    remaining_points, err = _consume_user_points(
+        request.user.id,
+        required_points,
+        PointsUsageLog.TYPE_SCRIPT_STORYBOARD,
+        f"剧本分镜消耗，字数 {len(script_text)}",
+    )
     if err:
         return bad(err, 402)
 
@@ -147,7 +168,12 @@ def paragraph_storyboard(request):
     if len(script_text) > 10000:
         return bad("剧本最多10000字")
     required_points = _calc_required_points(script_text)
-    remaining_points, err = _consume_user_points(request.user.id, required_points)
+    remaining_points, err = _consume_user_points(
+        request.user.id,
+        required_points,
+        PointsUsageLog.TYPE_PARAGRAPH_STORYBOARD,
+        f"段落分镜消耗，字数 {len(script_text)}",
+    )
     if err:
         return bad(err, 402)
 

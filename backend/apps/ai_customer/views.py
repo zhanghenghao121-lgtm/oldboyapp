@@ -74,13 +74,13 @@ def chat_history(request):
 
 @csrf_exempt
 def chat_stream(request):
-    if not request.user.is_authenticated:
-        return _sse_error("请先登录", 401)
-
-    if request.method != "POST":
-        return _sse_error("Method not allowed", 405)
-
     try:
+        if not request.user.is_authenticated:
+            return _sse_error("请先登录", 401)
+
+        if request.method != "POST":
+            return _sse_error("Method not allowed", 405)
+
         try:
             payload = json.loads((request.body or b"{}").decode("utf-8"))
         except Exception:
@@ -118,7 +118,7 @@ def chat_stream(request):
 
         llm_messages = [{"role": "system", "content": system_prompt}, *recent_messages]
     except Exception as exc:
-        logger.exception("chat_stream preflight error: %s", exc)
+        logger.exception("chat_stream fatal error: %s", exc)
         return _sse_error("服务暂时不可用，请稍后重试", 500)
 
     def gen():

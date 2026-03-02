@@ -157,7 +157,7 @@
             <el-input v-model="aiCsForm.feishu_webhook_url" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." />
           </el-form-item>
         </el-form>
-        <div class="row-actions">
+        <div class="row-actions ai-actions">
           <el-button class="main-btn" type="primary" :loading="savingAiSettings" @click="saveAiCsSettings">保存AI客服配置</el-button>
           <el-button plain @click="openFeishuIntegration">集成飞书</el-button>
         </div>
@@ -758,6 +758,12 @@ onMounted(async () => {
 }
 .avatar-thumb img { width: 100%; height: 100%; object-fit: contain; background: #171921; }
 .row-actions { margin-top: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+.ai-actions {
+  margin-top: 18px;
+  padding-top: 4px;
+  position: relative;
+  z-index: 2;
+}
 .file-hidden { display: none; }
 .user-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .user-filter { display: flex; gap: 8px; }

@@ -791,6 +791,18 @@ onMounted(async () => {
   border: 1px solid rgba(118, 171, 255, 0.34);
   background: linear-gradient(135deg, rgba(31, 42, 94, 0.72), rgba(29, 32, 78, 0.74));
 }
+:deep(.metric-card .el-statistic__head) {
+  color: #d7e8ff;
+  font-family: "Plus Jakarta Sans", "PingFang SC", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+:deep(.metric-card .el-statistic__content) {
+  color: #f4fbff;
+  font-family: "Orbitron", "Plus Jakarta Sans", sans-serif;
+  font-weight: 800;
+  text-shadow: 0 0 12px rgba(104, 206, 255, 0.34);
+}
 .avatar-row { display: grid; grid-template-columns: 170px 1fr; gap: 12px; }
 .row-label { margin: 0 0 8px; color: #e8edf8; font-weight: 600; }
 .avatar-thumb {

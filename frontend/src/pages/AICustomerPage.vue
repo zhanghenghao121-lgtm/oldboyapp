@@ -9,7 +9,7 @@
         <div class="head-actions">
           <el-button class="neon-btn reply-btn" @click="openRepliesDialog">
             人工回复
-            <span v-if="humanReplies.length" class="reply-count">{{ humanReplies.length }}</span>
+            <span v-if="unreadReplyCount > 0" class="reply-count">{{ unreadReplyCount }}</span>
           </el-button>
           <el-button class="neon-btn" @click="$router.push('/home')">返回首页</el-button>
         </div>
@@ -75,7 +75,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getAiCustomerHistory, getAiCustomerHumanReplies } from '../api/aiCustomer'
@@ -96,6 +96,44 @@ const fallbackAvatar = '/octopus-avatar.svg'
 const userAvatarSrc = computed(() => (userAvatarFailed.value ? fallbackAvatar : (userAvatar.value || fallbackAvatar)))
 const repliesDialogVisible = ref(false)
 const humanReplies = ref([])
+const userId = ref('')
+const seenReplyVersionMap = ref({})
+const seenReplyStorageKey = computed(() => `ai_cs_seen_replies:${userId.value || 'guest'}`)
+const unreadReplyCount = computed(() =>
+  humanReplies.value.filter((item) => {
+    const version = item?.replied_at || ''
+    return seenReplyVersionMap.value[String(item.id)] !== version
+  }).length
+)
+
+const loadSeenReplies = () => {
+  try {
+    const raw = localStorage.getItem(seenReplyStorageKey.value)
+    const data = raw ? JSON.parse(raw) : {}
+    seenReplyVersionMap.value = data && typeof data === 'object' ? data : {}
+  } catch {
+    seenReplyVersionMap.value = {}
+  }
+}
+
+const persistSeenReplies = () => {
+  try {
+    localStorage.setItem(seenReplyStorageKey.value, JSON.stringify(seenReplyVersionMap.value))
+  } catch {
+    // ignore storage failure
+  }
+}
+
+const markRepliesAsRead = (items = humanReplies.value) => {
+  if (!Array.isArray(items) || !items.length) return
+  const nextMap = { ...seenReplyVersionMap.value }
+  items.forEach((item) => {
+    if (!item || !item.id) return
+    nextMap[String(item.id)] = item.replied_at || ''
+  })
+  seenReplyVersionMap.value = nextMap
+  persistSeenReplies()
+}
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -119,6 +157,8 @@ const loadMe = async () => {
   const res = await me()
   userAvatar.value = res.data.user?.avatar_url || '/octopus-avatar.svg'
   userAvatarFailed.value = false
+  userId.value = String(res.data.user?.id || '')
+  loadSeenReplies()
 }
 
 const loadHumanReplies = async () => {
@@ -130,6 +170,7 @@ const openRepliesDialog = async () => {
   try {
     await loadHumanReplies()
     repliesDialogVisible.value = true
+    markRepliesAsRead()
   } catch (e) {
     ElMessage.error(String(e || '获取人工回复失败'))
   }
@@ -269,6 +310,10 @@ onMounted(async () => {
   } catch {
     router.push('/login')
   }
+})
+
+watch(seenReplyStorageKey, () => {
+  loadSeenReplies()
 })
 </script>
 

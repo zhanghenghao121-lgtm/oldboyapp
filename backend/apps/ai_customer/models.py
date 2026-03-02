@@ -85,6 +85,7 @@ class HumanHandoverTicket(models.Model):
     question = models.TextField()
     ai_reply = models.TextField(blank=True, default="")
     admin_reply = models.TextField(blank=True, default="")
+    synced_to_knowledge = models.BooleanField(default=False)
     attachments = models.JSONField(default=list, blank=True)
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_UNREAD)
     created_at = models.DateTimeField(auto_now_add=True)

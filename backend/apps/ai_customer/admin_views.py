@@ -140,6 +140,7 @@ def ai_cs_tickets(request):
                     "question": row.question,
                     "ai_reply": row.ai_reply,
                     "admin_reply": row.admin_reply,
+                    "synced_to_knowledge": row.synced_to_knowledge,
                     "attachments": row.attachments,
                     "status": row.status,
                     "created_at": row.created_at,
@@ -173,6 +174,74 @@ def ai_cs_ticket_update(request, ticket_id: int):
             return bad("回复内容不能为空")
         row.admin_reply = reply
         row.status = HumanHandoverTicket.STATUS_READ
-        row.save(update_fields=["admin_reply", "status", "updated_at"])
+        row.synced_to_knowledge = False
+        row.save(update_fields=["admin_reply", "status", "synced_to_knowledge", "updated_at"])
         return ok({"id": row.id, "status": row.status, "admin_reply": row.admin_reply})
     return bad("操作不支持")
+
+
+@api_view(["POST"])
+@permission_classes([IsConsoleAdmin])
+@csrf_exempt
+def ai_cs_ticket_sync_knowledge(request):
+    raw_ids = request.data.get("ticket_ids") or []
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return bad("请选择要入库的工单")
+
+    ticket_ids = []
+    for item in raw_ids:
+        try:
+            ticket_ids.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    if not ticket_ids:
+        return bad("工单参数无效")
+
+    rows = list(HumanHandoverTicket.objects.filter(id__in=ticket_ids).order_by("id"))
+    if not rows:
+        return bad("工单不存在", 404)
+
+    texts = []
+    valid_rows = []
+    for row in rows:
+        question = (row.question or "").strip()
+        answer = (row.admin_reply or "").strip()
+        if not question or not answer:
+            continue
+        text = f"用户问题：{question}\n人工回复：{answer}\n来源工单ID：{row.id}"
+        texts.append(text)
+        valid_rows.append(row)
+
+    if not texts:
+        return bad("所选工单没有可入库的人工回复")
+
+    doc = KnowledgeDocument.objects.create(
+        title=f"人工客服回复入库（{len(valid_rows)}条）",
+        source_name="human_service_tickets",
+        created_by=getattr(request, "console_user", None),
+        status=KnowledgeDocument.STATUS_PENDING,
+    )
+
+    try:
+        vectors = embed_texts(texts)
+        vector_ids = upsert_chunks(doc.id, texts, vectors)
+        chunks = [
+            KnowledgeChunk(document=doc, chunk_index=i, text=texts[i], vector_id=vector_ids[i])
+            for i in range(len(texts))
+        ]
+        KnowledgeChunk.objects.bulk_create(chunks)
+        doc.status = KnowledgeDocument.STATUS_SUCCESS
+        doc.chunk_count = len(texts)
+        doc.error_message = ""
+        doc.save(update_fields=["status", "chunk_count", "error_message", "updated_at"])
+
+        for row in valid_rows:
+            row.synced_to_knowledge = True
+            row.save(update_fields=["synced_to_knowledge", "updated_at"])
+
+        return ok({"doc_id": doc.id, "count": len(texts)})
+    except Exception as exc:
+        doc.status = KnowledgeDocument.STATUS_FAILED
+        doc.error_message = str(exc)[:255]
+        doc.save(update_fields=["status", "error_message", "updated_at"])
+        return bad(f"入库失败：{exc}", 500)

@@ -6,7 +6,13 @@
           <h2>AI章鱼助手</h2>
           <p>一个个性化的助手</p>
         </div>
-        <el-button class="neon-btn" @click="$router.push('/home')">返回首页</el-button>
+        <div class="head-actions">
+          <el-button class="neon-btn reply-btn" @click="openRepliesDialog">
+            人工回复
+            <span v-if="humanReplies.length" class="reply-count">{{ humanReplies.length }}</span>
+          </el-button>
+          <el-button class="neon-btn" @click="$router.push('/home')">返回首页</el-button>
+        </div>
       </header>
 
       <div class="chat-window" ref="chatWindowRef">
@@ -54,6 +60,17 @@
         <el-button class="main-btn neon-send-btn" type="primary" :loading="sending" @click="send">发送</el-button>
       </div>
     </el-card>
+
+    <el-dialog v-model="repliesDialogVisible" title="人工回复" width="680px">
+      <div v-if="!humanReplies.length" class="replies-empty">暂未收到人工回复</div>
+      <div v-else class="replies-list">
+        <div v-for="item in humanReplies" :key="item.id" class="reply-item">
+          <p class="reply-item-title">针对问题：{{ item.question }}</p>
+          <p class="reply-item-content">人工回复：{{ item.admin_reply }}</p>
+          <p class="reply-item-time">{{ formatDate(item.replied_at) }}</p>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -61,7 +78,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getAiCustomerHistory } from '../api/aiCustomer'
+import { getAiCustomerHistory, getAiCustomerHumanReplies } from '../api/aiCustomer'
 import { me } from '../api/auth'
 import { uploadToCos } from '../api/storage'
 
@@ -77,6 +94,8 @@ const aiAvatar = '/octopus-avatar.svg'
 const userAvatarFailed = ref(false)
 const fallbackAvatar = '/octopus-avatar.svg'
 const userAvatarSrc = computed(() => (userAvatarFailed.value ? fallbackAvatar : (userAvatar.value || fallbackAvatar)))
+const repliesDialogVisible = ref(false)
+const humanReplies = ref([])
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -100,6 +119,29 @@ const loadMe = async () => {
   const res = await me()
   userAvatar.value = res.data.user?.avatar_url || '/octopus-avatar.svg'
   userAvatarFailed.value = false
+}
+
+const loadHumanReplies = async () => {
+  const res = await getAiCustomerHumanReplies()
+  humanReplies.value = res.data.list || []
+}
+
+const openRepliesDialog = async () => {
+  try {
+    await loadHumanReplies()
+    repliesDialogVisible.value = true
+  } catch (e) {
+    ElMessage.error(String(e || '获取人工回复失败'))
+  }
+}
+
+const formatDate = (value) => {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return String(value)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(
+    d.getHours()
+  ).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 const handleUserAvatarError = () => {
@@ -223,7 +265,7 @@ const send = async () => {
 
 onMounted(async () => {
   try {
-    await Promise.all([loadHistory(), loadMe()])
+    await Promise.all([loadHistory(), loadMe(), loadHumanReplies()])
   } catch {
     router.push('/login')
   }
@@ -241,6 +283,27 @@ onMounted(async () => {
 }
 .chat-head h2 { margin: 0; }
 .chat-head p { margin: 6px 0 0; color: #c1d3f3; }
+.head-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+.reply-btn {
+  position: relative;
+}
+.reply-count {
+  margin-left: 6px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(130deg, #ff5c88, #ff6f63);
+  box-shadow: 0 0 10px rgba(255, 97, 137, 0.52);
+}
 .neon-btn {
   border: 1px solid rgba(164, 223, 255, 0.66);
   color: #ebf8ff;
@@ -350,6 +413,38 @@ onMounted(async () => {
 }
 .neon-input :deep(.el-textarea__inner::placeholder) {
   color: #97bcde;
+}
+.replies-empty {
+  text-align: center;
+  color: #abc4e8;
+  padding: 20px 0;
+}
+.replies-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 460px;
+  overflow: auto;
+}
+.reply-item {
+  border: 1px solid rgba(126, 198, 255, 0.35);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: linear-gradient(130deg, rgba(22, 38, 87, 0.55), rgba(26, 29, 73, 0.58));
+}
+.reply-item-title,
+.reply-item-content {
+  margin: 0;
+  color: #e9f6ff;
+  white-space: pre-wrap;
+}
+.reply-item-content {
+  margin-top: 8px;
+}
+.reply-item-time {
+  margin: 8px 0 0;
+  color: #a0bfdf;
+  font-size: 12px;
 }
 @keyframes thinking {
   0%, 80%, 100% { transform: scale(0.75); opacity: 0.55; }

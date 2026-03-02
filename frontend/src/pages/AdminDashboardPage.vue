@@ -183,8 +183,14 @@
 
       <section v-if="activeModule === 'human_service'" class="panel-card">
         <h4 class="placeholder-title">AI客服转人工工单</h4>
-        <el-button plain class="neon-btn" @click="loadAiCsTickets">刷新工单</el-button>
-        <el-table :data="aiTickets" style="width: 100%; margin-top: 12px" stripe>
+        <div class="row-actions">
+          <el-button plain class="neon-btn" @click="loadAiCsTickets">刷新工单</el-button>
+          <el-button class="main-btn" :disabled="!selectedTicketIds.length" :loading="syncingKnowledge" @click="batchSyncKnowledge">
+            批量加入知识库
+          </el-button>
+        </div>
+        <el-table :data="aiTickets" style="width: 100%; margin-top: 12px" stripe @selection-change="onTicketSelectionChange">
+          <el-table-column type="selection" width="46" />
           <el-table-column prop="id" label="ID" width="70" />
           <el-table-column prop="username" label="用户" width="100" />
           <el-table-column prop="question" label="用户问题" min-width="200" />
@@ -196,11 +202,18 @@
               <el-tag v-else type="info">忽略</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="230">
+          <el-table-column label="知识库" width="94">
+            <template #default="scope">
+              <el-tag v-if="scope.row.synced_to_knowledge" type="success">已入库</el-tag>
+              <el-tag v-else type="warning">未入库</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="290">
             <template #default="scope">
               <el-button link type="primary" @click="openReplyDialog(scope.row)">回复</el-button>
               <el-button link type="warning" @click="markTicketRead(scope.row.id)">已读</el-button>
               <el-button link type="info" @click="ignoreTicket(scope.row.id)">忽略</el-button>
+              <el-button link type="success" :disabled="!scope.row.admin_reply" @click="syncOneTicket(scope.row.id)">加入知识库</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -254,6 +267,7 @@ import {
   consoleLogout,
   consoleMe,
   getConsoleUsers,
+  syncAICsTicketsToKnowledge,
   updateAICsSettings,
   updateAICsTicket,
   updateConsoleConfig,
@@ -310,6 +324,8 @@ const replyVisible = ref(false)
 const replyText = ref('')
 const replying = ref(false)
 const replyTarget = reactive({ id: null, question: '' })
+const selectedTicketIds = ref([])
+const syncingKnowledge = ref(false)
 
 const toggleAiMenu = () => {
   aiMenuOpen.value = !aiMenuOpen.value
@@ -538,6 +554,10 @@ const loadAiCsTickets = async () => {
   }
 }
 
+const onTicketSelectionChange = (rows) => {
+  selectedTicketIds.value = (rows || []).map((item) => item.id)
+}
+
 const markTicketRead = async (id) => {
   try {
     await updateAICsTicket(id, { action: 'read' })
@@ -581,6 +601,34 @@ const submitReply = async () => {
     ElMessage.error(e)
   } finally {
     replying.value = false
+  }
+}
+
+const syncOneTicket = async (ticketId) => {
+  syncingKnowledge.value = true
+  try {
+    const res = await syncAICsTicketsToKnowledge({ ticket_ids: [ticketId] })
+    ElMessage.success(`入库成功，共 ${res.data.count} 条`)
+    await Promise.all([loadAiCsDocs(), loadAiCsTickets()])
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    syncingKnowledge.value = false
+  }
+}
+
+const batchSyncKnowledge = async () => {
+  if (!selectedTicketIds.value.length) return
+  syncingKnowledge.value = true
+  try {
+    const res = await syncAICsTicketsToKnowledge({ ticket_ids: selectedTicketIds.value })
+    ElMessage.success(`批量入库成功，共 ${res.data.count} 条`)
+    selectedTicketIds.value = []
+    await Promise.all([loadAiCsDocs(), loadAiCsTickets()])
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    syncingKnowledge.value = false
   }
 }
 

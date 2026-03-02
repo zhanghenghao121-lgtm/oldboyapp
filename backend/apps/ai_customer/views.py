@@ -72,6 +72,30 @@ def chat_history(request):
     )
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def human_replies(request):
+    rows = (
+        HumanHandoverTicket.objects.filter(user=request.user)
+        .exclude(admin_reply="")
+        .order_by("-updated_at")[:100]
+    )
+    return ok(
+        {
+            "list": [
+                {
+                    "id": row.id,
+                    "question": row.question,
+                    "admin_reply": row.admin_reply,
+                    "status": row.status,
+                    "replied_at": row.updated_at,
+                }
+                for row in rows
+            ]
+        }
+    )
+
+
 @csrf_exempt
 def chat_stream(request):
     try:

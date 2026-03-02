@@ -40,3 +40,4 @@ export const uploadAICsKnowledge = (formData) => {
 }
 export const getAICsTickets = () => http.get('/console/ai-cs/tickets', consoleHeaders())
 export const updateAICsTicket = (ticketId, payload) => http.patch(`/console/ai-cs/tickets/${ticketId}`, payload, consoleHeaders())
+export const syncAICsTicketsToKnowledge = (payload) => http.post('/console/ai-cs/tickets/sync-knowledge', payload, consoleHeaders())

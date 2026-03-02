@@ -96,11 +96,33 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
         raise RuntimeError(f"Embedding 请求失败: {exc}")
     if resp.status_code >= 400:
         raise RuntimeError(f"Embedding 接口错误({resp.status_code})")
-    data = resp.json()
+    try:
+        data = resp.json()
+    except ValueError:
+        raise RuntimeError("Embedding 返回非JSON格式")
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Embedding 顶层返回结构异常: {type(data).__name__}")
     items = data.get("data") or []
     if not items:
         raise RuntimeError("Embedding 返回为空")
-    items = sorted(items, key=lambda x: x.get("index", 0))
+    if isinstance(items, dict):
+        items = [items]
+    if not isinstance(items, list):
+        raise RuntimeError("Embedding 返回结构异常")
+
+    normalized = []
+    for idx, item in enumerate(items):
+        if isinstance(item, dict):
+            normalized.append(item)
+            continue
+        # Some providers may return vector list directly.
+        if isinstance(item, list) and item and isinstance(item[0], (int, float)):
+            normalized.append({"index": idx, "embedding": item})
+            continue
+        # Skip unsupported item shape, but don't crash on `.get`.
+    items = sorted(normalized, key=lambda x: x.get("index", 0))
+    if not items:
+        raise RuntimeError(f"Embedding 返回结构不支持: {str(data)[:180]}")
 
     def pick_dense_embedding(item):
         if item.get("embedding"):
@@ -118,7 +140,7 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     vectors = [pick_dense_embedding(item) for item in items]
     vectors = [vec for vec in vectors if vec]
     if len(vectors) != len(texts):
-        raise RuntimeError("Embedding 返回数量异常")
+        raise RuntimeError(f"Embedding 返回数量异常: got={len(vectors)} expected={len(texts)}")
     return vectors
 
 

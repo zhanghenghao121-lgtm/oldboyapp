@@ -842,11 +842,18 @@ onMounted(async () => {
 :deep(.el-table) {
   --el-table-bg-color: rgba(21, 28, 72, 0.5);
   --el-table-tr-bg-color: rgba(21, 28, 72, 0.5);
+  --el-table-striped-bg-color: rgba(18, 24, 64, 0.72);
   --el-table-border-color: rgba(125, 170, 255, 0.3);
   --el-table-header-bg-color: rgba(36, 56, 122, 0.5);
   --el-table-header-text-color: #e8f3ff;
   --el-table-row-hover-bg-color: rgba(64, 125, 211, 0.2);
   color: #dce8ff;
+}
+:deep(.el-table__body tr > td.el-table__cell) {
+  background-color: rgba(21, 28, 72, 0.5);
+}
+:deep(.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell) {
+  background-color: rgba(18, 24, 64, 0.72);
 }
 :deep(.el-input__wrapper),
 :deep(.el-textarea__inner),

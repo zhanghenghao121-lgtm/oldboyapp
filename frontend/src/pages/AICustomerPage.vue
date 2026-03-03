@@ -7,6 +7,7 @@
           <p>一个个性化的助手</p>
         </div>
         <div class="head-actions">
+          <el-button class="neon-btn" @click="resumeDialogVisible = true">简历助手</el-button>
           <el-button class="neon-btn reply-btn" @click="openRepliesDialog">
             人工回复
             <span v-if="unreadReplyCount > 0" class="reply-count">{{ unreadReplyCount }}</span>
@@ -74,6 +75,33 @@
         </div>
       </div>
     </el-dialog>
+
+    <el-dialog v-model="resumeDialogVisible" title="简历助手" width="700px">
+      <el-form label-width="96px" class="resume-form">
+        <el-form-item label="职位名称">
+          <el-input v-model="resumeJobTitle" placeholder="请输入职位名称，例如：Java后端工程师" />
+        </el-form-item>
+        <el-form-item label="职位截图">
+          <div class="resume-upload">
+            <input ref="resumeFileInputRef" type="file" class="file-hidden" accept="image/*" multiple @change="handleResumeFiles" />
+            <el-button class="neon-btn" @click="pickResumeFiles">上传职位要求截图</el-button>
+            <span class="file-tip" v-if="resumeFiles.length">已选 {{ resumeFiles.length }} 张</span>
+          </div>
+        </el-form-item>
+        <el-form-item>
+          <el-alert
+            title="生成简历将消耗 10 积分，请上传清晰截图（可多张）"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="resumeDialogVisible = false">取消</el-button>
+        <el-button class="main-btn" type="primary" :loading="resumeGenerating" @click="generateResumePdf">生成简历PDF</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -81,7 +109,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { clearAiCustomerHumanReplies, getAiCustomerHistory, getAiCustomerHumanReplies } from '../api/aiCustomer'
+import { clearAiCustomerHumanReplies, generateResumeAssistant, getAiCustomerHistory, getAiCustomerHumanReplies } from '../api/aiCustomer'
 import { me } from '../api/auth'
 import { uploadToCos } from '../api/storage'
 
@@ -100,6 +128,11 @@ const userAvatarSrc = computed(() => (userAvatarFailed.value ? fallbackAvatar : 
 const repliesDialogVisible = ref(false)
 const humanReplies = ref([])
 const clearingReplies = ref(false)
+const resumeDialogVisible = ref(false)
+const resumeGenerating = ref(false)
+const resumeJobTitle = ref('')
+const resumeFiles = ref([])
+const resumeFileInputRef = ref()
 const userId = ref('')
 const seenReplyVersionMap = ref({})
 const seenReplyStorageKey = computed(() => `ai_cs_seen_replies:${userId.value || 'guest'}`)
@@ -229,6 +262,73 @@ const handleFiles = (event) => {
   event.target.value = ''
   if (!files.length) return
   pendingFiles.value.push(...files)
+}
+
+const pickResumeFiles = () => {
+  if (resumeFileInputRef.value) resumeFileInputRef.value.click()
+}
+
+const handleResumeFiles = (event) => {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (!files.length) return
+  resumeFiles.value.push(...files)
+}
+
+const generateResumePdf = async () => {
+  const title = resumeJobTitle.value.trim()
+  if (!title) {
+    ElMessage.warning('请输入职位名称')
+    return
+  }
+  if (!resumeFiles.value.length) {
+    ElMessage.warning('请上传职位要求截图')
+    return
+  }
+  resumeGenerating.value = true
+  try {
+    const uploaded = []
+    for (const file of resumeFiles.value) {
+      if (!file.type.startsWith('image/')) {
+        throw new Error(`仅支持图片截图: ${file.name}`)
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error(`截图过大(>10MB): ${file.name}`)
+      }
+      const res = await uploadToCos(file, 'ai-customer/resume')
+      uploaded.push(res.data.url)
+    }
+    const res = await generateResumeAssistant({
+      job_title: title,
+      image_urls: uploaded,
+    })
+    const pdfUrl = res.data.pdf_url
+    if (pdfUrl) {
+      window.open(pdfUrl, '_blank')
+    }
+    ElMessage.success(`简历PDF已生成，已消耗 ${Number(res.data.cost_points || 10).toFixed(2)} 积分`)
+    resumeFiles.value = []
+    resumeJobTitle.value = ''
+    resumeDialogVisible.value = false
+  } catch (e) {
+    const msg = String(e || '简历助手执行失败')
+    if (msg.includes('积分不足')) {
+      try {
+        await ElMessageBox.confirm('积分不足，是否前往充值页面？', '积分不足', {
+          confirmButtonText: '去充值',
+          cancelButtonText: '取消',
+          customClass: 'anime-neon-message-box',
+        })
+        router.push('/recharge')
+      } catch {
+        // noop
+      }
+      return
+    }
+    ElMessage.error(msg)
+  } finally {
+    resumeGenerating.value = false
+  }
 }
 
 const uploadPendingFiles = async () => {
@@ -461,6 +561,12 @@ watch(seenReplyStorageKey, () => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.resume-upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .file-tip { color: #abcbef; font-size: 12px; }
 .file-hidden { display: none; }

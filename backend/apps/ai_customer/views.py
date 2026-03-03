@@ -1,18 +1,24 @@
 import json
 import logging
 import requests
+from decimal import Decimal
+from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.http import StreamingHttpResponse
+from django.db import transaction
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.accounts.models import PointsUsageLog
 from apps.ai_customer.models import AICustomerSetting, ChatMessage, HumanHandoverTicket, HumanReplyClearState
 from apps.ai_customer.services import build_system_prompt, search_context, stream_llm_answer
+from apps.ai_customer.resume_services import ResumeAssistantError, run_resume_assistant, resume_points_cost
 
 logger = logging.getLogger(__name__)
+User = get_user_model()
 
 
 def ok(data=None):
@@ -21,6 +27,38 @@ def ok(data=None):
 
 def bad(message, status=400):
     return Response({"ok": False, "message": message}, status=status)
+
+
+def _consume_user_points(user_id: int, required_points: Decimal, usage_type: str, description: str):
+    with transaction.atomic():
+        user = User.objects.select_for_update().get(id=user_id)
+        balance = Decimal(user.points or 0)
+        if balance < required_points:
+            return None, f"积分不足（当前 {balance:.2f}，需 {required_points:.2f}）"
+        user.points = balance - required_points
+        user.save(update_fields=["points"])
+        PointsUsageLog.objects.create(
+            user=user,
+            usage_type=usage_type,
+            amount=required_points,
+            balance_after=user.points,
+            description=description[:255],
+        )
+        return Decimal(user.points), None
+
+
+def _refund_user_points(user_id: int, points: Decimal, description: str):
+    with transaction.atomic():
+        user = User.objects.select_for_update().get(id=user_id)
+        user.points = Decimal(user.points or 0) + points
+        user.save(update_fields=["points"])
+        PointsUsageLog.objects.create(
+            user=user,
+            usage_type=PointsUsageLog.TYPE_REFUND,
+            amount=-points,
+            balance_after=user.points,
+            description=description[:255],
+        )
 
 
 def _sse_error(message: str, status: int = 400):
@@ -106,6 +144,52 @@ def clear_human_replies(request):
         defaults={"cleared_at": timezone.now()},
     )
     return ok({"cleared": True})
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def resume_assistant_generate(request):
+    payload = request.data or {}
+    job_title = str(payload.get("job_title", "")).strip()
+    image_urls = payload.get("image_urls") or []
+    if not job_title:
+        return bad("请输入职位名称")
+    if not isinstance(image_urls, list) or not image_urls:
+        return bad("请上传职位要求截图")
+
+    cost_points = resume_points_cost()
+    remaining_points, err = _consume_user_points(
+        request.user.id,
+        cost_points,
+        PointsUsageLog.TYPE_RESUME_ASSISTANT,
+        f"简历助手消耗，职位：{job_title}",
+    )
+    if err:
+        return bad(err, 402)
+
+    try:
+        setting = AICustomerSetting.singleton()
+        result = run_resume_assistant(
+            user=request.user,
+            setting=setting,
+            job_title=job_title,
+            image_urls=image_urls,
+        )
+        return ok(
+            {
+                **result,
+                "cost_points": float(cost_points),
+                "remaining_points": float(remaining_points),
+            }
+        )
+    except ResumeAssistantError as exc:
+        _refund_user_points(request.user.id, cost_points, "简历助手生成失败自动退款")
+        return bad(f"简历助手失败：{exc}", exc.status)
+    except Exception:
+        logger.exception("resume assistant fatal error")
+        _refund_user_points(request.user.id, cost_points, "简历助手生成失败自动退款")
+        return bad("简历助手失败：服务暂时不可用，请稍后重试", 500)
 
 
 @csrf_exempt

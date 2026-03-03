@@ -25,28 +25,6 @@ def _safe_json(resp):
         raise ResumeAssistantError("上游服务返回非JSON格式", 502)
 
 
-def _http_get_image_as_base64(url: str) -> str:
-    if not isinstance(url, str) or not url.strip():
-        raise ResumeAssistantError("截图地址无效", 400)
-    clean_url = url.strip()
-    if not (clean_url.startswith("http://") or clean_url.startswith("https://")):
-        raise ResumeAssistantError("截图地址必须是 http/https", 400)
-
-    try:
-        resp = requests.get(clean_url, timeout=max(int(getattr(settings, "AI_RESUME_IMAGE_FETCH_TIMEOUT", 12)), 5))
-    except requests.RequestException as exc:
-        raise ResumeAssistantError(f"截图下载失败: {exc}", 502)
-    if resp.status_code >= 400:
-        raise ResumeAssistantError(f"截图下载失败({resp.status_code})", 502)
-
-    content = resp.content or b""
-    if len(content) == 0:
-        raise ResumeAssistantError("截图内容为空", 400)
-    if len(content) > 10 * 1024 * 1024:
-        raise ResumeAssistantError("单张截图不能超过10MB", 400)
-    return base64.b64encode(content).decode("ascii")
-
-
 def _http_get_image_bytes(url: str) -> bytes:
     if not isinstance(url, str) or not url.strip():
         raise ResumeAssistantError("截图地址无效", 400)
@@ -144,34 +122,17 @@ def extract_job_requirements(image_urls, rois=None):
         raise ResumeAssistantError("OCR服务未配置", 500)
 
     roi_map = _normalize_roi_map(rois)
-    images_b64 = []
+    images_bytes = []
     for idx, url in enumerate(image_urls):
         raw = _http_get_image_bytes(url)
         raw = _crop_image_by_roi(raw, roi_map.get(idx))
-        images_b64.append(base64.b64encode(raw).decode("ascii"))
+        images_bytes.append(raw)
 
-    payload = {
-        "images_base64": images_b64,
-        "lang": "ch",
-        "det": True,
-        "rec": True,
-    }
-
-    try:
-        resp = requests.post(
-            ocr_url,
-            json=payload,
-            timeout=max(int(getattr(settings, "AI_RESUME_OCR_TIMEOUT", 45)), 10),
-        )
-    except requests.RequestException as exc:
-        raise ResumeAssistantError(f"OCR服务请求失败: {exc}", 502)
-    if resp.status_code >= 400:
-        raise ResumeAssistantError(f"OCR服务错误({resp.status_code})", 502)
-
-    data = _safe_json(resp)
-    results = data.get("results") if isinstance(data, dict) else None
-    if not isinstance(results, list):
-        raise ResumeAssistantError("OCR返回结构异常", 502)
+    provider = str(getattr(settings, "AI_RESUME_OCR_PROVIDER", "json_base64") or "json_base64").strip().lower()
+    if provider == "sparrow":
+        results = _extract_by_sparrow(ocr_url, images_bytes)
+    else:
+        results = _extract_by_json_base64(ocr_url, images_bytes)
 
     texts = []
     avg_conf_values = []
@@ -212,6 +173,82 @@ def extract_job_requirements(image_urls, rois=None):
 
     avg_conf = sum(avg_conf_values) / len(avg_conf_values) if avg_conf_values else 0.0
     return ocr_text, {"line_count": len(cleaned), "avg_conf": round(avg_conf, 4)}
+
+
+def _extract_by_json_base64(ocr_url: str, images_bytes):
+    payload = {
+        "images_base64": [base64.b64encode(raw).decode("ascii") for raw in images_bytes],
+        "lang": "ch",
+        "det": True,
+        "rec": True,
+    }
+    try:
+        resp = requests.post(
+            ocr_url,
+            json=payload,
+            timeout=max(int(getattr(settings, "AI_RESUME_OCR_TIMEOUT", 45)), 10),
+        )
+    except requests.RequestException as exc:
+        raise ResumeAssistantError(f"OCR服务请求失败: {exc}", 502)
+    if resp.status_code >= 400:
+        raise ResumeAssistantError(f"OCR服务错误({resp.status_code})", 502)
+    data = _safe_json(resp)
+    results = data.get("results") if isinstance(data, dict) else None
+    if not isinstance(results, list):
+        raise ResumeAssistantError("OCR返回结构异常", 502)
+    return results
+
+
+def _extract_by_sparrow(ocr_url: str, images_bytes):
+    results = []
+    timeout_s = max(int(getattr(settings, "AI_RESUME_OCR_TIMEOUT", 45)), 10)
+    for idx, raw in enumerate(images_bytes):
+        files = {"file": (f"image_{idx}.png", raw, "image/png")}
+        try:
+            resp = requests.post(ocr_url, files=files, timeout=timeout_s)
+        except requests.RequestException as exc:
+            raise ResumeAssistantError(f"OCR服务请求失败: {exc}", 502)
+        if resp.status_code >= 400:
+            raise ResumeAssistantError(f"OCR服务错误({resp.status_code})", 502)
+        data = _safe_json(resp)
+
+        # Compatible with common sparrow response shapes:
+        # 1) {"result":[{"rec_text":"...", "score":0.98}, ...]}
+        # 2) {"data":{"text":"..."}}
+        lines = []
+        avg_conf = 0.0
+        if isinstance(data, dict):
+            if isinstance(data.get("result"), list):
+                scores = []
+                for item in data.get("result") or []:
+                    if isinstance(item, dict):
+                        text = str(item.get("rec_text") or item.get("text") or "").strip()
+                        score = item.get("score")
+                        if text:
+                            lines.append({"text": text, "conf": score if isinstance(score, (int, float)) else 1.0})
+                            if isinstance(score, (int, float)):
+                                scores.append(float(score))
+                if scores:
+                    avg_conf = sum(scores) / len(scores)
+            elif isinstance(data.get("data"), dict) and data["data"].get("text"):
+                text = str(data["data"].get("text")).strip()
+                if text:
+                    for row in text.splitlines():
+                        row = row.strip()
+                        if row:
+                            lines.append({"text": row, "conf": 1.0})
+                    avg_conf = 1.0
+            elif isinstance(data.get("text"), str):
+                text = data.get("text").strip()
+                if text:
+                    for row in text.splitlines():
+                        row = row.strip()
+                        if row:
+                            lines.append({"text": row, "conf": 1.0})
+                    avg_conf = 1.0
+
+        results.append({"lines": lines, "avg_conf": avg_conf})
+    return results
 
 
 def generate_resume_text(setting: AICustomerSetting, job_title: str, ocr_text: str) -> str:

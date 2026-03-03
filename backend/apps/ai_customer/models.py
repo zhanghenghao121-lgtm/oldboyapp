@@ -101,3 +101,35 @@ class HumanReplyClearState(models.Model):
 
     class Meta:
         ordering = ["-cleared_at"]
+
+
+class ResumeAssistantTask(models.Model):
+    STATUS_CREATED = "created"
+    STATUS_RUNNING = "running"
+    STATUS_SUCCEEDED = "succeeded"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = (
+        (STATUS_CREATED, "已创建"),
+        (STATUS_RUNNING, "处理中"),
+        (STATUS_SUCCEEDED, "成功"),
+        (STATUS_FAILED, "失败"),
+    )
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="resume_tasks")
+    request_id = models.CharField(max_length=64, unique=True)
+    job_title = models.CharField(max_length=120)
+    image_urls = models.JSONField(default=list, blank=True)
+    rois = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_CREATED)
+    progress = models.PositiveSmallIntegerField(default=0)
+    cost_points = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    refunded = models.BooleanField(default=False)
+    ocr_text = models.TextField(blank=True, default="")
+    resume_text = models.TextField(blank=True, default="")
+    pdf_url = models.URLField(max_length=1000, blank=True, default="")
+    error_message = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-id"]

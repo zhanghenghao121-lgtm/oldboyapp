@@ -47,7 +47,93 @@ def _http_get_image_as_base64(url: str) -> str:
     return base64.b64encode(content).decode("ascii")
 
 
-def extract_job_requirements(image_urls):
+def _http_get_image_bytes(url: str) -> bytes:
+    if not isinstance(url, str) or not url.strip():
+        raise ResumeAssistantError("截图地址无效", 400)
+    clean_url = url.strip()
+    if not (clean_url.startswith("http://") or clean_url.startswith("https://")):
+        raise ResumeAssistantError("截图地址必须是 http/https", 400)
+    try:
+        resp = requests.get(clean_url, timeout=max(int(getattr(settings, "AI_RESUME_IMAGE_FETCH_TIMEOUT", 12)), 5))
+    except requests.RequestException as exc:
+        raise ResumeAssistantError(f"截图下载失败: {exc}", 502)
+    if resp.status_code >= 400:
+        raise ResumeAssistantError(f"截图下载失败({resp.status_code})", 502)
+    content = resp.content or b""
+    if not content:
+        raise ResumeAssistantError("截图内容为空", 400)
+    if len(content) > 10 * 1024 * 1024:
+        raise ResumeAssistantError("单张截图不能超过10MB", 400)
+    return content
+
+
+def _normalize_roi_map(rois):
+    roi_map = {}
+    if not isinstance(rois, list):
+        return roi_map
+    for item in rois:
+        if not isinstance(item, dict):
+            continue
+        try:
+            image_index = int(item.get("image_index"))
+        except (TypeError, ValueError):
+            continue
+        rects = item.get("rects") or []
+        if not isinstance(rects, list) or not rects:
+            continue
+        rect = rects[0]
+        if not isinstance(rect, dict):
+            continue
+        try:
+            x = float(rect.get("x", 0))
+            y = float(rect.get("y", 0))
+            w = float(rect.get("w", 0))
+            h = float(rect.get("h", 0))
+        except (TypeError, ValueError):
+            continue
+        if w <= 0 or h <= 0:
+            continue
+        x = max(0.0, min(1.0, x))
+        y = max(0.0, min(1.0, y))
+        w = max(0.0, min(1.0 - x, w))
+        h = max(0.0, min(1.0 - y, h))
+        if w <= 0 or h <= 0:
+            continue
+        roi_map[image_index] = {"x": x, "y": y, "w": w, "h": h}
+    return roi_map
+
+
+def _crop_image_by_roi(image_bytes: bytes, roi: dict) -> bytes:
+    if not roi:
+        return image_bytes
+    try:
+        from PIL import Image
+    except Exception:
+        return image_bytes
+    try:
+        from io import BytesIO
+        img = Image.open(BytesIO(image_bytes))
+        width, height = img.size
+        left = int(width * roi["x"])
+        top = int(height * roi["y"])
+        right = int(width * (roi["x"] + roi["w"]))
+        bottom = int(height * (roi["y"] + roi["h"]))
+        left = max(0, min(left, width - 1))
+        top = max(0, min(top, height - 1))
+        right = max(left + 1, min(right, width))
+        bottom = max(top + 1, min(bottom, height))
+        cropped = img.crop((left, top, right, bottom))
+        out = BytesIO()
+        fmt = (img.format or "PNG").upper()
+        if fmt not in {"PNG", "JPEG", "JPG", "WEBP"}:
+            fmt = "PNG"
+        cropped.save(out, format="JPEG" if fmt == "JPG" else fmt)
+        return out.getvalue()
+    except Exception:
+        return image_bytes
+
+
+def extract_job_requirements(image_urls, rois=None):
     if not isinstance(image_urls, list) or not image_urls:
         raise ResumeAssistantError("请至少上传1张职位要求截图", 400)
     if len(image_urls) > 6:
@@ -57,7 +143,12 @@ def extract_job_requirements(image_urls):
     if not ocr_url:
         raise ResumeAssistantError("OCR服务未配置", 500)
 
-    images_b64 = [_http_get_image_as_base64(url) for url in image_urls]
+    roi_map = _normalize_roi_map(rois)
+    images_b64 = []
+    for idx, url in enumerate(image_urls):
+        raw = _http_get_image_bytes(url)
+        raw = _crop_image_by_roi(raw, roi_map.get(idx))
+        images_b64.append(base64.b64encode(raw).decode("ascii"))
 
     payload = {
         "images_base64": images_b64,
@@ -288,8 +379,8 @@ def upload_resume_pdf(user, pdf_bytes: bytes):
     return url, key
 
 
-def run_resume_assistant(user, setting: AICustomerSetting, job_title: str, image_urls):
-    ocr_text, ocr_meta = extract_job_requirements(image_urls)
+def run_resume_assistant(user, setting: AICustomerSetting, job_title: str, image_urls, rois=None):
+    ocr_text, ocr_meta = extract_job_requirements(image_urls, rois=rois)
     resume_text = generate_resume_text(setting, job_title, ocr_text)
     pdf_bytes = render_resume_pdf(job_title, resume_text, ocr_text)
     pdf_url, pdf_key = upload_resume_pdf(user, pdf_bytes)

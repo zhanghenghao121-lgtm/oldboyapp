@@ -88,17 +88,63 @@
             <span class="file-tip" v-if="resumeFiles.length">已选 {{ resumeFiles.length }} 张</span>
           </div>
         </el-form-item>
+        <el-form-item v-if="resumePreviewUrls.length" label="ROI框选">
+          <div class="roi-wrap">
+            <div class="roi-thumbs">
+              <button
+                v-for="(src, idx) in resumePreviewUrls"
+                :key="src + idx"
+                type="button"
+                class="roi-thumb-btn"
+                :class="{ active: resumeSelectedIndex === idx }"
+                @click="selectResumeImage(idx)"
+              >
+                <img :src="src" alt="resume-preview" />
+              </button>
+            </div>
+            <div
+              ref="roiStageRef"
+              class="roi-stage"
+              @mousedown.prevent="onRoiMouseDown"
+              @mousemove.prevent="onRoiMouseMove"
+              @mouseup.prevent="onRoiMouseUp"
+              @mouseleave.prevent="onRoiMouseUp"
+            >
+              <img :src="resumePreviewUrls[resumeSelectedIndex]" class="roi-image" />
+              <div
+                v-if="resumeDisplayRect.w > 2 && resumeDisplayRect.h > 2"
+                class="roi-rect"
+                :style="{
+                  left: `${resumeDisplayRect.x}px`,
+                  top: `${resumeDisplayRect.y}px`,
+                  width: `${resumeDisplayRect.w}px`,
+                  height: `${resumeDisplayRect.h}px`,
+                }"
+              />
+            </div>
+            <div class="roi-actions">
+              <el-button class="neon-btn" size="small" @click="clearCurrentRoi">清除当前框选</el-button>
+              <span class="file-tip">不框选默认识别整张图</span>
+            </div>
+          </div>
+        </el-form-item>
         <el-form-item>
           <el-alert
-            title="生成简历将消耗 10 积分，请上传清晰截图（可多张）"
+            title="生成简历将消耗 10 积分，支持上传多张并可框选岗位要求区域"
             type="warning"
             :closable="false"
             show-icon
           />
         </el-form-item>
+        <el-form-item v-if="resumeGenerating">
+          <div class="w-100">
+            <el-progress :percentage="resumeProgress" :status="resumeStatus === 'failed' ? 'exception' : undefined" />
+            <p class="file-tip mt-1">任务状态：{{ resumeStatusText }}</p>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="resumeDialogVisible = false">取消</el-button>
+        <el-button :disabled="resumeGenerating" @click="resumeDialogVisible = false">取消</el-button>
         <el-button class="main-btn" type="primary" :loading="resumeGenerating" @click="generateResumePdf">生成简历PDF</el-button>
       </template>
     </el-dialog>
@@ -109,7 +155,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { clearAiCustomerHumanReplies, generateResumeAssistant, getAiCustomerHistory, getAiCustomerHumanReplies } from '../api/aiCustomer'
+import { clearAiCustomerHumanReplies, createResumeAssistantTask, getAiCustomerHistory, getAiCustomerHumanReplies, getResumeAssistantTask } from '../api/aiCustomer'
 import { me } from '../api/auth'
 import { uploadToCos } from '../api/storage'
 
@@ -132,6 +178,17 @@ const resumeDialogVisible = ref(false)
 const resumeGenerating = ref(false)
 const resumeJobTitle = ref('')
 const resumeFiles = ref([])
+const resumePreviewUrls = ref([])
+const resumeSelectedIndex = ref(0)
+const roiStageRef = ref()
+const roiDrawing = ref(false)
+const roiStartPoint = ref({ x: 0, y: 0 })
+const resumeDisplayRect = ref({ x: 0, y: 0, w: 0, h: 0 })
+const resumeRoiMap = ref({})
+const resumeProgress = ref(0)
+const resumeStatus = ref('idle')
+const resumeTaskId = ref(null)
+let resumePollTimer = null
 const resumeFileInputRef = ref()
 const userId = ref('')
 const seenReplyVersionMap = ref({})
@@ -273,6 +330,142 @@ const handleResumeFiles = (event) => {
   event.target.value = ''
   if (!files.length) return
   resumeFiles.value.push(...files)
+  resumePreviewUrls.value.push(...files.map((file) => URL.createObjectURL(file)))
+  if (resumePreviewUrls.value.length === files.length) {
+    resumeSelectedIndex.value = 0
+  }
+  syncDisplayRectFromRoi()
+}
+
+const selectResumeImage = (idx) => {
+  resumeSelectedIndex.value = idx
+  syncDisplayRectFromRoi()
+}
+
+const _clampToStage = (x, y) => {
+  const stage = roiStageRef.value
+  if (!stage) return { x: 0, y: 0 }
+  const rect = stage.getBoundingClientRect()
+  return {
+    x: Math.max(0, Math.min(x, rect.width)),
+    y: Math.max(0, Math.min(y, rect.height)),
+  }
+}
+
+const onRoiMouseDown = (evt) => {
+  const stage = roiStageRef.value
+  if (!stage || !resumePreviewUrls.value.length) return
+  const rect = stage.getBoundingClientRect()
+  const p = _clampToStage(evt.clientX - rect.left, evt.clientY - rect.top)
+  roiDrawing.value = true
+  roiStartPoint.value = p
+  resumeDisplayRect.value = { x: p.x, y: p.y, w: 0, h: 0 }
+}
+
+const onRoiMouseMove = (evt) => {
+  if (!roiDrawing.value) return
+  const stage = roiStageRef.value
+  if (!stage) return
+  const rect = stage.getBoundingClientRect()
+  const p = _clampToStage(evt.clientX - rect.left, evt.clientY - rect.top)
+  const sx = roiStartPoint.value.x
+  const sy = roiStartPoint.value.y
+  const x = Math.min(sx, p.x)
+  const y = Math.min(sy, p.y)
+  const w = Math.abs(p.x - sx)
+  const h = Math.abs(p.y - sy)
+  resumeDisplayRect.value = { x, y, w, h }
+}
+
+const onRoiMouseUp = () => {
+  if (!roiDrawing.value) return
+  roiDrawing.value = false
+  const stage = roiStageRef.value
+  if (!stage) return
+  const stageRect = stage.getBoundingClientRect()
+  const r = resumeDisplayRect.value
+  if (r.w < 8 || r.h < 8) {
+    clearCurrentRoi()
+    return
+  }
+  resumeRoiMap.value[String(resumeSelectedIndex.value)] = {
+    x: Number((r.x / stageRect.width).toFixed(6)),
+    y: Number((r.y / stageRect.height).toFixed(6)),
+    w: Number((r.w / stageRect.width).toFixed(6)),
+    h: Number((r.h / stageRect.height).toFixed(6)),
+  }
+}
+
+const clearCurrentRoi = () => {
+  delete resumeRoiMap.value[String(resumeSelectedIndex.value)]
+  resumeDisplayRect.value = { x: 0, y: 0, w: 0, h: 0 }
+}
+
+const syncDisplayRectFromRoi = () => {
+  const stage = roiStageRef.value
+  if (!stage) {
+    setTimeout(syncDisplayRectFromRoi, 50)
+    return
+  }
+  const stageRect = stage.getBoundingClientRect()
+  const roi = resumeRoiMap.value[String(resumeSelectedIndex.value)]
+  if (!roi) {
+    resumeDisplayRect.value = { x: 0, y: 0, w: 0, h: 0 }
+    return
+  }
+  resumeDisplayRect.value = {
+    x: roi.x * stageRect.width,
+    y: roi.y * stageRect.height,
+    w: roi.w * stageRect.width,
+    h: roi.h * stageRect.height,
+  }
+}
+
+const stopResumePolling = () => {
+  if (resumePollTimer) {
+    clearInterval(resumePollTimer)
+    resumePollTimer = null
+  }
+}
+
+const resumeStatusText = computed(() => {
+  if (resumeStatus.value === 'created') return '已创建，等待处理'
+  if (resumeStatus.value === 'running') return '处理中'
+  if (resumeStatus.value === 'succeeded') return '已完成'
+  if (resumeStatus.value === 'failed') return '处理失败'
+  return '等待中'
+})
+
+const startResumeTaskPolling = (taskId) => {
+  stopResumePolling()
+  resumeTaskId.value = taskId
+  resumePollTimer = setInterval(async () => {
+    try {
+      const res = await getResumeAssistantTask(taskId)
+      const data = res.data || {}
+      resumeProgress.value = Number(data.progress || 0)
+      resumeStatus.value = data.status || 'running'
+      if (data.status === 'succeeded') {
+        stopResumePolling()
+        resumeGenerating.value = false
+        const pdfUrl = data.result?.pdf_url
+        if (pdfUrl) window.open(pdfUrl, '_blank')
+        ElMessage.success('简历PDF已生成')
+        resumeDialogVisible.value = false
+        return
+      }
+      if (data.status === 'failed') {
+        stopResumePolling()
+        resumeGenerating.value = false
+        resumeTaskId.value = null
+        ElMessage.error(data.error || '简历生成失败')
+      }
+    } catch (e) {
+      stopResumePolling()
+      resumeGenerating.value = false
+      ElMessage.error(String(e || '查询任务状态失败'))
+    }
+  }, 1800)
 }
 
 const generateResumePdf = async () => {
@@ -286,6 +479,8 @@ const generateResumePdf = async () => {
     return
   }
   resumeGenerating.value = true
+  resumeProgress.value = 0
+  resumeStatus.value = 'created'
   try {
     const uploaded = []
     for (const file of resumeFiles.value) {
@@ -298,18 +493,22 @@ const generateResumePdf = async () => {
       const res = await uploadToCos(file, 'ai-customer/resume')
       uploaded.push(res.data.url)
     }
-    const res = await generateResumeAssistant({
+    const rois = Object.entries(resumeRoiMap.value).map(([imageIndex, rect]) => ({
+      image_index: Number(imageIndex),
+      rects: [rect],
+    }))
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+    const res = await createResumeAssistantTask({
       job_title: title,
       image_urls: uploaded,
+      rois,
+      request_id: requestId,
     })
-    const pdfUrl = res.data.pdf_url
-    if (pdfUrl) {
-      window.open(pdfUrl, '_blank')
-    }
-    ElMessage.success(`简历PDF已生成，已消耗 ${Number(res.data.cost_points || 10).toFixed(2)} 积分`)
-    resumeFiles.value = []
-    resumeJobTitle.value = ''
-    resumeDialogVisible.value = false
+    const task = res.data || {}
+    resumeTaskId.value = task.task_id
+    resumeProgress.value = Number(task.progress || 0)
+    resumeStatus.value = task.status || 'created'
+    startResumeTaskPolling(task.task_id)
   } catch (e) {
     const msg = String(e || '简历助手执行失败')
     if (msg.includes('积分不足')) {
@@ -327,7 +526,9 @@ const generateResumePdf = async () => {
     }
     ElMessage.error(msg)
   } finally {
-    resumeGenerating.value = false
+    if (!resumeTaskId.value) {
+      resumeGenerating.value = false
+    }
   }
 }
 
@@ -444,6 +645,21 @@ onMounted(async () => {
 
 watch(seenReplyStorageKey, () => {
   loadSeenReplies()
+})
+
+watch(resumeDialogVisible, (visible) => {
+  if (!visible && !resumeGenerating.value) {
+    stopResumePolling()
+    resumeTaskId.value = null
+    resumeProgress.value = 0
+    resumeStatus.value = 'idle'
+    resumeRoiMap.value = {}
+    resumeDisplayRect.value = { x: 0, y: 0, w: 0, h: 0 }
+    resumePreviewUrls.value.forEach((url) => URL.revokeObjectURL(url))
+    resumePreviewUrls.value = []
+    resumeFiles.value = []
+    resumeJobTitle.value = ''
+  }
 })
 </script>
 
@@ -567,6 +783,61 @@ watch(seenReplyStorageKey, () => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+.roi-wrap {
+  width: 100%;
+}
+.roi-thumbs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.roi-thumb-btn {
+  width: 64px;
+  height: 64px;
+  border: 1px solid rgba(126, 198, 255, 0.35);
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 0;
+  background: rgba(19, 30, 72, 0.6);
+}
+.roi-thumb-btn.active {
+  border-color: #69d4ff;
+  box-shadow: 0 0 10px rgba(99, 211, 255, 0.45);
+}
+.roi-thumb-btn img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.roi-stage {
+  position: relative;
+  width: 100%;
+  height: 280px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(126, 198, 255, 0.35);
+  background: rgba(8, 23, 56, 0.62);
+  user-select: none;
+}
+.roi-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.roi-rect {
+  position: absolute;
+  border: 2px solid #6fe4ff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), 0 0 14px rgba(97, 219, 255, 0.55);
+  background: rgba(102, 225, 255, 0.15);
+}
+.roi-actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .file-tip { color: #abcbef; font-size: 12px; }
 .file-hidden { display: none; }

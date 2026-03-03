@@ -1,6 +1,7 @@
 import json
 import logging
 import requests
+import uuid
 from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.conf import settings
@@ -13,9 +14,16 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts.models import PointsUsageLog
-from apps.ai_customer.models import AICustomerSetting, ChatMessage, HumanHandoverTicket, HumanReplyClearState
+from apps.ai_customer.models import (
+    AICustomerSetting,
+    ChatMessage,
+    HumanHandoverTicket,
+    HumanReplyClearState,
+    ResumeAssistantTask,
+)
 from apps.ai_customer.services import build_system_prompt, search_context, stream_llm_answer
 from apps.ai_customer.resume_services import ResumeAssistantError, run_resume_assistant, resume_points_cost
+from apps.ai_customer.resume_tasks import dispatch_resume_task
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -64,6 +72,24 @@ def _refund_user_points(user_id: int, points: Decimal, description: str):
 def _sse_error(message: str, status: int = 400):
     body = "data: " + json.dumps({"type": "error", "message": message}, ensure_ascii=False) + "\n\n"
     return StreamingHttpResponse(body, status=status, content_type="text/event-stream")
+
+
+def _serialize_resume_task(task: ResumeAssistantTask):
+    return {
+        "task_id": task.id,
+        "request_id": task.request_id,
+        "status": task.status,
+        "progress": int(task.progress or 0),
+        "cost_points": float(task.cost_points or 0),
+        "result": {
+            "pdf_url": task.pdf_url or "",
+            "ocr_text": task.ocr_text or "",
+            "resume_text": task.resume_text or "",
+        },
+        "error": task.error_message or "",
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+    }
 
 
 def _notify_feishu_if_needed(setting: AICustomerSetting, ticket: HumanHandoverTicket):
@@ -149,6 +175,54 @@ def clear_human_replies(request):
 @csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def resume_assistant_task_create(request):
+    payload = request.data or {}
+    job_title = str(payload.get("job_title", "")).strip()
+    image_urls = payload.get("image_urls") or []
+    rois = payload.get("rois") or []
+    request_id = str(payload.get("request_id", "")).strip() or uuid.uuid4().hex
+
+    if not job_title:
+        return bad("请输入职位名称")
+    if not isinstance(image_urls, list) or not image_urls:
+        return bad("请上传职位要求截图")
+    if len(image_urls) > 6:
+        return bad("职位要求截图最多6张")
+    if len(job_title) > 120:
+        return bad("职位名称不能超过120字")
+
+    old = ResumeAssistantTask.objects.filter(user=request.user, request_id=request_id).first()
+    if old:
+        return ok(_serialize_resume_task(old))
+
+    task = ResumeAssistantTask.objects.create(
+        user=request.user,
+        request_id=request_id,
+        job_title=job_title,
+        image_urls=image_urls,
+        rois=rois if isinstance(rois, list) else [],
+        status=ResumeAssistantTask.STATUS_CREATED,
+        progress=0,
+        cost_points=resume_points_cost(),
+    )
+    dispatch_resume_task(task.id)
+    return ok(_serialize_resume_task(task))
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def resume_assistant_task_detail(request, task_id: int):
+    task = ResumeAssistantTask.objects.filter(id=task_id, user=request.user).first()
+    if not task:
+        return bad("任务不存在", 404)
+    data = _serialize_resume_task(task)
+    data["remaining_points"] = float(request.user.points or 0)
+    return ok(data)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def resume_assistant_generate(request):
     payload = request.data or {}
     job_title = str(payload.get("job_title", "")).strip()
@@ -175,6 +249,7 @@ def resume_assistant_generate(request):
             setting=setting,
             job_title=job_title,
             image_urls=image_urls,
+            rois=payload.get("rois") or [],
         )
         return ok(
             {

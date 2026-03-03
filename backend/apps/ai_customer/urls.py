@@ -1,6 +1,6 @@
 from django.urls import path
 
-from apps.ai_customer.views import chat_history, chat_stream, human_replies
+from apps.ai_customer.views import chat_history, chat_stream, human_replies, clear_human_replies
 from apps.ai_customer.admin_views import (
     ai_cs_docs,
     ai_cs_settings,
@@ -13,6 +13,7 @@ from apps.ai_customer.admin_views import (
 urlpatterns = [
     path("ai-customer/history", chat_history),
     path("ai-customer/human-replies", human_replies),
+    path("ai-customer/human-replies/clear", clear_human_replies),
     path("ai-customer/chat/stream", chat_stream),
 
     path("console/ai-cs/settings", ai_cs_settings),

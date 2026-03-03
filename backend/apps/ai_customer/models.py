@@ -93,3 +93,11 @@ class HumanHandoverTicket(models.Model):
 
     class Meta:
         ordering = ["-id"]
+
+
+class HumanReplyClearState(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="ai_reply_clear_state")
+    cleared_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-cleared_at"]

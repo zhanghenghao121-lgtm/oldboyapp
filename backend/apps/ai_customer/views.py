@@ -3,12 +3,13 @@ import logging
 import requests
 from django.conf import settings
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.ai_customer.models import AICustomerSetting, ChatMessage, HumanHandoverTicket
+from apps.ai_customer.models import AICustomerSetting, ChatMessage, HumanHandoverTicket, HumanReplyClearState
 from apps.ai_customer.services import build_system_prompt, search_context, stream_llm_answer
 
 logger = logging.getLogger(__name__)
@@ -75,11 +76,11 @@ def chat_history(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def human_replies(request):
-    rows = (
-        HumanHandoverTicket.objects.filter(user=request.user)
-        .exclude(admin_reply="")
-        .order_by("-updated_at")[:100]
-    )
+    qs = HumanHandoverTicket.objects.filter(user=request.user).exclude(admin_reply="")
+    clear_state = HumanReplyClearState.objects.filter(user=request.user).only("cleared_at").first()
+    if clear_state and clear_state.cleared_at:
+        qs = qs.filter(updated_at__gt=clear_state.cleared_at)
+    rows = qs.order_by("-updated_at")[:100]
     return ok(
         {
             "list": [
@@ -94,6 +95,17 @@ def human_replies(request):
             ]
         }
     )
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def clear_human_replies(request):
+    HumanReplyClearState.objects.update_or_create(
+        user=request.user,
+        defaults={"cleared_at": timezone.now()},
+    )
+    return ok({"cleared": True})
 
 
 @csrf_exempt

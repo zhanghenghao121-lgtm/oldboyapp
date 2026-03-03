@@ -62,6 +62,9 @@
     </el-card>
 
     <el-dialog v-model="repliesDialogVisible" title="人工回复" width="680px">
+      <div v-if="humanReplies.length" class="replies-toolbar">
+        <el-button class="neon-btn" :loading="clearingReplies" @click="clearAllReplies">清除全部</el-button>
+      </div>
       <div v-if="!humanReplies.length" class="replies-empty">暂未收到人工回复</div>
       <div v-else class="replies-list">
         <div v-for="item in humanReplies" :key="item.id" class="reply-item">
@@ -77,8 +80,8 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { getAiCustomerHistory, getAiCustomerHumanReplies } from '../api/aiCustomer'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { clearAiCustomerHumanReplies, getAiCustomerHistory, getAiCustomerHumanReplies } from '../api/aiCustomer'
 import { me } from '../api/auth'
 import { uploadToCos } from '../api/storage'
 
@@ -96,6 +99,7 @@ const fallbackAvatar = '/octopus-avatar.svg'
 const userAvatarSrc = computed(() => (userAvatarFailed.value ? fallbackAvatar : (userAvatar.value || fallbackAvatar)))
 const repliesDialogVisible = ref(false)
 const humanReplies = ref([])
+const clearingReplies = ref(false)
 const userId = ref('')
 const seenReplyVersionMap = ref({})
 const seenReplyStorageKey = computed(() => `ai_cs_seen_replies:${userId.value || 'guest'}`)
@@ -173,6 +177,32 @@ const openRepliesDialog = async () => {
     markRepliesAsRead()
   } catch (e) {
     ElMessage.error(String(e || '获取人工回复失败'))
+  }
+}
+
+const clearAllReplies = async () => {
+  if (!humanReplies.value.length || clearingReplies.value) return
+  try {
+    await ElMessageBox.confirm('清除后当前人工回复将不再展示，是否继续？', '确认清除', {
+      confirmButtonText: '确认清除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+
+  clearingReplies.value = true
+  try {
+    await clearAiCustomerHumanReplies()
+    humanReplies.value = []
+    seenReplyVersionMap.value = {}
+    persistSeenReplies()
+    ElMessage.success('已清除人工回复消息')
+  } catch (e) {
+    ElMessage.error(String(e || '清除失败'))
+  } finally {
+    clearingReplies.value = false
   }
 }
 
@@ -463,6 +493,11 @@ watch(seenReplyStorageKey, () => {
   text-align: center;
   color: #abc4e8;
   padding: 20px 0;
+}
+.replies-toolbar {
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: flex-end;
 }
 .replies-list {
   display: flex;

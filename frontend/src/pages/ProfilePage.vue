@@ -3,6 +3,10 @@
     <el-card class="surface-card profile-card" shadow="never">
       <header class="profile-header">
         <h2>用户信息</h2>
+        <div class="header-actions">
+          <el-button class="top-neon-btn" @click="$router.push('/change-password')">修改密码</el-button>
+          <el-button class="top-neon-btn" @click="$router.push('/home')">返回首页</el-button>
+        </div>
       </header>
 
       <div class="avatar-panel">
@@ -31,10 +35,8 @@
         </el-form-item>
       </el-form>
 
-      <div class="d-flex gap-2 flex-wrap justify-content-center">
+      <div class="d-flex gap-2 flex-wrap justify-content-center save-row">
         <el-button type="primary" class="main-btn" :loading="saving" @click="save">保存资料</el-button>
-        <el-button class="neon-btn" @click="$router.push('/change-password')">修改密码</el-button>
-        <el-button @click="$router.push('/home')">返回首页</el-button>
       </div>
     </el-card>
   </div>
@@ -208,11 +210,30 @@ onMounted(async () => {
   background: rgba(27, 27, 31, 0.88);
   border: 1px solid rgba(134, 134, 145, 0.42);
 }
+.profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
 .profile-header h2 {
   margin: 0;
-  text-align: center;
   color: #ececf1;
   letter-spacing: 2px;
+}
+.header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.top-neon-btn {
+  border: 1px solid rgba(136, 215, 255, 0.62);
+  color: #e9f8ff;
+  background: linear-gradient(125deg, rgba(37, 139, 226, 0.78), rgba(73, 78, 199, 0.76));
+  box-shadow: 0 0 0 1px rgba(171, 232, 255, 0.18), 0 0 14px rgba(98, 194, 255, 0.35);
+}
+.top-neon-btn:hover {
+  filter: brightness(1.06);
 }
 .avatar-panel {
   margin-top: 14px;
@@ -259,5 +280,19 @@ onMounted(async () => {
 }
 .dark-form :deep(.el-input.is-disabled .el-input__wrapper) {
   background: #1f1f25;
+}
+.save-row {
+  margin-top: 10px;
+}
+@media (max-width: 680px) {
+  .profile-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .header-actions {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
 }
 </style>

@@ -4,6 +4,7 @@ import RegisterPage from '../pages/RegisterPage.vue'
 import ForgotPage from '../pages/ForgotPage.vue'
 import HomePage from '../pages/HomePage.vue'
 import ProfilePage from '../pages/ProfilePage.vue'
+import ChangePasswordPage from '../pages/ChangePasswordPage.vue'
 import RechargePage from '../pages/RechargePage.vue'
 import AICustomerPage from '../pages/AICustomerPage.vue'
 import AdminLoginPage from '../pages/AdminLoginPage.vue'
@@ -21,6 +22,7 @@ const router = createRouter({
     { path: '/forgot', component: ForgotPage },
     { path: '/home', component: HomePage, meta: { requiresAuth: true } },
     { path: '/profile', component: ProfilePage, meta: { requiresAuth: true } },
+    { path: '/change-password', component: ChangePasswordPage, meta: { requiresAuth: true } },
     { path: '/recharge', component: RechargePage, meta: { requiresAuth: true } },
     { path: '/ai-customer', component: AICustomerPage, meta: { requiresAuth: true } },
     { path: '/admin/login', component: AdminLoginPage },

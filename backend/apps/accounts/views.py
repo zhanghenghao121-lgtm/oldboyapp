@@ -22,6 +22,7 @@ from .serializers import (
     EnergySliderVerifySerializer,
     ProfileUpdateSerializer,
     ResetPasswordSerializer,
+    ChangePasswordSerializer,
 )
 from .utils import valid_com_email, valid_password, gen_numeric_code, gen_captcha_text, captcha_base64
 
@@ -441,4 +442,40 @@ def reset_password(request):
     user.set_password(new_password)
     user.save(update_fields=["password"])
     _cache_delete(f"email_code:reset:{email}")
+    return ok()
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def change_password(request):
+    s = ChangePasswordSerializer(data=request.data)
+    if not s.is_valid():
+        errors = s.errors
+        first_error = next(iter(errors.values()))[0] if errors else "参数错误"
+        return bad(first_error)
+
+    user = request.user
+    email = (user.email or "").lower().strip()
+    if not email:
+        return bad("当前账号未绑定邮箱")
+    if not valid_com_email(email):
+        return bad("邮箱必须以.com结尾")
+
+    email_code = s.validated_data["email_code"].strip()
+    new_password = s.validated_data["new_password"]
+    confirm_password = s.validated_data["confirm_password"]
+    if new_password != confirm_password:
+        return bad("两次输入的新密码不一致")
+    if not valid_password(new_password):
+        return bad("密码必须至少8位，且包含大小写字母和数字")
+
+    code = _cache_get(f"email_code:reset:{email}")
+    if not code or str(code).lower() != email_code.lower():
+        return bad("邮箱验证码错误或已过期")
+
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+    _cache_delete(f"email_code:reset:{email}")
+    logout(request)
     return ok()

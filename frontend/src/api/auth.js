@@ -11,3 +11,5 @@ export const getPointsLogs = () => http.get('/auth/points-logs')
 export const updateProfile = (payload) => http.patch('/auth/profile', payload)
 export const logout = () => http.post('/auth/logout')
 export const resetPassword = (payload) => http.post('/auth/reset-password', payload)
+
+export const changePassword = (payload) => http.post('/auth/change-password', payload)

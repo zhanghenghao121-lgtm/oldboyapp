@@ -33,6 +33,7 @@
 
       <div class="d-flex gap-2 flex-wrap justify-content-center">
         <el-button type="primary" class="main-btn" :loading="saving" @click="save">保存资料</el-button>
+        <el-button class="neon-btn" @click="$router.push('/change-password')">修改密码</el-button>
         <el-button @click="$router.push('/home')">返回首页</el-button>
       </div>
     </el-card>

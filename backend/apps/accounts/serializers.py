@@ -47,6 +47,15 @@ class ResetPasswordSerializer(serializers.Serializer):
         return _validate_password_value(value)
 
 
+class ChangePasswordSerializer(serializers.Serializer):
+    email_code = serializers.CharField(max_length=6)
+    new_password = serializers.CharField(max_length=128)
+    confirm_password = serializers.CharField(max_length=128)
+
+    def validate_new_password(self, value):
+        return _validate_password_value(value)
+
+
 class ProfileUpdateSerializer(serializers.Serializer):
     avatar_url = serializers.URLField(max_length=500, required=False, allow_blank=True)
     username = serializers.CharField(max_length=20, min_length=3, required=False)

@@ -10,7 +10,16 @@ if [[ ! -f env.prod ]]; then
   exit 2
 fi
 
-docker compose --env-file env.prod up -d --build
+# Deploy core services first to keep CI stable even when optional OCR image cannot be pulled.
+docker compose --env-file env.prod up -d --build mariadb redis backend frontend nginx
+
+# Optional OCR service:
+# Start only when image already exists locally to avoid Docker Hub timeout blocking deploy.
+if docker image inspect andrlange/paddleocr:2.8.0 >/dev/null 2>&1; then
+  docker compose --env-file env.prod --profile ocr up -d ocr || true
+else
+  echo "OCR image not found locally, skip ocr startup"
+fi
 
 docker compose --env-file env.prod exec -T backend python manage.py migrate
 

@@ -21,6 +21,13 @@ services:
     ports:
       - "6379:6379"
 
+  ocr:
+    image: andrlange/paddleocr:2.8.0
+    container_name: oldboyapp-ocr
+    restart: always
+    ports:
+      - "8001:8000"
+
   backend:
     build:
       context: ../backend
@@ -32,6 +39,7 @@ services:
     depends_on:
       - mariadb
       - redis
+      - ocr
 
   frontend:
     build:

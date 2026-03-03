@@ -108,6 +108,7 @@ def process_resume_task(task_id: int, claimed: bool = False):
             status=ResumeAssistantTask.STATUS_SUCCEEDED,
             progress=100,
             ocr_text=(result.get("ocr_text") or "")[:5000],
+            skill_points=result.get("skill_points") or [],
             resume_text=(result.get("resume_text") or "")[:12000],
             pdf_url=result.get("pdf_url") or "",
             error_message="",

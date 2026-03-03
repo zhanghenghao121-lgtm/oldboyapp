@@ -1,4 +1,5 @@
 import base64
+import json
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -89,7 +90,6 @@ def _crop_image_by_roi(image_bytes: bytes, roi: dict) -> bytes:
     except Exception:
         return image_bytes
     try:
-        from io import BytesIO
         img = Image.open(BytesIO(image_bytes))
         width, height = img.size
         left = int(width * roi["x"])
@@ -109,6 +109,79 @@ def _crop_image_by_roi(image_bytes: bytes, roi: dict) -> bytes:
         return out.getvalue()
     except Exception:
         return image_bytes
+
+
+def _extract_by_json_base64(ocr_url: str, images_bytes):
+    payload = {
+        "images_base64": [base64.b64encode(raw).decode("ascii") for raw in images_bytes],
+        "lang": "ch",
+        "det": True,
+        "rec": True,
+    }
+    try:
+        resp = requests.post(
+            ocr_url,
+            json=payload,
+            timeout=max(int(getattr(settings, "AI_RESUME_OCR_TIMEOUT", 45)), 10),
+        )
+    except requests.RequestException as exc:
+        raise ResumeAssistantError(f"OCR服务请求失败: {exc}", 502)
+    if resp.status_code >= 400:
+        raise ResumeAssistantError(f"OCR服务错误({resp.status_code})", 502)
+    data = _safe_json(resp)
+    results = data.get("results") if isinstance(data, dict) else None
+    if not isinstance(results, list):
+        raise ResumeAssistantError("OCR返回结构异常", 502)
+    return results
+
+
+def _extract_by_sparrow(ocr_url: str, images_bytes):
+    results = []
+    timeout_s = max(int(getattr(settings, "AI_RESUME_OCR_TIMEOUT", 45)), 10)
+    for idx, raw in enumerate(images_bytes):
+        files = {"file": (f"image_{idx}.png", raw, "image/png")}
+        try:
+            resp = requests.post(ocr_url, files=files, timeout=timeout_s)
+        except requests.RequestException as exc:
+            raise ResumeAssistantError(f"OCR服务请求失败: {exc}", 502)
+        if resp.status_code >= 400:
+            raise ResumeAssistantError(f"OCR服务错误({resp.status_code})", 502)
+        data = _safe_json(resp)
+
+        lines = []
+        avg_conf = 0.0
+        if isinstance(data, dict):
+            if isinstance(data.get("result"), list):
+                scores = []
+                for item in data.get("result") or []:
+                    if isinstance(item, dict):
+                        text = str(item.get("rec_text") or item.get("text") or "").strip()
+                        score = item.get("score")
+                        if text:
+                            lines.append({"text": text, "conf": score if isinstance(score, (int, float)) else 1.0})
+                            if isinstance(score, (int, float)):
+                                scores.append(float(score))
+                if scores:
+                    avg_conf = sum(scores) / len(scores)
+            elif isinstance(data.get("data"), dict) and data["data"].get("text"):
+                text = str(data["data"].get("text")).strip()
+                if text:
+                    for row in text.splitlines():
+                        row = row.strip()
+                        if row:
+                            lines.append({"text": row, "conf": 1.0})
+                    avg_conf = 1.0
+            elif isinstance(data.get("text"), str):
+                text = data.get("text").strip()
+                if text:
+                    for row in text.splitlines():
+                        row = row.strip()
+                        if row:
+                            lines.append({"text": row, "conf": 1.0})
+                    avg_conf = 1.0
+
+        results.append({"lines": lines, "avg_conf": avg_conf})
+    return results
 
 
 def extract_job_requirements(image_urls, rois=None):
@@ -175,109 +248,12 @@ def extract_job_requirements(image_urls, rois=None):
     return ocr_text, {"line_count": len(cleaned), "avg_conf": round(avg_conf, 4)}
 
 
-def _extract_by_json_base64(ocr_url: str, images_bytes):
-    payload = {
-        "images_base64": [base64.b64encode(raw).decode("ascii") for raw in images_bytes],
-        "lang": "ch",
-        "det": True,
-        "rec": True,
-    }
-    try:
-        resp = requests.post(
-            ocr_url,
-            json=payload,
-            timeout=max(int(getattr(settings, "AI_RESUME_OCR_TIMEOUT", 45)), 10),
-        )
-    except requests.RequestException as exc:
-        raise ResumeAssistantError(f"OCR服务请求失败: {exc}", 502)
-    if resp.status_code >= 400:
-        raise ResumeAssistantError(f"OCR服务错误({resp.status_code})", 502)
-    data = _safe_json(resp)
-    results = data.get("results") if isinstance(data, dict) else None
-    if not isinstance(results, list):
-        raise ResumeAssistantError("OCR返回结构异常", 502)
-    return results
-
-
-def _extract_by_sparrow(ocr_url: str, images_bytes):
-    results = []
-    timeout_s = max(int(getattr(settings, "AI_RESUME_OCR_TIMEOUT", 45)), 10)
-    for idx, raw in enumerate(images_bytes):
-        files = {"file": (f"image_{idx}.png", raw, "image/png")}
-        try:
-            resp = requests.post(ocr_url, files=files, timeout=timeout_s)
-        except requests.RequestException as exc:
-            raise ResumeAssistantError(f"OCR服务请求失败: {exc}", 502)
-        if resp.status_code >= 400:
-            raise ResumeAssistantError(f"OCR服务错误({resp.status_code})", 502)
-        data = _safe_json(resp)
-
-        # Compatible with common sparrow response shapes:
-        # 1) {"result":[{"rec_text":"...", "score":0.98}, ...]}
-        # 2) {"data":{"text":"..."}}
-        lines = []
-        avg_conf = 0.0
-        if isinstance(data, dict):
-            if isinstance(data.get("result"), list):
-                scores = []
-                for item in data.get("result") or []:
-                    if isinstance(item, dict):
-                        text = str(item.get("rec_text") or item.get("text") or "").strip()
-                        score = item.get("score")
-                        if text:
-                            lines.append({"text": text, "conf": score if isinstance(score, (int, float)) else 1.0})
-                            if isinstance(score, (int, float)):
-                                scores.append(float(score))
-                if scores:
-                    avg_conf = sum(scores) / len(scores)
-            elif isinstance(data.get("data"), dict) and data["data"].get("text"):
-                text = str(data["data"].get("text")).strip()
-                if text:
-                    for row in text.splitlines():
-                        row = row.strip()
-                        if row:
-                            lines.append({"text": row, "conf": 1.0})
-                    avg_conf = 1.0
-            elif isinstance(data.get("text"), str):
-                text = data.get("text").strip()
-                if text:
-                    for row in text.splitlines():
-                        row = row.strip()
-                        if row:
-                            lines.append({"text": row, "conf": 1.0})
-                    avg_conf = 1.0
-
-        results.append({"lines": lines, "avg_conf": avg_conf})
-    return results
-
-
-def generate_resume_text(setting: AICustomerSetting, job_title: str, ocr_text: str) -> str:
+def _call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.4):
     base_url = settings.AI_CS_LLM_BASE_URL.rstrip("/")
     api_key = (settings.AI_CS_LLM_API_KEY or "").strip()
     model = settings.AI_CS_LLM_MODEL
     if not api_key:
         raise ResumeAssistantError("AI模型密钥未配置", 500)
-
-    system_prompt = (
-        f"{setting.base_prompt}\n"
-        f"语气风格：{setting.tone_style}\n"
-        "你现在是简历助手，请基于岗位要求输出可直接写入简历的内容草稿。"
-        "不得虚构具体公司/学校/项目，缺失信息必须标注[待填写]。"
-        "输出格式：\n"
-        "1. 求职目标\n"
-        "2. 职业摘要（3-5条）\n"
-        "3. 核心技能（硬技能/工具/软技能）\n"
-        "4. 项目经历模板（2段，含要点）\n"
-        "5. 工作经历模板（2段，含要点）\n"
-        "6. 教育背景模板\n"
-        "7. 关键词清单（ATS）\n"
-        "要求简洁，使用中文。"
-    )
-    user_prompt = (
-        f"职位名称：{job_title}\n"
-        "以下是OCR识别到的职位要求文本，请分析并生成对应简历草稿：\n"
-        f"{ocr_text}"
-    )
 
     payload = {
         "model": model,
@@ -286,7 +262,7 @@ def generate_resume_text(setting: AICustomerSetting, job_title: str, ocr_text: s
             {"role": "user", "content": user_prompt},
         ],
         "stream": False,
-        "temperature": 0.4,
+        "temperature": temperature,
     }
 
     try:
@@ -313,6 +289,102 @@ def generate_resume_text(setting: AICustomerSetting, job_title: str, ocr_text: s
     return content
 
 
+def _extract_json_block(text: str):
+    content = str(text or "").strip()
+    if not content:
+        return None
+    if content.startswith("```"):
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            content = content[start:end + 1]
+    try:
+        return json.loads(content)
+    except Exception:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(content[start:end + 1])
+            except Exception:
+                return None
+        return None
+
+
+def extract_skill_points(setting: AICustomerSetting, job_title: str, ocr_text: str):
+    system_prompt = (
+        "你是技术岗位分析助手。请根据岗位要求提炼技能点，不要编造。"
+        "输出必须是JSON对象，格式："
+        "{\"skills\":[{\"name\":\"\",\"intro\":\"\",\"usage\":\"\",\"tools\":[\"\",\"\"]}]}"
+    )
+    user_prompt = (
+        f"职位名称：{job_title}\n"
+        "请从以下岗位要求中提炼技能点，每个技能点必须包含：\n"
+        "1) 简约介绍 intro\n2) 如何使用 usage\n3) 相关工具 tools(数组)\n"
+        f"岗位要求文本：\n{ocr_text[:4000]}"
+    )
+    content = _call_llm(system_prompt, user_prompt, temperature=0.2)
+    data = _extract_json_block(content) or {}
+    raw = data.get("skills") if isinstance(data, dict) else None
+    if not isinstance(raw, list):
+        return []
+    output = []
+    for item in raw[:20]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        intro = str(item.get("intro", "")).strip()
+        usage = str(item.get("usage", "")).strip()
+        tools = item.get("tools") if isinstance(item.get("tools"), list) else []
+        tools = [str(t).strip() for t in tools if str(t).strip()][:8]
+        if not name:
+            continue
+        output.append(
+            {
+                "name": name[:64],
+                "intro": intro[:300],
+                "usage": usage[:300],
+                "tools": tools,
+            }
+        )
+    return output
+
+
+def generate_resume_text(setting: AICustomerSetting, job_title: str, ocr_text: str, skill_points=None) -> str:
+    skill_points = skill_points or []
+    skills_text = "无"
+    if skill_points:
+        rows = []
+        for item in skill_points:
+            rows.append(
+                f"- {item.get('name','')}: 简介={item.get('intro','')}; 使用={item.get('usage','')}; 工具={','.join(item.get('tools') or [])}"
+            )
+        skills_text = "\n".join(rows)
+
+    system_prompt = (
+        f"{setting.resume_system_prompt}\n"
+        f"语气风格：{setting.tone_style}\n"
+        "输出格式：\n"
+        "1. 求职目标\n"
+        "2. 职业摘要（3-5条）\n"
+        "3. 核心技能（硬技能/工具/软技能）\n"
+        "4. 项目经历模板（2段，含要点）\n"
+        "5. 工作经历模板（2段，含要点）\n"
+        "6. 教育背景模板\n"
+        "7. 关键词清单（ATS）\n"
+        "要求简洁，使用中文。"
+    )
+    user_prompt = (
+        f"职位名称：{job_title}\n"
+        "以下是OCR识别到的职位要求文本，请分析并生成对应简历草稿：\n"
+        f"{ocr_text[:5000]}\n\n"
+        "以下是提炼出的技能点，请结合使用：\n"
+        f"{skills_text}"
+    )
+
+    return _call_llm(system_prompt, user_prompt, temperature=0.4)
+
+
 def _wrap_text(text: str, width: int = 36):
     rows = []
     for paragraph in str(text or "").splitlines():
@@ -327,7 +399,7 @@ def _wrap_text(text: str, width: int = 36):
     return rows
 
 
-def render_resume_pdf(job_title: str, resume_text: str, ocr_text: str) -> bytes:
+def render_resume_pdf(job_title: str, resume_text: str, ocr_text: str, skill_points=None) -> bytes:
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfbase import pdfmetrics
@@ -370,6 +442,16 @@ def render_resume_pdf(job_title: str, resume_text: str, ocr_text: str) -> bytes:
     draw_line("【简历内容建议】", size=12, gap=20)
     for line in _wrap_text(resume_text, width=35):
         draw_line(line or " ", size=11, gap=17)
+
+    skill_points = skill_points or []
+    if skill_points:
+        draw_line("", size=11, gap=12)
+        draw_line("【岗位技能点分析】", size=12, gap=20)
+        for idx, skill in enumerate(skill_points, start=1):
+            draw_line(f"{idx}. {skill.get('name','')}", size=11, gap=17)
+            draw_line(f"   简介：{skill.get('intro','')}", size=10, gap=16)
+            draw_line(f"   使用：{skill.get('usage','')}", size=10, gap=16)
+            draw_line(f"   工具：{', '.join(skill.get('tools') or [])}", size=10, gap=16)
 
     draw_line("", size=11, gap=12)
     draw_line("【岗位要求OCR摘要（截断）】", size=12, gap=20)
@@ -418,14 +500,16 @@ def upload_resume_pdf(user, pdf_bytes: bytes):
 
 def run_resume_assistant(user, setting: AICustomerSetting, job_title: str, image_urls, rois=None):
     ocr_text, ocr_meta = extract_job_requirements(image_urls, rois=rois)
-    resume_text = generate_resume_text(setting, job_title, ocr_text)
-    pdf_bytes = render_resume_pdf(job_title, resume_text, ocr_text)
+    skill_points = extract_skill_points(setting, job_title, ocr_text)
+    resume_text = generate_resume_text(setting, job_title, ocr_text, skill_points=skill_points)
+    pdf_bytes = render_resume_pdf(job_title, resume_text, ocr_text, skill_points=skill_points)
     pdf_url, pdf_key = upload_resume_pdf(user, pdf_bytes)
     return {
         "pdf_url": pdf_url,
         "pdf_key": pdf_key,
         "ocr_text": ocr_text,
         "ocr_meta": ocr_meta,
+        "skill_points": skill_points,
         "resume_text": resume_text,
     }
 

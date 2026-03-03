@@ -84,6 +84,7 @@ def _serialize_resume_task(task: ResumeAssistantTask):
         "result": {
             "pdf_url": task.pdf_url or "",
             "ocr_text": task.ocr_text or "",
+            "skill_points": task.skill_points or [],
             "resume_text": task.resume_text or "",
         },
         "error": task.error_message or "",

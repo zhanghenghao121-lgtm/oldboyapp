@@ -11,6 +11,12 @@ class AICustomerSetting(models.Model):
             "如果知识库和常识都不足以支持可靠回答，请明确说无法确认，并输出 [NEED_HUMAN]。"
         )
     )
+    resume_system_prompt = models.TextField(
+        default=(
+            "你是专业简历顾问。请基于职位名称、OCR识别的岗位要求和技能点分析结果，"
+            "输出结构化、真实可填写的简历草稿。不得虚构具体经历，缺失信息必须标注[待填写]。"
+        )
+    )
     no_answer_text = models.CharField(max_length=255, default="这个问题需要人工客服进一步处理，我已经帮你转接。")
     feishu_bot_config_url = models.URLField(max_length=500, blank=True, default="")
     feishu_webhook_url = models.URLField(max_length=500, blank=True, default="")
@@ -125,6 +131,7 @@ class ResumeAssistantTask(models.Model):
     cost_points = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     refunded = models.BooleanField(default=False)
     ocr_text = models.TextField(blank=True, default="")
+    skill_points = models.JSONField(default=list, blank=True)
     resume_text = models.TextField(blank=True, default="")
     pdf_url = models.URLField(max_length=1000, blank=True, default="")
     error_message = models.CharField(max_length=255, blank=True, default="")

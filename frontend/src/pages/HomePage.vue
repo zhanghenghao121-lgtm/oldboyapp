@@ -23,6 +23,13 @@
       >
         AI章鱼助手
       </button>
+      <button
+        class="side-btn"
+        :class="{ active: activePanel === 'blogger' }"
+        @click="activePanel = 'blogger'"
+      >
+        章鱼博主
+      </button>
     </aside>
 
     <main class="main-panel">
@@ -109,6 +116,11 @@
             <el-button type="primary" class="main-btn" @click="$router.push('/ai-customer')">进入 AI章鱼助手</el-button>
           </div>
         </div>
+
+        <div v-if="activePanel === 'blogger'" class="panel-card">
+          <h4>章鱼博主</h4>
+          <p>该功能正在开发中，敬请期待。</p>
+        </div>
       </section>
     </main>
 
@@ -151,7 +163,11 @@ const pointsDialogVisible = ref(false)
 const pointsLogs = ref([])
 const pointsLoading = ref(false)
 
-const panelTitle = computed(() => (activePanel.value === 'script' ? '剧本小优' : 'AI章鱼助手'))
+const panelTitle = computed(() => {
+  if (activePanel.value === 'script') return '剧本小优'
+  if (activePanel.value === 'assistant') return 'AI章鱼助手'
+  return '章鱼博主'
+})
 const avatarSrc = computed(() => {
   if (avatarLoadFailed.value) return fallbackAvatar
   return user.value?.avatar_url || defaultAvatar.value || fallbackAvatar

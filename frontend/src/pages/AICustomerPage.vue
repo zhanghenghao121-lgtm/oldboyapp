@@ -4,7 +4,7 @@
       <header class="chat-head">
         <div>
           <h2>AI章鱼助手</h2>
-          <p>一个个性化的助手</p>
+          <p>全知全能的君王</p>
         </div>
         <div class="head-actions">
           <el-button class="neon-btn" @click="resumeDialogVisible = true">简历助手</el-button>

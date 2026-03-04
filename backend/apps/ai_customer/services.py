@@ -321,47 +321,90 @@ def generate_image_with_ark(prompt: str) -> Dict[str, Any]:
         raise RuntimeError("提示词不能为空")
 
     url = settings.ARK_IMAGE_BASE_URL.rstrip("/") + "/images/generations"
-    payload = {
-        "model": settings.ARK_IMAGE_MODEL,
-        "prompt": text,
-        "size": settings.ARK_IMAGE_SIZE,
-        "output_format": settings.ARK_IMAGE_OUTPUT_FORMAT,
-        "watermark": settings.ARK_IMAGE_WATERMARK,
-    }
-    resp = requests.post(
-        url,
-        json=payload,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        timeout=max(int(getattr(settings, "ARK_IMAGE_TIMEOUT", 90)), 20),
-    )
-    if resp.status_code >= 400:
-        raise RuntimeError(f"生图接口错误({resp.status_code})")
-    try:
-        data = resp.json()
-    except ValueError:
-        raise RuntimeError("生图接口返回非JSON格式")
-    if not isinstance(data, dict):
-        raise RuntimeError("生图接口返回结构异常")
+    def _extract_error_message(resp: requests.Response) -> str:
+        try:
+            err = resp.json()
+        except ValueError:
+            text_msg = (resp.text or "").strip()
+            return text_msg[:300] if text_msg else f"HTTP {resp.status_code}"
+        if isinstance(err, dict):
+            if isinstance(err.get("error"), dict):
+                detail = err["error"].get("message") or err["error"].get("type")
+                if detail:
+                    return str(detail)
+            for key in ("message", "msg", "detail"):
+                if err.get(key):
+                    return str(err.get(key))
+        return str(err)[:300]
 
-    items = data.get("data") or []
-    if not isinstance(items, list) or not items:
-        raise RuntimeError("生图返回为空")
-    first = items[0] if isinstance(items[0], dict) else {}
-    image_url = (first.get("url") or "").strip()
-    b64_data = (first.get("b64_json") or "").strip()
-    fmt = (settings.ARK_IMAGE_OUTPUT_FORMAT or "png").strip().lower() or "png"
-    mime = "image/png" if fmt == "png" else f"image/{fmt}"
-    if not image_url and b64_data:
-        # Convert to a browser-friendly inline data URL.
-        image_url = f"data:{mime};base64,{b64_data}"
-    if not image_url:
-        raise RuntimeError("生图结果缺少图片地址")
-    return {
-        "url": image_url,
-        "name": f"ai-image.{fmt}",
-        "mime_type": mime,
-        "source": "ark",
-    }
+    def _parse_success(resp: requests.Response):
+        try:
+            data = resp.json()
+        except ValueError:
+            raise RuntimeError("生图接口返回非JSON格式")
+        if not isinstance(data, dict):
+            raise RuntimeError("生图接口返回结构异常")
+        items = data.get("data") or []
+        if not isinstance(items, list) or not items:
+            raise RuntimeError("生图返回为空")
+        first = items[0] if isinstance(items[0], dict) else {}
+        image_url = (first.get("url") or "").strip()
+        b64_data = (first.get("b64_json") or "").strip()
+        fmt = (settings.ARK_IMAGE_OUTPUT_FORMAT or "png").strip().lower() or "png"
+        mime = "image/png" if fmt == "png" else f"image/{fmt}"
+        if not image_url and b64_data:
+            image_url = f"data:{mime};base64,{b64_data}"
+        if not image_url:
+            raise RuntimeError("生图结果缺少图片地址")
+        return {
+            "url": image_url,
+            "name": f"ai-image.{fmt}",
+            "mime_type": mime,
+            "source": "ark",
+        }
+
+    raw_fallbacks = getattr(settings, "ARK_IMAGE_FALLBACK_MODELS", "") or ""
+    models = [settings.ARK_IMAGE_MODEL]
+    models.extend([item.strip() for item in raw_fallbacks.split(",") if item.strip()])
+    # Ark docs examples often use this newer model id; keep as final fallback.
+    models.append("doubao-seedream-5-0-260128")
+    seen = set()
+    model_candidates = []
+    for model in models:
+        if model and model not in seen:
+            seen.add(model)
+            model_candidates.append(model)
+
+    last_error = ""
+    timeout_s = max(int(getattr(settings, "ARK_IMAGE_TIMEOUT", 90)), 20)
+    for model in model_candidates:
+        payload = {
+            "model": model,
+            "prompt": text,
+            "size": settings.ARK_IMAGE_SIZE,
+            "output_format": settings.ARK_IMAGE_OUTPUT_FORMAT,
+            "watermark": settings.ARK_IMAGE_WATERMARK,
+        }
+        try:
+            resp = requests.post(
+                url,
+                json=payload,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                timeout=timeout_s,
+            )
+        except requests.RequestException as exc:
+            last_error = f"请求失败: {exc}"
+            continue
+        if resp.status_code >= 400:
+            last_error = f"模型 {model} 错误({resp.status_code}): {_extract_error_message(resp)}"
+            continue
+        try:
+            return _parse_success(resp)
+        except Exception as exc:
+            last_error = f"模型 {model} 解析失败: {exc}"
+            continue
+
+    raise RuntimeError(last_error or "生图接口调用失败")
 
 
 def build_system_prompt(setting: AICustomerSetting, context_blocks: List[Tuple[str, float]]) -> str:

@@ -5,7 +5,7 @@ import uuid
 import re
 import requests
 from decimal import Decimal
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 from openpyxl import load_workbook
 from django.conf import settings
 from qdrant_client import QdrantClient
@@ -211,6 +211,89 @@ def search_context(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
     return output
 
 
+def has_reliable_context(context_blocks: List[Tuple[str, float]], min_score: Optional[float] = None) -> bool:
+    threshold = Decimal(str(min_score if min_score is not None else settings.AI_CS_CONTEXT_MIN_SCORE))
+    for _, score in context_blocks or []:
+        if Decimal(str(score)) >= threshold:
+            return True
+    return False
+
+
+def web_search(query: str) -> List[Dict[str, Any]]:
+    search_url = (getattr(settings, "SEARXNG_SEARCH_URL", "") or "").strip()
+    basic_user = (getattr(settings, "SEARXNG_BASIC_USER", "") or "").strip()
+    basic_pass = (getattr(settings, "SEARXNG_BASIC_PASS", "") or "").strip()
+    if not search_url:
+        return []
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    last_error = ""
+    for _ in range(2):  # first try + one retry
+        try:
+            resp = requests.get(
+                search_url,
+                params={"q": q},
+                auth=(basic_user, basic_pass),
+                timeout=20,
+            )
+        except requests.RequestException as exc:
+            last_error = f"联网检索请求失败: {exc}"
+            continue
+        if resp.status_code != 200:
+            last_error = f"联网检索HTTP错误({resp.status_code})"
+            continue
+        try:
+            body = resp.json()
+        except ValueError:
+            last_error = "联网检索JSON解析失败"
+            continue
+
+        raw_results = []
+        if isinstance(body, dict):
+            raw_results = body.get("results") or []
+            if not raw_results and isinstance(body.get("data"), dict):
+                raw_results = body["data"].get("results") or []
+        elif isinstance(body, list):
+            raw_results = body
+
+        if isinstance(raw_results, dict):
+            raw_results = [raw_results]
+        if not isinstance(raw_results, list):
+            raw_results = []
+
+        output: List[Dict[str, Any]] = []
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            url = str(item.get("url") or item.get("link") or "").strip()
+            content = str(item.get("content") or item.get("snippet") or item.get("text") or "").strip()
+            score_val = item.get("score", 0.0)
+            try:
+                score = float(score_val or 0.0)
+            except (TypeError, ValueError):
+                score = 0.0
+            if not content:
+                continue
+            output.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "content": content,
+                    "score": score,
+                }
+            )
+        return output
+    raise RuntimeError(last_error or "联网检索失败")
+
+
+def search_web(query: str) -> List[Dict[str, Any]]:
+    # Alias for tool registry naming convention.
+    return web_search(query)
+
+
 def stream_llm_answer(messages):
     base_url = settings.AI_CS_LLM_BASE_URL.rstrip("/")
     model = settings.AI_CS_LLM_MODEL
@@ -407,19 +490,40 @@ def generate_image_with_ark(prompt: str) -> Dict[str, Any]:
     raise RuntimeError(last_error or "生图接口调用失败")
 
 
-def build_system_prompt(setting: AICustomerSetting, context_blocks: List[Tuple[str, float]]) -> str:
+def build_system_prompt(
+    setting: AICustomerSetting,
+    context_blocks: List[Tuple[str, float]],
+    web_results: Optional[List[Dict[str, Any]]] = None,
+) -> str:
     context_lines = []
     threshold = Decimal(str(settings.AI_CS_CONTEXT_MIN_SCORE))
     for idx, (text, score) in enumerate(context_blocks, start=1):
         if Decimal(str(score)) >= threshold:
             context_lines.append(f"[{idx}] score={score:.4f}\n{text}")
     context_text = "\n\n".join(context_lines) or "无可靠知识库命中"
+    web_lines = []
+    for idx, item in enumerate(web_results or [], start=1):
+        title = (item.get("title") or "").strip()
+        url = (item.get("url") or "").strip()
+        content = (item.get("content") or "").strip()
+        if not content:
+            continue
+        head = f"[W{idx}]"
+        if title:
+            head += f" {title}"
+        if url:
+            head += f" ({url})"
+        web_lines.append(f"{head}\n{content}")
+    web_text = "\n\n".join(web_lines) or "无联网检索结果"
+
     return (
         f"{setting.base_prompt}\n"
         f"你的语气风格：{setting.tone_style}\n"
         "请严格遵守：\n"
         "1) 优先依据知识库上下文回答，不得编造事实。\n"
-        "2) 若上下文不足，先明确不确定，再给出可执行建议。\n"
-        "3) 当无法可靠回答时，必须在回复最后追加 [NEED_HUMAN]。\n"
+        "2) 当知识库不足时，可结合联网检索结果回答，并尽量引用 [Wn]。\n"
+        "3) 若上下文不足，先明确不确定，再给出可执行建议。\n"
+        "4) 当仍无法可靠回答时，必须在回复最后追加 [NEED_HUMAN]。\n"
         f"\n知识库上下文:\n{context_text}\n"
+        f"\n联网检索结果:\n{web_text}\n"
     )

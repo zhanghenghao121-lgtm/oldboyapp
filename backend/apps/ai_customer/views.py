@@ -24,6 +24,8 @@ from apps.ai_customer.models import (
 from apps.ai_customer.services import (
     build_system_prompt,
     search_context,
+    has_reliable_context,
+    web_search,
     stream_llm_answer,
     has_image_generation_intent,
     optimize_image_prompt,
@@ -315,8 +317,14 @@ def chat_stream(request):
                 context_hits = search_context(message, top_k=settings.AI_CS_TOP_K)
             except Exception:
                 context_hits = []
+            web_hits = []
+            if not has_reliable_context(context_hits):
+                try:
+                    web_hits = web_search(message)
+                except Exception:
+                    web_hits = []
 
-            system_prompt = build_system_prompt(setting, context_hits)
+            system_prompt = build_system_prompt(setting, context_hits, web_hits)
             recent = ChatMessage.objects.filter(user=request.user).order_by("-id")[:8]
             recent_messages = []
             for row in reversed(list(recent)):

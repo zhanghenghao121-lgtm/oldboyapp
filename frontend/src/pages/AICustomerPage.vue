@@ -30,7 +30,15 @@
               AI思考中<span class="thinking-dots"><i></i><i></i><i></i></span>
             </p>
             <div v-if="item.attachments?.length" class="attach-list">
-              <a v-for="(f, idx) in item.attachments" :key="idx" :href="f.url" target="_blank" rel="noreferrer">{{ f.name || f.url }}</a>
+              <template v-for="(f, idx) in item.attachments" :key="idx">
+                <img
+                  v-if="isImageAttachment(f)"
+                  class="attach-image"
+                  :src="f.url"
+                  :alt="f.name || 'ai-image'"
+                />
+                <a v-else :href="f.url" target="_blank" rel="noreferrer">{{ f.name || f.url }}</a>
+              </template>
             </div>
           </div>
           <el-avatar
@@ -308,6 +316,13 @@ const formatDate = (value) => {
 const handleUserAvatarError = () => {
   userAvatarFailed.value = true
   return false
+}
+
+const isImageAttachment = (file) => {
+  if (!file || !file.url) return false
+  const type = String(file.mime_type || file.type || '').toLowerCase()
+  if (type.startsWith('image/')) return true
+  return /^data:image\//i.test(String(file.url))
 }
 
 const pickFiles = () => {
@@ -595,6 +610,9 @@ const streamChat = async (payload, assistantMsg) => {
       if (data.type === 'done') {
         assistantMsg.waiting = false
         assistantMsg.content = data.content || assistantMsg.content
+        if (Array.isArray(data.attachments)) {
+          assistantMsg.attachments = data.attachments
+        }
         if (data.handover) {
           ElMessage.warning('当前问题已转人工处理')
         }
@@ -771,6 +789,12 @@ watch(resumeDialogVisible, (visible) => {
 .attach-list a {
   color: #92d5ff;
   font-size: 12px;
+}
+.attach-image {
+  width: min(280px, 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(135, 200, 255, 0.52);
+  box-shadow: 0 0 16px rgba(88, 189, 255, 0.28);
 }
 .upload-row {
   margin-top: 12px;

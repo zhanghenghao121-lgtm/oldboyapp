@@ -21,7 +21,14 @@ from apps.ai_customer.models import (
     HumanReplyClearState,
     ResumeAssistantTask,
 )
-from apps.ai_customer.services import build_system_prompt, search_context, stream_llm_answer
+from apps.ai_customer.services import (
+    build_system_prompt,
+    search_context,
+    stream_llm_answer,
+    has_image_generation_intent,
+    optimize_image_prompt,
+    generate_image_with_ark,
+)
 from apps.ai_customer.resume_services import ResumeAssistantError, run_resume_assistant, resume_points_cost
 from apps.ai_customer.resume_tasks import dispatch_resume_task
 
@@ -300,24 +307,54 @@ def chat_stream(request):
             attachments=attachments,
         )
 
-        context_hits = []
-        try:
-            context_hits = search_context(message, top_k=settings.AI_CS_TOP_K)
-        except Exception:
+        image_mode = has_image_generation_intent(message)
+        llm_messages = []
+        if not image_mode:
             context_hits = []
+            try:
+                context_hits = search_context(message, top_k=settings.AI_CS_TOP_K)
+            except Exception:
+                context_hits = []
 
-        system_prompt = build_system_prompt(setting, context_hits)
-        recent = ChatMessage.objects.filter(user=request.user).order_by("-id")[:8]
-        recent_messages = []
-        for row in reversed(list(recent)):
-            recent_messages.append({"role": row.role, "content": row.content})
+            system_prompt = build_system_prompt(setting, context_hits)
+            recent = ChatMessage.objects.filter(user=request.user).order_by("-id")[:8]
+            recent_messages = []
+            for row in reversed(list(recent)):
+                recent_messages.append({"role": row.role, "content": row.content})
 
-        llm_messages = [{"role": "system", "content": system_prompt}, *recent_messages]
+            llm_messages = [{"role": "system", "content": system_prompt}, *recent_messages]
     except Exception as exc:
         logger.exception("chat_stream fatal error: %s", exc)
         return _sse_error("服务暂时不可用，请稍后重试", 500)
 
     def gen():
+        if image_mode:
+            try:
+                optimized_prompt = optimize_image_prompt(message)
+                image_attachment = generate_image_with_ark(optimized_prompt)
+                final_text = "已根据你的需求生成图片。"
+                ChatMessage.objects.create(
+                    user=request.user,
+                    role=ChatMessage.ROLE_ASSISTANT,
+                    content=final_text,
+                    attachments=[image_attachment],
+                )
+                yield "data: " + json.dumps(
+                    {
+                        "type": "done",
+                        "content": final_text,
+                        "handover": False,
+                        "ticket_id": None,
+                        "attachments": [image_attachment],
+                        "meta": {"optimized_prompt": optimized_prompt},
+                    },
+                    ensure_ascii=False,
+                ) + "\n\n"
+            except Exception as exc:
+                logger.exception("chat_stream image mode error: %s", exc)
+                yield "data: " + json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False) + "\n\n"
+            return
+
         full = ""
         handover = False
         ticket_id = None
@@ -357,6 +394,7 @@ def chat_stream(request):
                     "content": full,
                     "handover": handover,
                     "ticket_id": ticket_id,
+                    "attachments": [],
                 },
                 ensure_ascii=False,
             ) + "\n\n"

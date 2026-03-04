@@ -2,9 +2,10 @@ import csv
 import io
 import json
 import uuid
+import re
 import requests
 from decimal import Decimal
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 from openpyxl import load_workbook
 from django.conf import settings
 from qdrant_client import QdrantClient
@@ -250,6 +251,117 @@ def stream_llm_answer(messages):
             content = delta.get("content")
             if content:
                 yield content
+
+
+_IMAGE_INTENT_PATTERNS = [
+    r"(生成|做|画|创作).{0,8}(图|图片|海报|插画|封面|头像|壁纸)",
+    r"(生图|画图|绘图|出图)",
+    r"(image|draw|illustration|poster|cover|wallpaper)",
+]
+
+
+def has_image_generation_intent(text: str) -> bool:
+    content = (text or "").strip().lower()
+    if not content:
+        return False
+    return any(re.search(pattern, content, flags=re.IGNORECASE) for pattern in _IMAGE_INTENT_PATTERNS)
+
+
+def optimize_image_prompt(user_text: str) -> str:
+    base = (user_text or "").strip()
+    if not base:
+        return ""
+    api_key = settings.AI_CS_LLM_API_KEY.strip()
+    if not api_key:
+        return base
+    payload = {
+        "model": settings.AI_CS_LLM_MODEL,
+        "stream": False,
+        "temperature": 0.4,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "你是专业提示词优化助手。"
+                    "把用户生图需求改写成高质量中文提示词，保留核心诉求，补齐画面主体、构图、光线、风格、细节。"
+                    "不要解释，不要Markdown，不要多段，只输出最终提示词。"
+                ),
+            },
+            {"role": "user", "content": base},
+        ],
+    }
+    url = f"{settings.AI_CS_LLM_BASE_URL.rstrip('/')}/chat/completions"
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=45,
+        )
+        if resp.status_code >= 400:
+            return base
+        body = resp.json()
+        content = (
+            ((body.get("choices") or [{}])[0].get("message") or {}).get("content")
+            if isinstance(body, dict)
+            else ""
+        )
+        optimized = (content or "").strip()
+        return optimized or base
+    except Exception:
+        return base
+
+
+def generate_image_with_ark(prompt: str) -> Dict[str, Any]:
+    api_key = settings.ARK_API_KEY.strip()
+    if not api_key:
+        raise RuntimeError("ARK_API_KEY 未配置")
+    text = (prompt or "").strip()
+    if not text:
+        raise RuntimeError("提示词不能为空")
+
+    url = settings.ARK_IMAGE_BASE_URL.rstrip("/") + "/images/generations"
+    payload = {
+        "model": settings.ARK_IMAGE_MODEL,
+        "prompt": text,
+        "size": settings.ARK_IMAGE_SIZE,
+        "output_format": settings.ARK_IMAGE_OUTPUT_FORMAT,
+        "watermark": settings.ARK_IMAGE_WATERMARK,
+    }
+    resp = requests.post(
+        url,
+        json=payload,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        timeout=max(int(getattr(settings, "ARK_IMAGE_TIMEOUT", 90)), 20),
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"生图接口错误({resp.status_code})")
+    try:
+        data = resp.json()
+    except ValueError:
+        raise RuntimeError("生图接口返回非JSON格式")
+    if not isinstance(data, dict):
+        raise RuntimeError("生图接口返回结构异常")
+
+    items = data.get("data") or []
+    if not isinstance(items, list) or not items:
+        raise RuntimeError("生图返回为空")
+    first = items[0] if isinstance(items[0], dict) else {}
+    image_url = (first.get("url") or "").strip()
+    b64_data = (first.get("b64_json") or "").strip()
+    fmt = (settings.ARK_IMAGE_OUTPUT_FORMAT or "png").strip().lower() or "png"
+    mime = "image/png" if fmt == "png" else f"image/{fmt}"
+    if not image_url and b64_data:
+        # Convert to a browser-friendly inline data URL.
+        image_url = f"data:{mime};base64,{b64_data}"
+    if not image_url:
+        raise RuntimeError("生图结果缺少图片地址")
+    return {
+        "url": image_url,
+        "name": f"ai-image.{fmt}",
+        "mime_type": mime,
+        "source": "ark",
+    }
 
 
 def build_system_prompt(setting: AICustomerSetting, context_blocks: List[Tuple[str, float]]) -> str:

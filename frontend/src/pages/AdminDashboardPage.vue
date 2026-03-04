@@ -103,7 +103,11 @@
               <el-tag :type="scope.row.is_active ? 'success' : 'danger'">{{ scope.row.is_active ? '启用' : '停用' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="date_joined" label="注册时间" min-width="170" />
+          <el-table-column prop="date_joined" label="注册时间" min-width="130">
+            <template #default="scope">
+              {{ formatDateYmd(scope.row.date_joined) }}
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="100">
             <template #default="scope">
               <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
@@ -462,6 +466,16 @@ const thumbSrc = (url) => {
   if (!url) return ''
   const sep = url.includes('?') ? '&' : '?'
   return `${url}${sep}v=${Date.now()}`
+}
+
+const formatDateYmd = (value) => {
+  if (!value) return '-'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 const loadUsers = async (targetPage = page.value) => {

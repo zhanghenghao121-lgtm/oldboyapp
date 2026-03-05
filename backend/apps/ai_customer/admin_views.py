@@ -1,7 +1,10 @@
+import uuid
+from datetime import datetime
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from django.conf import settings
+from qcloud_cos import CosConfig, CosS3Client
 
 from apps.ai_customer.models import (
     AICustomerSetting,
@@ -9,8 +12,10 @@ from apps.ai_customer.models import (
     KnowledgeChunk,
     KnowledgeDocument,
 )
-from apps.ai_customer.services import chunk_text, embed_texts, parse_text_file, upsert_chunks, split_texts_for_embedding
+from apps.ai_customer.services import embed_texts, upsert_chunks, split_texts_for_embedding
+from apps.ai_customer.knowledge_tasks import knowledge_vectorize_task
 from apps.console.permissions import IsConsoleAdmin
+from apps.storage.models import UploadedFileRecord
 
 
 def ok(data=None):
@@ -34,6 +39,36 @@ def _to_bool(value, default: bool) -> bool:
     if text in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _upload_knowledge_source(user, file_name: str, raw: bytes):
+    if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
+        raise RuntimeError("COS配置不完整")
+    ext = ""
+    if "." in (file_name or ""):
+        ext = "." + file_name.split(".")[-1].lower()
+    key = f"ai-customer/knowledge/raw/{datetime.now().strftime('%Y/%m/%d')}/{uuid.uuid4().hex}{ext}"
+    config = CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY)
+    client = CosS3Client(config)
+    client.put_object(
+        Bucket=settings.COS_BUCKET,
+        Body=raw,
+        Key=key,
+        ContentType="application/octet-stream",
+    )
+    if settings.COS_BASE_URL:
+        url = f"{settings.COS_BASE_URL.rstrip('/')}/{key}"
+    else:
+        url = f"https://{settings.COS_BUCKET}.cos.{settings.COS_REGION}.myqcloud.com/{key}"
+    if user:
+        UploadedFileRecord.objects.create(
+            user=user,
+            key=key,
+            url=url,
+            content_type="application/octet-stream",
+            size=len(raw),
+        )
+    return key, url
 
 
 @api_view(["GET", "PUT"])
@@ -109,28 +144,14 @@ def ai_cs_upload_knowledge(request):
 
     try:
         raw = file_obj.read()
-        text = parse_text_file(file_obj.name, raw)
-        chunks = chunk_text(text)
-        if not chunks:
-            raise RuntimeError("解析后内容为空")
-        batch_size = max(int(getattr(settings, "AI_CS_EMBED_BATCH_SIZE", 64)), 1)
-        batch_max_chars = max(int(getattr(settings, "AI_CS_EMBED_BATCH_MAX_CHARS", 18000)), 1)
-        total = len(chunks)
-        cursor = 0
-        for batch_chunks in split_texts_for_embedding(chunks, max_items=batch_size, max_chars=batch_max_chars):
-            vectors = embed_texts(batch_chunks)
-            vector_ids = upsert_chunks(doc.id, batch_chunks, vectors, start_index=cursor)
-            objs = [
-                KnowledgeChunk(document=doc, chunk_index=cursor + i, text=batch_chunks[i], vector_id=vector_ids[i])
-                for i in range(len(batch_chunks))
-            ]
-            KnowledgeChunk.objects.bulk_create(objs, batch_size=200)
-            cursor += len(batch_chunks)
-        doc.status = KnowledgeDocument.STATUS_SUCCESS
-        doc.chunk_count = total
+        source_key, source_url = _upload_knowledge_source(getattr(request, "console_user", None), file_obj.name, raw)
+        doc.source_key = source_key
+        doc.source_url = source_url
+        doc.status = KnowledgeDocument.STATUS_PENDING
         doc.error_message = ""
-        doc.save(update_fields=["status", "chunk_count", "error_message", "updated_at"])
-        return ok({"id": doc.id, "chunk_count": total, "status": doc.status})
+        doc.save(update_fields=["source_key", "source_url", "status", "error_message", "updated_at"])
+        knowledge_vectorize_task.delay(doc.id)
+        return ok({"id": doc.id, "chunk_count": 0, "status": doc.status, "queued": True})
     except Exception as exc:
         doc.status = KnowledgeDocument.STATUS_FAILED
         doc.error_message = str(exc)[:255]

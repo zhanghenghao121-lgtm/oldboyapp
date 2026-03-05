@@ -40,6 +40,8 @@ class KnowledgeDocument(models.Model):
 
     title = models.CharField(max_length=200)
     source_name = models.CharField(max_length=255)
+    source_key = models.CharField(max_length=255, blank=True, default="")
+    source_url = models.URLField(max_length=1000, blank=True, default="")
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
     chunk_count = models.PositiveIntegerField(default=0)
     error_message = models.CharField(max_length=255, blank=True, default="")

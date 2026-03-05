@@ -579,7 +579,11 @@ const handleKnowledgeFile = async (event) => {
     formData.append('file', file)
     formData.append('title', knowledgeTitle.value || '')
     const res = await uploadAICsKnowledge(formData)
-    ElMessage.success(`向量化成功，分块 ${res.data.chunk_count} 条`)
+    if (res.data?.queued) {
+      ElMessage.success('已加入向量化队列，请稍后刷新查看结果')
+    } else {
+      ElMessage.success(`向量化成功，分块 ${res.data.chunk_count} 条`)
+    }
     knowledgeTitle.value = ''
     await loadAiCsDocs()
   } catch (e) {

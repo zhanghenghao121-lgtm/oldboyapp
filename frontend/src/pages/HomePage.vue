@@ -118,8 +118,29 @@
         </div>
 
         <div v-if="activePanel === 'blogger'" class="panel-card">
-          <h4>章鱼博主</h4>
-          <p>该功能正在开发中，敬请期待。</p>
+          <h4>章鱼博主 · 两段式创作台</h4>
+          <p>输入热点词或自动获取热搜后，一键生成标题、文案和配图，再继续生成视频成片。</p>
+          <div class="feature-grid">
+            <div class="feature-item">
+              <span>01</span>
+              <p>热点词自动抓取</p>
+            </div>
+            <div class="feature-item">
+              <span>02</span>
+              <p>标题文案自动生成</p>
+            </div>
+            <div class="feature-item">
+              <span>03</span>
+              <p>配图一键产出</p>
+            </div>
+            <div class="feature-item">
+              <span>04</span>
+              <p>首帧转视频</p>
+            </div>
+          </div>
+          <div class="entry-row">
+            <el-button type="primary" class="main-btn" @click="$router.push('/ai-blogger')">进入章鱼博主</el-button>
+          </div>
         </div>
       </section>
     </main>

@@ -217,6 +217,8 @@ const doLogout = async () => {
 const usageTypeText = (usageType) => {
   if (usageType === 'script_storyboard') return '剧本分镜消耗'
   if (usageType === 'paragraph_storyboard') return '段落分镜消耗'
+  if (usageType === 'ai_blogger_post') return '章鱼博主图文生成'
+  if (usageType === 'ai_blogger_video') return '章鱼博主视频生成'
   if (usageType === 'refund') return '失败退款'
   return '积分变动'
 }

@@ -1,13 +1,19 @@
 from django.core.cache import cache
 from django.conf import settings
+from django.db import transaction
+from django.contrib.auth import get_user_model
+from decimal import Decimal
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.accounts.models import PointsUsageLog
 from apps.ai_customer.blogger_services import BloggerError, fetch_hotwords
 from apps.ai_customer.blogger_tasks import dispatch_post_generation, dispatch_video_generation
 from apps.ai_customer.models import AiBloggerAsset, AiBloggerPost, AiBloggerVideoTask
+
+User = get_user_model()
 
 
 def ok(data=None):
@@ -29,6 +35,24 @@ def _to_bool(value, default: bool) -> bool:
     if text in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _consume_user_points(user_id: int, required_points: Decimal, usage_type: str, description: str):
+    with transaction.atomic():
+        user = User.objects.select_for_update().get(id=user_id)
+        balance = Decimal(user.points or 0)
+        if balance < required_points:
+            return None, f"积分不足（当前 {balance:.2f}，需 {required_points:.2f}）"
+        user.points = balance - required_points
+        user.save(update_fields=["points"])
+        PointsUsageLog.objects.create(
+            user=user,
+            usage_type=usage_type,
+            amount=required_points,
+            balance_after=user.points,
+            description=description[:255],
+        )
+        return Decimal(user.points), None
 
 
 def _serialize_asset(asset: AiBloggerAsset):
@@ -135,6 +159,15 @@ def ai_blogger_post_create(request):
         return bad("热点词不能超过50字")
     if ratio not in {"9:16", "16:9"}:
         ratio = "9:16"
+    post_cost = Decimal(str(getattr(settings, "AI_BLOGGER_POST_COST", 20)))
+    remaining_points, err = _consume_user_points(
+        request.user.id,
+        post_cost,
+        PointsUsageLog.TYPE_AI_BLOGGER_POST,
+        f"章鱼博主图文生成：{hot_word[:40]}",
+    )
+    if err:
+        return bad(err, 400)
 
     post = AiBloggerPost.objects.create(
         user=request.user,
@@ -153,7 +186,7 @@ def ai_blogger_post_create(request):
         post.error_text = "任务调度失败，请稍后重试"
         post.save(update_fields=["status_text", "error_text", "updated_at"])
         return bad("任务调度失败，请检查任务队列服务", 503)
-    return ok({"post_id": post.id})
+    return ok({"post_id": post.id, "cost_points": float(post_cost), "remaining_points": float(remaining_points)})
 
 
 @api_view(["GET"])
@@ -209,6 +242,15 @@ def ai_blogger_video_create(request, post_id: int):
     active = post.video_tasks.filter(status_video__in=[AiBloggerVideoTask.STATUS_QUEUED, AiBloggerVideoTask.STATUS_RUNNING]).first()
     if active:
         return ok({"video_task_id": active.id})
+    video_cost = Decimal(str(getattr(settings, "AI_BLOGGER_VIDEO_COST", 80)))
+    remaining_points, err = _consume_user_points(
+        request.user.id,
+        video_cost,
+        PointsUsageLog.TYPE_AI_BLOGGER_VIDEO,
+        f"章鱼博主视频生成：{post.hot_word[:40]}",
+    )
+    if err:
+        return bad(err, 400)
 
     task = AiBloggerVideoTask.objects.create(
         post=post,
@@ -225,7 +267,7 @@ def ai_blogger_video_create(request, post_id: int):
         task.error_text = "视频任务调度失败，请稍后重试"
         task.save(update_fields=["status_video", "error_text", "updated_at"])
         return bad("视频任务调度失败，请检查任务队列服务", 503)
-    return ok({"video_task_id": task.id})
+    return ok({"video_task_id": task.id, "cost_points": float(video_cost), "remaining_points": float(remaining_points)})
 
 
 @api_view(["GET"])

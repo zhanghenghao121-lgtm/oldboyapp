@@ -188,7 +188,7 @@
 
       <section v-if="activeModule === 'ai_knowledge'" class="panel-card">
         <h4 class="placeholder-title">AI知识库上传向量化</h4>
-        <p class="placeholder-sub">支持 json / jsonl / csv / xlsx / txt / md，上传后自动向量化存入 Qdrant。</p>
+        <p class="placeholder-sub">支持 json / jsonl / csv / xlsx / txt / md（最大100MB），上传后自动分批向量化存入 Qdrant。</p>
         <div class="kb-upload-row">
           <el-input v-model="knowledgeTitle" placeholder="知识库标题（可选）" />
           <input ref="knowledgeInputRef" type="file" class="file-hidden" accept=".json,.jsonl,.csv,.xlsx,.txt,.md" @change="handleKnowledgeFile" />
@@ -568,8 +568,8 @@ const handleKnowledgeFile = async (event) => {
     ElMessage.warning('仅支持 json/jsonl/csv/xlsx/txt/md 文件')
     return
   }
-  if (Number(file.size || 0) > 10 * 1024 * 1024) {
-    ElMessage.warning('知识库文件不能超过10MB')
+  if (Number(file.size || 0) > 100 * 1024 * 1024) {
+    ElMessage.warning('知识库文件不能超过100MB')
     return
   }
 

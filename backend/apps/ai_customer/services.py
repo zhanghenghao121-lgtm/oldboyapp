@@ -182,7 +182,7 @@ def ensure_collection(vector_size: int):
     )
 
 
-def upsert_chunks(document_id: int, chunks: List[str], vectors: List[List[float]]) -> List[str]:
+def upsert_chunks(document_id: int, chunks: List[str], vectors: List[List[float]], start_index: int = 0) -> List[str]:
     if not chunks:
         return []
     ensure_collection(len(vectors[0]))
@@ -197,7 +197,7 @@ def upsert_chunks(document_id: int, chunks: List[str], vectors: List[List[float]
             PointStruct(
                 id=vector_id,
                 vector=vec,
-                payload={"document_id": document_id, "chunk_index": idx, "text": text},
+                payload={"document_id": document_id, "chunk_index": start_index + idx, "text": text},
             )
         )
     client.upsert(collection_name=collection, points=points)

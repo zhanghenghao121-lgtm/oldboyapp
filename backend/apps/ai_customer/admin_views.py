@@ -1,6 +1,7 @@
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+from django.conf import settings
 
 from apps.ai_customer.models import (
     AICustomerSetting,
@@ -95,8 +96,9 @@ def ai_cs_upload_knowledge(request):
     title = str(request.data.get("title", "")).strip()
     if not file_obj:
         return bad("请上传文件")
-    if file_obj.size > 10 * 1024 * 1024:
-        return bad("知识库文件不能超过10MB")
+    max_upload_size = max(int(getattr(settings, "AI_CS_KNOWLEDGE_MAX_UPLOAD_SIZE", 100 * 1024 * 1024)), 1)
+    if file_obj.size > max_upload_size:
+        return bad(f"知识库文件不能超过{max_upload_size // (1024 * 1024)}MB")
 
     doc = KnowledgeDocument.objects.create(
         title=title or file_obj.name,
@@ -111,18 +113,22 @@ def ai_cs_upload_knowledge(request):
         chunks = chunk_text(text)
         if not chunks:
             raise RuntimeError("解析后内容为空")
-        vectors = embed_texts(chunks)
-        vector_ids = upsert_chunks(doc.id, chunks, vectors)
-        objs = [
-            KnowledgeChunk(document=doc, chunk_index=i, text=chunk, vector_id=vector_ids[i])
-            for i, chunk in enumerate(chunks)
-        ]
-        KnowledgeChunk.objects.bulk_create(objs)
+        batch_size = max(int(getattr(settings, "AI_CS_EMBED_BATCH_SIZE", 64)), 1)
+        total = len(chunks)
+        for start in range(0, total, batch_size):
+            batch_chunks = chunks[start : start + batch_size]
+            vectors = embed_texts(batch_chunks)
+            vector_ids = upsert_chunks(doc.id, batch_chunks, vectors, start_index=start)
+            objs = [
+                KnowledgeChunk(document=doc, chunk_index=start + i, text=batch_chunks[i], vector_id=vector_ids[i])
+                for i in range(len(batch_chunks))
+            ]
+            KnowledgeChunk.objects.bulk_create(objs, batch_size=200)
         doc.status = KnowledgeDocument.STATUS_SUCCESS
-        doc.chunk_count = len(chunks)
+        doc.chunk_count = total
         doc.error_message = ""
         doc.save(update_fields=["status", "chunk_count", "error_message", "updated_at"])
-        return ok({"id": doc.id, "chunk_count": len(chunks), "status": doc.status})
+        return ok({"id": doc.id, "chunk_count": total, "status": doc.status})
     except Exception as exc:
         doc.status = KnowledgeDocument.STATUS_FAILED
         doc.error_message = str(exc)[:255]

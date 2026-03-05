@@ -42,6 +42,20 @@ services:
       - mariadb
       - redis
 
+  celery-worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: oldboyapp-celery-worker
+    restart: always
+    command: celery -A config worker -l INFO -Q default
+    env_file:
+      - ./env.prod
+    depends_on:
+      - backend
+      - redis
+      - mariadb
+
   frontend:
     build:
       context: ../frontend

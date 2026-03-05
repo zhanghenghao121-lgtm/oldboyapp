@@ -11,7 +11,7 @@ if [[ ! -f env.prod ]]; then
 fi
 
 # Deploy core services first to keep CI stable even when optional OCR image cannot be pulled.
-docker compose --env-file env.prod up -d --build mariadb redis backend frontend nginx
+docker compose --env-file env.prod up -d --build mariadb redis backend celery-worker frontend nginx
 
 # Optional OCR service:
 # Start only when image already exists locally to avoid Docker Hub timeout blocking deploy.

@@ -146,7 +146,13 @@ def ai_blogger_post_create(request):
         status_text=AiBloggerPost.STATUS_QUEUED,
         stage_text=AiBloggerPost.STAGE_TITLE,
     )
-    dispatch_post_generation(post.id)
+    try:
+        dispatch_post_generation(post.id)
+    except Exception:
+        post.status_text = AiBloggerPost.STATUS_FAILED
+        post.error_text = "任务调度失败，请稍后重试"
+        post.save(update_fields=["status_text", "error_text", "updated_at"])
+        return bad("任务调度失败，请检查任务队列服务", 503)
     return ok({"post_id": post.id})
 
 
@@ -212,7 +218,13 @@ def ai_blogger_video_create(request, post_id: int):
         generate_audio=generate_audio,
         watermark=watermark,
     )
-    dispatch_video_generation(task.id)
+    try:
+        dispatch_video_generation(task.id)
+    except Exception:
+        task.status_video = AiBloggerVideoTask.STATUS_FAILED
+        task.error_text = "视频任务调度失败，请稍后重试"
+        task.save(update_fields=["status_video", "error_text", "updated_at"])
+        return bad("视频任务调度失败，请检查任务队列服务", 503)
     return ok({"video_task_id": task.id})
 
 

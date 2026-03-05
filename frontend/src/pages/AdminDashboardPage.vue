@@ -201,6 +201,18 @@
           <el-table-column prop="status" label="状态" width="100" />
           <el-table-column prop="chunk_count" label="分块数" width="90" />
           <el-table-column prop="error_message" label="失败原因" min-width="220" />
+          <el-table-column label="操作" width="110">
+            <template #default="scope">
+              <el-button
+                link
+                type="danger"
+                :disabled="scope.row.status !== 'success' || deletingDocId === scope.row.id"
+                @click="deleteKnowledgeDoc(scope.row)"
+              >
+                {{ deletingDocId === scope.row.id ? '删除中...' : '删除' }}
+              </el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </section>
 
@@ -280,10 +292,11 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { uploadToCos } from '../api/storage'
 import {
   getAICsDocs,
+  deleteAICsDoc,
   getAICsSettings,
   getAICsTickets,
   getConsoleConfigs,
@@ -343,6 +356,7 @@ const knowledgeDocs = ref([])
 const knowledgeTitle = ref('')
 const knowledgeInputRef = ref()
 const uploadingKnowledge = ref(false)
+const deletingDocId = ref(null)
 const aiTickets = ref([])
 const aiUnreadCount = ref(0)
 const replyVisible = ref(false)
@@ -590,6 +604,31 @@ const handleKnowledgeFile = async (event) => {
     ElMessage.error(e)
   } finally {
     uploadingKnowledge.value = false
+  }
+}
+
+const deleteKnowledgeDoc = async (row) => {
+  const docId = Number(row?.id || 0)
+  if (!docId) return
+  try {
+    await ElMessageBox.confirm('确认删除该知识库文档？将同时删除向量数据库中的对应向量。', '删除确认', {
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+      customClass: 'anime-neon-message-box',
+    })
+  } catch {
+    return
+  }
+  deletingDocId.value = docId
+  try {
+    await deleteAICsDoc(docId)
+    ElMessage.success('知识库文档已删除')
+    await loadAiCsDocs()
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    deletingDocId.value = null
   }
 }
 

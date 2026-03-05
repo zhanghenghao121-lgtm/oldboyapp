@@ -13,7 +13,7 @@ from apps.ai_customer.models import (
     KnowledgeChunk,
     KnowledgeDocument,
 )
-from apps.ai_customer.services import embed_texts, upsert_chunks, split_texts_for_embedding
+from apps.ai_customer.services import embed_texts, upsert_chunks, split_texts_for_embedding, delete_vector_ids
 from apps.ai_customer.knowledge_tasks import dispatch_knowledge_vectorize
 from apps.console.permissions import IsConsoleAdmin
 
@@ -152,6 +152,31 @@ def ai_cs_upload_knowledge(request):
         doc.error_message = str(exc)[:255]
         doc.save(update_fields=["status", "error_message", "updated_at"])
         return bad(f"向量化失败：{exc}", 500)
+
+
+@api_view(["DELETE"])
+@permission_classes([IsConsoleAdmin])
+@csrf_exempt
+def ai_cs_doc_delete(request, doc_id: int):
+    doc = KnowledgeDocument.objects.filter(id=doc_id).first()
+    if not doc:
+        return bad("文档不存在", 404)
+
+    try:
+        vector_ids = list(KnowledgeChunk.objects.filter(document_id=doc.id).values_list("vector_id", flat=True))
+        if vector_ids:
+            delete_vector_ids(vector_ids)
+    except Exception as exc:
+        logger.exception("ai_cs_doc_delete vector delete failed: %s", exc)
+        return bad(f"删除向量失败：{exc}", 500)
+
+    try:
+        doc.delete()
+    except Exception as exc:
+        logger.exception("ai_cs_doc_delete doc delete failed: %s", exc)
+        return bad(f"删除文档失败：{exc}", 500)
+
+    return ok({"deleted": True, "doc_id": doc_id})
 
 
 @api_view(["GET"])

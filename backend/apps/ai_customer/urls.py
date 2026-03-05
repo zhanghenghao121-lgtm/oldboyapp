@@ -20,6 +20,7 @@ from apps.ai_customer.blogger_views import (
 )
 from apps.ai_customer.admin_views import (
     ai_cs_docs,
+    ai_cs_doc_delete,
     ai_cs_settings,
     ai_cs_ticket_sync_knowledge,
     ai_cs_tickets,
@@ -46,6 +47,7 @@ urlpatterns = [
     path("console/ai-cs/settings", ai_cs_settings),
     path("console/ai-cs/knowledge/docs", ai_cs_docs),
     path("console/ai-cs/knowledge/upload", ai_cs_upload_knowledge),
+    path("console/ai-cs/knowledge/docs/<int:doc_id>", ai_cs_doc_delete),
     path("console/ai-cs/tickets", ai_cs_tickets),
     path("console/ai-cs/tickets/sync-knowledge", ai_cs_ticket_sync_knowledge),
     path("console/ai-cs/tickets/<int:ticket_id>", ai_cs_ticket_update),

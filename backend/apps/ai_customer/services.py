@@ -9,7 +9,7 @@ from typing import List, Tuple, Dict, Any, Optional
 from openpyxl import load_workbook
 from django.conf import settings
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Distance, VectorParams, PointStruct, PointIdsList
 
 from apps.ai_customer.models import AICustomerSetting
 
@@ -236,6 +236,17 @@ def upsert_chunks(document_id: int, chunks: List[str], vectors: List[List[float]
         )
     client.upsert(collection_name=collection, points=points)
     return vector_ids
+
+
+def delete_vector_ids(vector_ids: List[str]):
+    ids = [str(item).strip() for item in (vector_ids or []) if str(item).strip()]
+    if not ids:
+        return
+    client = _qdrant_client()
+    client.delete(
+        collection_name=settings.QDRANT_COLLECTION,
+        points_selector=PointIdsList(points=ids),
+    )
 
 
 def search_context(query: str, top_k: int = 5) -> List[Tuple[str, float]]:

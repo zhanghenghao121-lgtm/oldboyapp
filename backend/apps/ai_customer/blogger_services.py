@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import time
 import uuid
 from datetime import datetime
@@ -26,6 +27,31 @@ def _json_or_raise(resp):
         return resp.json()
     except ValueError:
         raise BloggerError("上游服务返回非JSON格式", 502)
+
+
+def _extract_hotwords_from_text(text: str) -> List[Dict[str, Any]]:
+    content = (text or "").strip()
+    if not content:
+        return []
+
+    # JSONP fallback, e.g. callback({...})
+    if content.endswith(")") and "(" in content:
+        inner = content[content.find("(") + 1 : content.rfind(")")]
+        try:
+            body = json.loads(inner)
+            if isinstance(body, dict):
+                data = body.get("data")
+                if isinstance(data, dict):
+                    rows = data.get("word_list") or data.get("list") or []
+                    if isinstance(rows, list):
+                        return [item for item in rows if isinstance(item, dict)]
+        except Exception:
+            pass
+
+    words = re.findall(r'"word"\s*:\s*"([^"]+)"', content)
+    if not words:
+        words = re.findall(r"'word'\s*:\s*'([^']+)'", content)
+    return [{"word": item, "position": idx, "hot_value": ""} for idx, item in enumerate(words, start=1) if item]
 
 
 def _llm_complete(system_prompt: str, user_prompt: str, temperature: float = 0.7) -> str:
@@ -117,18 +143,27 @@ def fetch_hotwords(limit: int = 50, force: bool = False) -> Dict[str, Any]:
             continue
         break
     if resp is None:
+        rows = list(AiHotItem.objects.order_by("position", "-id")[:limit])
+        if rows:
+            items = [{"word": row.word, "position": row.position, "hot_value": row.hot_value} for row in rows]
+            return {"items": items, "cached": True}
         raise BloggerError(f"热点接口不可用：{last_error or 'unknown'}", 502)
-    body = _json_or_raise(resp)
 
     payload_list = []
-    if isinstance(body, dict):
-        data = body.get("data")
-        if isinstance(data, dict):
-            payload_list = data.get("word_list") or data.get("list") or []
-        elif isinstance(data, list):
-            payload_list = data
-    elif isinstance(body, list):
-        payload_list = body
+    try:
+        body = _json_or_raise(resp)
+        if isinstance(body, dict):
+            data = body.get("data")
+            if isinstance(data, dict):
+                payload_list = data.get("word_list") or data.get("list") or []
+            elif isinstance(data, list):
+                payload_list = data
+        elif isinstance(body, list):
+            payload_list = body
+    except BloggerError:
+        payload_list = _extract_hotwords_from_text(resp.text or "")
+    if not isinstance(payload_list, list):
+        payload_list = []
 
     items = []
     now = timezone.now()
@@ -153,6 +188,13 @@ def fetch_hotwords(limit: int = 50, force: bool = False) -> Dict[str, Any]:
         )
         if len(items) >= limit:
             break
+
+    if not items:
+        rows = list(AiHotItem.objects.order_by("position", "-id")[:limit])
+        if rows:
+            items = [{"word": row.word, "position": row.position, "hot_value": row.hot_value} for row in rows]
+            return {"items": items, "cached": True}
+        raise BloggerError("热点接口返回为空", 502)
 
     cache.set(cache_key, items, ttl)
     return {"items": items, "cached": False}

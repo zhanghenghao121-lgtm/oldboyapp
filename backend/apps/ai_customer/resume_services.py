@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from io import BytesIO
+from urllib.parse import urlparse
 
 import requests
 from django.conf import settings
@@ -26,6 +27,41 @@ def _safe_json(resp):
         raise ResumeAssistantError("上游服务返回非JSON格式", 502)
 
 
+def _cos_get_image_bytes(url: str) -> bytes:
+    if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
+        raise ResumeAssistantError("COS配置不完整", 500)
+
+    parsed = urlparse(url)
+    path_key = parsed.path.lstrip("/")
+    record = UploadedFileRecord.objects.filter(url__startswith=f"{parsed.scheme}://{parsed.netloc}{parsed.path}").order_by("-id").first()
+    key = (record.key if record and record.key else path_key).strip()
+    if not key:
+        raise ResumeAssistantError("截图地址无效", 400)
+
+    config = CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY)
+    client = CosS3Client(config)
+    try:
+        obj = client.get_object(Bucket=settings.COS_BUCKET, Key=key)
+    except Exception as exc:
+        raise ResumeAssistantError(f"COS读取失败: {exc}", 502)
+
+    body = obj.get("Body")
+    if body is None:
+        raise ResumeAssistantError("COS返回内容为空", 502)
+    try:
+        if hasattr(body, "get_raw_stream"):
+            content = body.get_raw_stream().read()
+        elif hasattr(body, "read"):
+            content = body.read()
+        else:
+            content = b""
+    except Exception as exc:
+        raise ResumeAssistantError(f"COS读取失败: {exc}", 502)
+    if not content:
+        raise ResumeAssistantError("截图内容为空", 400)
+    return content
+
+
 def _http_get_image_bytes(url: str) -> bytes:
     if not isinstance(url, str) or not url.strip():
         raise ResumeAssistantError("截图地址无效", 400)
@@ -35,8 +71,25 @@ def _http_get_image_bytes(url: str) -> bytes:
     try:
         resp = requests.get(clean_url, timeout=max(int(getattr(settings, "AI_RESUME_IMAGE_FETCH_TIMEOUT", 12)), 5))
     except requests.RequestException as exc:
-        raise ResumeAssistantError(f"截图下载失败: {exc}", 502)
+        # Private COS resources may block direct HTTP access; fallback to COS SDK read.
+        try:
+            content = _cos_get_image_bytes(clean_url)
+        except ResumeAssistantError:
+            raise ResumeAssistantError(f"截图下载失败: {exc}", 502)
+        else:
+            if len(content) > 10 * 1024 * 1024:
+                raise ResumeAssistantError("单张截图不能超过10MB", 400)
+            return content
     if resp.status_code >= 400:
+        if resp.status_code in {401, 403, 404}:
+            try:
+                content = _cos_get_image_bytes(clean_url)
+            except ResumeAssistantError:
+                raise ResumeAssistantError(f"截图下载失败({resp.status_code})", 502)
+            else:
+                if len(content) > 10 * 1024 * 1024:
+                    raise ResumeAssistantError("单张截图不能超过10MB", 400)
+                return content
         raise ResumeAssistantError(f"截图下载失败({resp.status_code})", 502)
     content = resp.content or b""
     if not content:

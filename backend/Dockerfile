@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . ./
 
 EXPOSE 8000
-CMD ["sh", "-c", "python manage.py migrate && python manage.py init_admin && gunicorn config.wsgi:application -b 0.0.0.0:8000 --workers 3 --timeout 180 --graceful-timeout 30 --keep-alive 5"]
+CMD ["sh", "-c", "python manage.py migrate && python manage.py init_admin && gunicorn config.wsgi:application -b 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-3} --timeout ${GUNICORN_TIMEOUT:-1800} --graceful-timeout ${GUNICORN_GRACEFUL_TIMEOUT:-60} --keep-alive ${GUNICORN_KEEP_ALIVE:-5}"]

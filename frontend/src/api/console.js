@@ -36,6 +36,7 @@ export const uploadAICsKnowledge = (formData) => {
   const headers = consoleHeaders().headers
   return http.post('/console/ai-cs/knowledge/upload', formData, {
     headers: { ...headers, 'Content-Type': 'multipart/form-data' },
+    timeout: 30 * 60 * 1000,
   })
 }
 export const getAICsTickets = () => http.get('/console/ai-cs/tickets', consoleHeaders())

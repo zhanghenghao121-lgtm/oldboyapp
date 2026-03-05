@@ -42,7 +42,8 @@
                     :value="item.word"
                   />
                 </el-select>
-                <el-button class="neon-btn" :loading="hotwordsLoading" @click="loadHotwords(true)">获取热搜</el-button>
+                <el-button class="neon-btn" :loading="hotwordsLoading" @click="loadHotwords(false)">获取热搜</el-button>
+                <el-button class="neon-btn" :loading="hotwordsLoading" @click="loadHotwords(true)">重新获取</el-button>
               </template>
             </div>
           </el-form-item>
@@ -158,6 +159,7 @@ const imageCount = ref(1)
 const ratio = ref('9:16')
 const hotwords = ref([])
 const hotwordsLoading = ref(false)
+const hotwordsFetched = ref(false)
 const creatingPost = ref(false)
 const creatingVideo = ref(false)
 let postTimer = null
@@ -190,6 +192,12 @@ const videoState = reactive({
 })
 
 const loadHotwords = async (forceRefresh = false) => {
+  if (!forceRefresh && hotwordsFetched.value && hotwords.value.length) {
+    if (!selectedHotWord.value) {
+      selectedHotWord.value = hotwords.value[0].word || ''
+    }
+    return
+  }
   hotwordsLoading.value = true
   try {
     const res = forceRefresh ? await refreshBloggerHotwords() : await getBloggerHotwords(50)
@@ -202,6 +210,7 @@ const loadHotwords = async (forceRefresh = false) => {
     if (!selectedHotWord.value) {
       selectedHotWord.value = hotwords.value[0].word || ''
     }
+    hotwordsFetched.value = true
   } catch (e) {
     ElMessage.error(String(e || '获取热点失败'))
   } finally {

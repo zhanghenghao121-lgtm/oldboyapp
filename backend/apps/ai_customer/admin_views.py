@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime
 from django.views.decorators.csrf import csrf_exempt
@@ -15,6 +16,8 @@ from apps.ai_customer.models import (
 from apps.ai_customer.services import embed_texts, upsert_chunks, split_texts_for_embedding
 from apps.ai_customer.knowledge_tasks import dispatch_knowledge_vectorize
 from apps.console.permissions import IsConsoleAdmin
+
+logger = logging.getLogger(__name__)
 
 
 def ok(data=None):
@@ -144,6 +147,7 @@ def ai_cs_upload_knowledge(request):
         dispatch_knowledge_vectorize(doc.id)
         return ok({"id": doc.id, "chunk_count": 0, "status": doc.status, "queued": True})
     except Exception as exc:
+        logger.exception("ai_cs_upload_knowledge failed: %s", exc)
         doc.status = KnowledgeDocument.STATUS_FAILED
         doc.error_message = str(exc)[:255]
         doc.save(update_fields=["status", "error_message", "updated_at"])
@@ -270,6 +274,7 @@ def ai_cs_ticket_sync_knowledge(request):
 
         return ok({"doc_id": doc.id, "count": total})
     except Exception as exc:
+        logger.exception("ai_cs_ticket_sync_knowledge failed: %s", exc)
         doc.status = KnowledgeDocument.STATUS_FAILED
         doc.error_message = str(exc)[:255]
         doc.save(update_fields=["status", "error_message", "updated_at"])

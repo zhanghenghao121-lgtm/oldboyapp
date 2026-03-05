@@ -61,6 +61,35 @@ class KnowledgeChunk(models.Model):
         ordering = ["document_id", "chunk_index"]
 
 
+class KnowledgeUploadSession(models.Model):
+    STATUS_UPLOADING = "uploading"
+    STATUS_COMPLETED = "completed"
+    STATUS_ABORTED = "aborted"
+    STATUS_CHOICES = (
+        (STATUS_UPLOADING, "上传中"),
+        (STATUS_COMPLETED, "已完成"),
+        (STATUS_ABORTED, "已取消"),
+    )
+
+    upload_id = models.CharField(max_length=64, unique=True)
+    file_name = models.CharField(max_length=255)
+    file_size = models.BigIntegerField(default=0)
+    file_fingerprint = models.CharField(max_length=255, blank=True, default="")
+    title = models.CharField(max_length=200, blank=True, default="")
+    chunk_size = models.PositiveIntegerField(default=2 * 1024 * 1024)
+    total_chunks = models.PositiveIntegerField(default=1)
+    uploaded_chunks = models.JSONField(default=list, blank=True)
+    completed_doc_id = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_UPLOADING)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-id"]
+
+
 class ChatMessage(models.Model):
     ROLE_USER = "user"
     ROLE_ASSISTANT = "assistant"

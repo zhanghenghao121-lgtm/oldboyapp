@@ -188,11 +188,22 @@
 
       <section v-if="activeModule === 'ai_knowledge'" class="panel-card">
         <h4 class="placeholder-title">AI知识库上传向量化</h4>
-        <p class="placeholder-sub">支持 json / jsonl / csv / xlsx / txt / md（最大100MB），上传后自动分批向量化存入 Qdrant。</p>
+        <p class="placeholder-sub">支持 json / jsonl / csv / xlsx / txt / md（最大100MB），支持分片上传、进度展示和断点续传。</p>
         <div class="kb-upload-row">
           <el-input v-model="knowledgeTitle" placeholder="知识库标题（可选）" />
           <input ref="knowledgeInputRef" type="file" class="file-hidden" accept=".json,.jsonl,.csv,.xlsx,.txt,.md" @change="handleKnowledgeFile" />
           <el-button :loading="uploadingKnowledge" @click="pickKnowledgeFile">上传并向量化</el-button>
+        </div>
+        <div v-if="uploadingKnowledge || knowledgeUpload.progress > 0" class="kb-progress-wrap">
+          <el-progress
+            :percentage="knowledgeUpload.progress"
+            :status="knowledgeUpload.progress >= 100 && !uploadingKnowledge ? 'success' : ''"
+            :stroke-width="14"
+          />
+          <p class="kb-progress-text">
+            {{ knowledgeUpload.fileName || '知识库上传' }}：{{ knowledgeUpload.uploadedChunks }}/{{ knowledgeUpload.totalChunks }} 分片
+            <span v-if="knowledgeUpload.resumed">（断点续传）</span>
+          </p>
         </div>
 
         <el-table :data="knowledgeDocs" style="width: 100%; margin-top: 12px" stripe>
@@ -295,10 +306,13 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { uploadToCos } from '../api/storage'
 import {
+  completeAICsKnowledgeUpload,
   getAICsDocs,
+  getAICsKnowledgeUploadStatus,
   deleteAICsDoc,
   getAICsSettings,
   getAICsTickets,
+  initAICsKnowledgeUpload,
   getConsoleConfigs,
   consoleLogout,
   consoleMe,
@@ -308,7 +322,7 @@ import {
   updateAICsTicket,
   updateConsoleConfig,
   updateConsoleUser,
-  uploadAICsKnowledge,
+  uploadAICsKnowledgeChunk,
 } from '../api/console'
 
 const router = useRouter()
@@ -356,6 +370,14 @@ const knowledgeDocs = ref([])
 const knowledgeTitle = ref('')
 const knowledgeInputRef = ref()
 const uploadingKnowledge = ref(false)
+const knowledgeUpload = reactive({
+  uploadId: '',
+  fileName: '',
+  progress: 0,
+  uploadedChunks: 0,
+  totalChunks: 0,
+  resumed: false,
+})
 const deletingDocId = ref(null)
 const aiTickets = ref([])
 const aiUnreadCount = ref(0)
@@ -572,6 +594,82 @@ const pickKnowledgeFile = () => {
   if (knowledgeInputRef.value) knowledgeInputRef.value.click()
 }
 
+const KB_RESUME_KEY = 'ai_kb_resume_upload'
+const getKnowledgeFingerprint = (file) => `${file.name}__${file.size}__${file.lastModified}`
+const chunkRangeSize = (fileSize, chunkSize, chunkIndex, totalChunks) => {
+  const start = chunkIndex * chunkSize
+  const end = chunkIndex === totalChunks - 1 ? fileSize : Math.min(start + chunkSize, fileSize)
+  return Math.max(end - start, 0)
+}
+
+const updateUploadProgress = (committedBytes, totalBytes, inChunkLoaded = 0) => {
+  const value = ((committedBytes + inChunkLoaded) / Math.max(totalBytes, 1)) * 100
+  knowledgeUpload.progress = Number(Math.min(100, Math.max(0, value)).toFixed(2))
+}
+
+const uploadKnowledgeByChunks = async (file) => {
+  const fingerprint = getKnowledgeFingerprint(file)
+  const initRes = await initAICsKnowledgeUpload({
+    file_name: file.name,
+    file_size: file.size,
+    title: knowledgeTitle.value || '',
+    fingerprint,
+  })
+  const uploadId = initRes.data?.upload_id
+  const chunkSize = Number(initRes.data?.chunk_size || 0)
+  const totalChunks = Number(initRes.data?.total_chunks || 0)
+  if (!uploadId || !chunkSize || !totalChunks) {
+    throw new Error('初始化分片上传失败')
+  }
+
+  knowledgeUpload.uploadId = uploadId
+  knowledgeUpload.fileName = file.name
+  knowledgeUpload.totalChunks = totalChunks
+  localStorage.setItem(KB_RESUME_KEY, JSON.stringify({ upload_id: uploadId, fingerprint }))
+
+  const uploadedSet = new Set((initRes.data?.uploaded_chunks || []).map((i) => Number(i)))
+  knowledgeUpload.resumed = uploadedSet.size > 0
+  knowledgeUpload.uploadedChunks = uploadedSet.size
+
+  let committedBytes = 0
+  for (const idx of uploadedSet) {
+    committedBytes += chunkRangeSize(file.size, chunkSize, idx, totalChunks)
+  }
+  updateUploadProgress(committedBytes, file.size, 0)
+
+  for (let idx = 0; idx < totalChunks; idx += 1) {
+    if (uploadedSet.has(idx)) continue
+    const start = idx * chunkSize
+    const end = Math.min(start + chunkSize, file.size)
+    const blob = file.slice(start, end)
+    const formData = new FormData()
+    formData.append('upload_id', uploadId)
+    formData.append('chunk_index', String(idx))
+    formData.append('chunk_total', String(totalChunks))
+    formData.append('chunk', blob, `${file.name}.part${idx}`)
+    await uploadAICsKnowledgeChunk(formData, (evt) => {
+      const loaded = Number(evt?.loaded || 0)
+      updateUploadProgress(committedBytes, file.size, Math.min(loaded, blob.size))
+    })
+    committedBytes += blob.size
+    uploadedSet.add(idx)
+    knowledgeUpload.uploadedChunks = uploadedSet.size
+    updateUploadProgress(committedBytes, file.size, 0)
+  }
+
+  const statusRes = await getAICsKnowledgeUploadStatus(uploadId)
+  if ((statusRes.data?.uploaded_chunks || []).length < totalChunks) {
+    throw new Error('分片状态校验失败，请重试')
+  }
+  const completeRes = await completeAICsKnowledgeUpload({
+    upload_id: uploadId,
+    title: knowledgeTitle.value || '',
+  })
+  knowledgeUpload.progress = 100
+  localStorage.removeItem(KB_RESUME_KEY)
+  return completeRes
+}
+
 const handleKnowledgeFile = async (event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -588,11 +686,14 @@ const handleKnowledgeFile = async (event) => {
   }
 
   uploadingKnowledge.value = true
+  knowledgeUpload.uploadId = ''
+  knowledgeUpload.fileName = file.name
+  knowledgeUpload.progress = 0
+  knowledgeUpload.uploadedChunks = 0
+  knowledgeUpload.totalChunks = 0
+  knowledgeUpload.resumed = false
   try {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('title', knowledgeTitle.value || '')
-    const res = await uploadAICsKnowledge(formData)
+    const res = await uploadKnowledgeByChunks(file)
     if (res.data?.queued) {
       ElMessage.success('已加入向量化队列，请稍后刷新查看结果')
     } else {
@@ -922,6 +1023,18 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 10px;
+}
+.kb-progress-wrap {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(128, 199, 255, 0.35);
+  border-radius: 12px;
+  background: rgba(16, 30, 82, 0.45);
+}
+.kb-progress-text {
+  margin: 8px 0 0;
+  color: #cae5ff;
+  font-size: 13px;
 }
 .neon-btn {
   border-color: rgba(146, 213, 255, 0.5);

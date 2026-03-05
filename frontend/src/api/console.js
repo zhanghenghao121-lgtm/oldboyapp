@@ -40,6 +40,19 @@ export const uploadAICsKnowledge = (formData) => {
     timeout: 30 * 60 * 1000,
   })
 }
+export const initAICsKnowledgeUpload = (payload) => http.post('/console/ai-cs/knowledge/upload/init', payload, consoleHeaders())
+export const getAICsKnowledgeUploadStatus = (uploadId) =>
+  http.get('/console/ai-cs/knowledge/upload/status', { ...consoleHeaders(), params: { upload_id: uploadId } })
+export const uploadAICsKnowledgeChunk = (formData, onUploadProgress) => {
+  const headers = consoleHeaders().headers
+  return http.post('/console/ai-cs/knowledge/upload/chunk', formData, {
+    headers: { ...headers, 'Content-Type': 'multipart/form-data' },
+    onUploadProgress,
+    timeout: 10 * 60 * 1000,
+  })
+}
+export const completeAICsKnowledgeUpload = (payload) =>
+  http.post('/console/ai-cs/knowledge/upload/complete', payload, { ...consoleHeaders(), timeout: 30 * 60 * 1000 })
 export const getAICsTickets = () => http.get('/console/ai-cs/tickets', consoleHeaders())
 export const updateAICsTicket = (ticketId, payload) => http.patch(`/console/ai-cs/tickets/${ticketId}`, payload, consoleHeaders())
 export const syncAICsTicketsToKnowledge = (payload) => http.post('/console/ai-cs/tickets/sync-knowledge', payload, consoleHeaders())

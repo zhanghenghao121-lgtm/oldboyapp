@@ -92,14 +92,32 @@ def fetch_hotwords(limit: int = 50, force: bool = False) -> Dict[str, Any]:
             return {"items": cached[:limit], "cached": True}
 
     url = (getattr(settings, "AA1_HOT_URL", "") or "").strip()
-    if not url:
+    fallback_url = (getattr(settings, "AA1_HOT_URL_FALLBACK", "") or "").strip()
+    if not url and not fallback_url:
         rows = list(AiHotItem.objects.order_by("position", "-id")[:limit])
         items = [{"word": row.word, "position": row.position, "hot_value": row.hot_value} for row in rows]
         return {"items": items, "cached": False}
 
-    resp = requests.get(url, timeout=12)
-    if resp.status_code >= 400:
-        raise BloggerError(f"热点接口失败({resp.status_code})", 502)
+    timeout_s = max(int(getattr(settings, "AA1_HOT_TIMEOUT", 12)), 3)
+    proxy_url = (getattr(settings, "AA1_HOT_PROXY", "") or "").strip()
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    candidates = [item for item in [url, fallback_url] if item]
+
+    last_error = ""
+    resp = None
+    for candidate in candidates:
+        try:
+            resp = requests.get(candidate, timeout=timeout_s, proxies=proxies)
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            continue
+        if resp.status_code >= 400:
+            last_error = f"热点接口失败({resp.status_code})"
+            resp = None
+            continue
+        break
+    if resp is None:
+        raise BloggerError(f"热点接口不可用：{last_error or 'unknown'}", 502)
     body = _json_or_raise(resp)
 
     payload_list = []

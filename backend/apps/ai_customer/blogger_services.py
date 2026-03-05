@@ -3,6 +3,7 @@ import json
 import re
 import time
 import uuid
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +15,8 @@ from qcloud_cos import CosConfig, CosS3Client
 
 from apps.ai_customer.models import AiBloggerAsset, AiBloggerPost, AiBloggerVideoTask, AiHotItem
 from apps.storage.models import UploadedFileRecord
+
+logger = logging.getLogger(__name__)
 
 
 class BloggerError(Exception):
@@ -161,6 +164,15 @@ def fetch_hotwords(limit: int = 50, force: bool = False) -> Dict[str, Any]:
         elif isinstance(body, list):
             payload_list = body
     except BloggerError:
+        logger.warning(
+            "fetch_hotwords non-json upstream, url=%s, content_type=%s, text_prefix=%s",
+            getattr(resp, "url", ""),
+            (resp.headers or {}).get("Content-Type", ""),
+            (resp.text or "")[:180],
+        )
+        payload_list = _extract_hotwords_from_text(resp.text or "")
+    except Exception as exc:
+        logger.exception("fetch_hotwords parse failed: %s", exc)
         payload_list = _extract_hotwords_from_text(resp.text or "")
     if not isinstance(payload_list, list):
         payload_list = []

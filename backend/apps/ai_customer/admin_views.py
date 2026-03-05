@@ -1,4 +1,7 @@
 import logging
+import os
+import tempfile
+import time
 import uuid
 from datetime import datetime
 from django.views.decorators.csrf import csrf_exempt
@@ -50,14 +53,56 @@ def _upload_knowledge_source(file_name: str, raw: bytes):
     if "." in (file_name or ""):
         ext = "." + file_name.split(".")[-1].lower()
     key = f"ai-customer/knowledge/raw/{datetime.now().strftime('%Y/%m/%d')}/{uuid.uuid4().hex}{ext}"
-    config = CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY)
-    client = CosS3Client(config)
-    client.put_object(
-        Bucket=settings.COS_BUCKET,
-        Body=raw,
-        Key=key,
-        ContentType="application/octet-stream",
+    timeout_s = max(int(getattr(settings, "AI_CS_KNOWLEDGE_COS_TIMEOUT", 900)), 60)
+    multipart_threshold_mb = max(int(getattr(settings, "AI_CS_KNOWLEDGE_MULTIPART_THRESHOLD_MB", 8)), 1)
+    part_size_mb = max(int(getattr(settings, "AI_CS_KNOWLEDGE_PART_SIZE_MB", 8)), 1)
+    max_threads = max(int(getattr(settings, "AI_CS_KNOWLEDGE_UPLOAD_THREADS", 3)), 1)
+    max_retries = max(int(getattr(settings, "AI_CS_KNOWLEDGE_COS_RETRIES", 2)), 0)
+
+    config = CosConfig(
+        Region=settings.COS_REGION,
+        SecretId=settings.COS_SECRET_ID,
+        SecretKey=settings.COS_SECRET_KEY,
+        Timeout=timeout_s,
     )
+    client = CosS3Client(config)
+    size_mb = len(raw) / (1024 * 1024)
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            if size_mb >= multipart_threshold_mb:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=ext or ".bin") as tmp:
+                    tmp.write(raw)
+                    tmp_path = tmp.name
+                try:
+                    client.upload_file(
+                        Bucket=settings.COS_BUCKET,
+                        Key=key,
+                        LocalFilePath=tmp_path,
+                        PartSize=part_size_mb,
+                        MAXThread=max_threads,
+                    )
+                finally:
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+            else:
+                client.put_object(
+                    Bucket=settings.COS_BUCKET,
+                    Body=raw,
+                    Key=key,
+                    ContentType="application/octet-stream",
+                )
+            last_exc = None
+            break
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= max_retries:
+                raise
+            time.sleep(min(2 ** attempt, 3))
+    if last_exc:
+        raise last_exc
     if settings.COS_BASE_URL:
         url = f"{settings.COS_BASE_URL.rstrip('/')}/{key}"
     else:

@@ -568,6 +568,10 @@ const handleKnowledgeFile = async (event) => {
     ElMessage.warning('仅支持 json/jsonl/csv/xlsx/txt/md 文件')
     return
   }
+  if (Number(file.size || 0) > 10 * 1024 * 1024) {
+    ElMessage.warning('知识库文件不能超过10MB')
+    return
+  }
 
   uploadingKnowledge.value = true
   try {

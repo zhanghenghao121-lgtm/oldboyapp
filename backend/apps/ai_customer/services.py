@@ -24,6 +24,23 @@ def parse_text_file(file_name: str, raw: bytes) -> str:
             return json.dumps(data, ensure_ascii=False)
         return str(data)
 
+    if lower.endswith(".jsonl"):
+        lines = []
+        text = raw.decode("utf-8", errors="ignore")
+        for idx, row in enumerate(text.splitlines(), start=1):
+            row = row.strip()
+            if not row:
+                continue
+            try:
+                obj = json.loads(row)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"jsonl第{idx}行格式错误: {exc}")
+            if isinstance(obj, (dict, list)):
+                lines.append(json.dumps(obj, ensure_ascii=False))
+            else:
+                lines.append(str(obj))
+        return "\n".join(lines)
+
     if lower.endswith(".csv"):
         rows = []
         with io.StringIO(raw.decode("utf-8", errors="ignore")) as f:
@@ -45,7 +62,7 @@ def parse_text_file(file_name: str, raw: bytes) -> str:
     if lower.endswith(".txt") or lower.endswith(".md"):
         return raw.decode("utf-8", errors="ignore")
 
-    raise ValueError("仅支持 json/csv/xlsx/txt/md 文件")
+    raise ValueError("仅支持 json/jsonl/csv/xlsx/txt/md 文件")
 
 
 def chunk_text(text: str, size: int = 500, overlap: int = 80) -> List[str]:

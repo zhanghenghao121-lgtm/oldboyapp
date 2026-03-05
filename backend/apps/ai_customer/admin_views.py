@@ -9,7 +9,7 @@ from apps.ai_customer.models import (
     KnowledgeChunk,
     KnowledgeDocument,
 )
-from apps.ai_customer.services import chunk_text, embed_texts, parse_text_file, upsert_chunks
+from apps.ai_customer.services import chunk_text, embed_texts, parse_text_file, upsert_chunks, split_texts_for_embedding
 from apps.console.permissions import IsConsoleAdmin
 
 
@@ -114,16 +114,18 @@ def ai_cs_upload_knowledge(request):
         if not chunks:
             raise RuntimeError("解析后内容为空")
         batch_size = max(int(getattr(settings, "AI_CS_EMBED_BATCH_SIZE", 64)), 1)
+        batch_max_chars = max(int(getattr(settings, "AI_CS_EMBED_BATCH_MAX_CHARS", 18000)), 1)
         total = len(chunks)
-        for start in range(0, total, batch_size):
-            batch_chunks = chunks[start : start + batch_size]
+        cursor = 0
+        for batch_chunks in split_texts_for_embedding(chunks, max_items=batch_size, max_chars=batch_max_chars):
             vectors = embed_texts(batch_chunks)
-            vector_ids = upsert_chunks(doc.id, batch_chunks, vectors, start_index=start)
+            vector_ids = upsert_chunks(doc.id, batch_chunks, vectors, start_index=cursor)
             objs = [
-                KnowledgeChunk(document=doc, chunk_index=start + i, text=batch_chunks[i], vector_id=vector_ids[i])
+                KnowledgeChunk(document=doc, chunk_index=cursor + i, text=batch_chunks[i], vector_id=vector_ids[i])
                 for i in range(len(batch_chunks))
             ]
             KnowledgeChunk.objects.bulk_create(objs, batch_size=200)
+            cursor += len(batch_chunks)
         doc.status = KnowledgeDocument.STATUS_SUCCESS
         doc.chunk_count = total
         doc.error_message = ""
@@ -233,15 +235,20 @@ def ai_cs_ticket_sync_knowledge(request):
     )
 
     try:
-        vectors = embed_texts(texts)
-        vector_ids = upsert_chunks(doc.id, texts, vectors)
-        chunks = [
-            KnowledgeChunk(document=doc, chunk_index=i, text=texts[i], vector_id=vector_ids[i])
-            for i in range(len(texts))
-        ]
-        KnowledgeChunk.objects.bulk_create(chunks)
+        batch_size = max(int(getattr(settings, "AI_CS_EMBED_BATCH_SIZE", 64)), 1)
+        batch_max_chars = max(int(getattr(settings, "AI_CS_EMBED_BATCH_MAX_CHARS", 18000)), 1)
+        total = 0
+        for batch in split_texts_for_embedding(texts, max_items=batch_size, max_chars=batch_max_chars):
+            vectors = embed_texts(batch)
+            vector_ids = upsert_chunks(doc.id, batch, vectors, start_index=total)
+            chunks = [
+                KnowledgeChunk(document=doc, chunk_index=total + i, text=batch[i], vector_id=vector_ids[i])
+                for i in range(len(batch))
+            ]
+            KnowledgeChunk.objects.bulk_create(chunks, batch_size=200)
+            total += len(batch)
         doc.status = KnowledgeDocument.STATUS_SUCCESS
-        doc.chunk_count = len(texts)
+        doc.chunk_count = total
         doc.error_message = ""
         doc.save(update_fields=["status", "chunk_count", "error_message", "updated_at"])
 
@@ -249,7 +256,7 @@ def ai_cs_ticket_sync_knowledge(request):
             row.synced_to_knowledge = True
             row.save(update_fields=["synced_to_knowledge", "updated_at"])
 
-        return ok({"doc_id": doc.id, "count": len(texts)})
+        return ok({"doc_id": doc.id, "count": total})
     except Exception as exc:
         doc.status = KnowledgeDocument.STATUS_FAILED
         doc.error_message = str(exc)[:255]

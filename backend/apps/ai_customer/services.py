@@ -83,6 +83,40 @@ def chunk_text(text: str, size: int = 500, overlap: int = 80) -> List[str]:
     return chunks
 
 
+def split_texts_for_embedding(texts: List[str], max_items: int = 64, max_chars: int = 18000) -> List[List[str]]:
+    normalized = [str(item or "").strip() for item in (texts or [])]
+    normalized = [item for item in normalized if item]
+    if not normalized:
+        return []
+
+    max_items = max(int(max_items or 1), 1)
+    max_chars = max(int(max_chars or 1), 1)
+    batches: List[List[str]] = []
+    current: List[str] = []
+    current_chars = 0
+
+    for text in normalized:
+        text_len = len(text)
+        would_overflow = current and (len(current) >= max_items or current_chars + text_len > max_chars)
+        if would_overflow:
+            batches.append(current)
+            current = []
+            current_chars = 0
+
+        # Single item may exceed max_chars, still keep it as one batch.
+        current.append(text)
+        current_chars += text_len
+
+        if len(current) >= max_items:
+            batches.append(current)
+            current = []
+            current_chars = 0
+
+    if current:
+        batches.append(current)
+    return batches
+
+
 def embed_texts(texts: List[str]) -> List[List[float]]:
     api_key = settings.ARK_API_KEY.strip()
     if not api_key:

@@ -13,9 +13,8 @@ from apps.ai_customer.models import (
     KnowledgeDocument,
 )
 from apps.ai_customer.services import embed_texts, upsert_chunks, split_texts_for_embedding
-from apps.ai_customer.knowledge_tasks import knowledge_vectorize_task
+from apps.ai_customer.knowledge_tasks import dispatch_knowledge_vectorize
 from apps.console.permissions import IsConsoleAdmin
-from apps.storage.models import UploadedFileRecord
 
 
 def ok(data=None):
@@ -41,7 +40,7 @@ def _to_bool(value, default: bool) -> bool:
     return default
 
 
-def _upload_knowledge_source(user, file_name: str, raw: bytes):
+def _upload_knowledge_source(file_name: str, raw: bytes):
     if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
         raise RuntimeError("COS配置不完整")
     ext = ""
@@ -60,14 +59,6 @@ def _upload_knowledge_source(user, file_name: str, raw: bytes):
         url = f"{settings.COS_BASE_URL.rstrip('/')}/{key}"
     else:
         url = f"https://{settings.COS_BUCKET}.cos.{settings.COS_REGION}.myqcloud.com/{key}"
-    if user:
-        UploadedFileRecord.objects.create(
-            user=user,
-            key=key,
-            url=url,
-            content_type="application/octet-stream",
-            size=len(raw),
-        )
     return key, url
 
 
@@ -144,13 +135,13 @@ def ai_cs_upload_knowledge(request):
 
     try:
         raw = file_obj.read()
-        source_key, source_url = _upload_knowledge_source(getattr(request, "console_user", None), file_obj.name, raw)
+        source_key, source_url = _upload_knowledge_source(file_obj.name, raw)
         doc.source_key = source_key
         doc.source_url = source_url
         doc.status = KnowledgeDocument.STATUS_PENDING
         doc.error_message = ""
         doc.save(update_fields=["source_key", "source_url", "status", "error_message", "updated_at"])
-        knowledge_vectorize_task.delay(doc.id)
+        dispatch_knowledge_vectorize(doc.id)
         return ok({"id": doc.id, "chunk_count": 0, "status": doc.status, "queued": True})
     except Exception as exc:
         doc.status = KnowledgeDocument.STATUS_FAILED

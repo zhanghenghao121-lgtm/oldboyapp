@@ -1,4 +1,7 @@
+import threading
+
 from django.conf import settings
+from django.db import close_old_connections
 from celery import shared_task
 from qcloud_cos import CosConfig, CosS3Client
 
@@ -70,3 +73,23 @@ def _process_knowledge_document(doc_id: int):
 @shared_task(bind=True, name="ai_customer.knowledge_vectorize")
 def knowledge_vectorize_task(self, doc_id: int):
     _process_knowledge_document(doc_id)
+
+
+def _thread_run(doc_id: int):
+    close_old_connections()
+    try:
+        _process_knowledge_document(doc_id)
+    finally:
+        close_old_connections()
+
+
+def dispatch_knowledge_vectorize(doc_id: int):
+    use_celery = bool(getattr(settings, "AI_CS_USE_CELERY", True))
+    if use_celery:
+        try:
+            knowledge_vectorize_task.delay(doc_id)
+            return
+        except Exception:
+            pass
+    t = threading.Thread(target=_thread_run, args=(doc_id,), daemon=True)
+    t.start()

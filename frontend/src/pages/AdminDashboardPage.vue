@@ -188,10 +188,10 @@
 
       <section v-if="activeModule === 'ai_knowledge'" class="panel-card">
         <h4 class="placeholder-title">AI知识库上传向量化</h4>
-        <p class="placeholder-sub">支持 json / csv / xlsx / txt / md，上传后自动向量化存入 Qdrant。</p>
+        <p class="placeholder-sub">支持 json / jsonl / csv / xlsx / txt / md，上传后自动向量化存入 Qdrant。</p>
         <div class="kb-upload-row">
           <el-input v-model="knowledgeTitle" placeholder="知识库标题（可选）" />
-          <input ref="knowledgeInputRef" type="file" class="file-hidden" accept=".json,.csv,.xlsx,.txt,.md" @change="handleKnowledgeFile" />
+          <input ref="knowledgeInputRef" type="file" class="file-hidden" accept=".json,.jsonl,.csv,.xlsx,.txt,.md" @change="handleKnowledgeFile" />
           <el-button :loading="uploadingKnowledge" @click="pickKnowledgeFile">上传并向量化</el-button>
         </div>
 
@@ -562,6 +562,12 @@ const handleKnowledgeFile = async (event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
+  const lower = String(file.name || '').toLowerCase()
+  const allowed = ['.json', '.jsonl', '.csv', '.xlsx', '.txt', '.md']
+  if (!allowed.some((ext) => lower.endsWith(ext))) {
+    ElMessage.warning('仅支持 json/jsonl/csv/xlsx/txt/md 文件')
+    return
+  }
 
   uploadingKnowledge.value = true
   try {

@@ -37,6 +37,21 @@ def _extract_hotwords_from_text(text: str) -> List[Dict[str, Any]]:
     if not content:
         return []
 
+    # Mixed response fallback, e.g. '{"data": {...}}63034'
+    first_brace, last_brace = content.find("{"), content.rfind("}")
+    if 0 <= first_brace < last_brace:
+        maybe_json = content[first_brace : last_brace + 1]
+        try:
+            body = json.loads(maybe_json)
+            if isinstance(body, dict):
+                data = body.get("data")
+                if isinstance(data, dict):
+                    rows = data.get("word_list") or data.get("trending_list") or data.get("list") or []
+                    if isinstance(rows, list):
+                        return [item for item in rows if isinstance(item, dict)]
+        except Exception:
+            pass
+
     # JSONP fallback, e.g. callback({...})
     if content.endswith(")") and "(" in content:
         inner = content[content.find("(") + 1 : content.rfind(")")]
@@ -45,7 +60,7 @@ def _extract_hotwords_from_text(text: str) -> List[Dict[str, Any]]:
             if isinstance(body, dict):
                 data = body.get("data")
                 if isinstance(data, dict):
-                    rows = data.get("word_list") or data.get("list") or []
+                    rows = data.get("word_list") or data.get("trending_list") or data.get("list") or []
                     if isinstance(rows, list):
                         return [item for item in rows if isinstance(item, dict)]
         except Exception:
@@ -54,6 +69,8 @@ def _extract_hotwords_from_text(text: str) -> List[Dict[str, Any]]:
     words = re.findall(r'"word"\s*:\s*"([^"]+)"', content)
     if not words:
         words = re.findall(r"'word'\s*:\s*'([^']+)'", content)
+    if not words:
+        words = re.findall(r'\\"word\\"\s*:\s*\\"([^"\\]+)\\"', content)
     return [{"word": item, "position": idx, "hot_value": ""} for idx, item in enumerate(words, start=1) if item]
 
 
@@ -158,7 +175,7 @@ def fetch_hotwords(limit: int = 50, force: bool = False) -> Dict[str, Any]:
         if isinstance(body, dict):
             data = body.get("data")
             if isinstance(data, dict):
-                payload_list = data.get("word_list") or data.get("list") or []
+                payload_list = data.get("word_list") or data.get("trending_list") or data.get("list") or []
             elif isinstance(data, list):
                 payload_list = data
         elif isinstance(body, list):

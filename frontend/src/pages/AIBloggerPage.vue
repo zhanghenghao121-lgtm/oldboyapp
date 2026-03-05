@@ -28,21 +28,22 @@
                 show-word-limit
                 placeholder="输入你要创作的热点词"
               />
-              <el-select
-                v-else
-                v-model="selectedHotWord"
-                placeholder="请选择热点词"
-                filterable
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="item in hotwords"
-                  :key="item.word"
-                  :label="item.word"
-                  :value="item.word"
-                />
-              </el-select>
-              <el-button class="neon-btn" :loading="hotwordsLoading" @click="loadHotwords(true)">获取热搜</el-button>
+              <template v-else>
+                <el-select
+                  v-model="selectedHotWord"
+                  :placeholder="hotwords.length ? '请选择热点词' : '点击“获取热搜”后选择'"
+                  filterable
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="item in hotwords"
+                    :key="item.word"
+                    :label="item.word"
+                    :value="item.word"
+                  />
+                </el-select>
+                <el-button class="neon-btn" :loading="hotwordsLoading" @click="loadHotwords(true)">获取热搜</el-button>
+              </template>
             </div>
           </el-form-item>
 
@@ -137,7 +138,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   createBloggerPost,
@@ -192,7 +193,15 @@ const loadHotwords = async (forceRefresh = false) => {
   hotwordsLoading.value = true
   try {
     const res = forceRefresh ? await refreshBloggerHotwords() : await getBloggerHotwords(50)
-    hotwords.value = res.data?.items || []
+    hotwords.value = Array.isArray(res.data?.items) ? res.data.items : []
+    if (!hotwords.value.length) {
+      selectedHotWord.value = ''
+      ElMessage.warning('未获取到热搜词，请稍后重试')
+      return
+    }
+    if (!selectedHotWord.value) {
+      selectedHotWord.value = hotwords.value[0].word || ''
+    }
   } catch (e) {
     ElMessage.error(String(e || '获取热点失败'))
   } finally {
@@ -311,8 +320,10 @@ const createVideo = async () => {
   }
 }
 
-onMounted(async () => {
-  await loadHotwords()
+watch(inputMode, (next) => {
+  if (next === 'manual') {
+    selectedHotWord.value = ''
+  }
 })
 
 onBeforeUnmount(() => {

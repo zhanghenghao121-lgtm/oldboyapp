@@ -656,6 +656,54 @@ def upload_resume_pdf(user, pdf_bytes: bytes):
     return url, key
 
 
+def _resolve_resume_pdf_key(pdf_url: str, pdf_key: str = "") -> str:
+    if pdf_key and str(pdf_key).strip():
+        return str(pdf_key).strip()
+    url = str(pdf_url or "").strip()
+    if not url:
+        return ""
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return url
+
+    parsed = urlparse(url)
+    path_key = parsed.path.lstrip("/")
+    record = (
+        UploadedFileRecord.objects.filter(url__startswith=f"{parsed.scheme}://{parsed.netloc}{parsed.path}")
+        .order_by("-id")
+        .first()
+    )
+    key = (record.key if record and record.key else path_key).strip()
+    return key
+
+
+def build_resume_download_url(pdf_url: str, pdf_key: str = "") -> str:
+    raw_url = str(pdf_url or "").strip()
+    if not raw_url:
+        return ""
+    use_signed = bool(getattr(settings, "AI_RESUME_PDF_SIGNED_URL", True))
+    if not use_signed:
+        return raw_url
+    key = _resolve_resume_pdf_key(raw_url, pdf_key=pdf_key)
+    if not key:
+        return raw_url
+    if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
+        return raw_url
+
+    expire = max(int(getattr(settings, "AI_RESUME_PDF_SIGN_EXPIRE", 3600)), 300)
+    try:
+        config = CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY)
+        client = CosS3Client(config)
+        signed = client.get_presigned_url(
+            Method="GET",
+            Bucket=settings.COS_BUCKET,
+            Key=key,
+            Expired=expire,
+        )
+        return signed or raw_url
+    except Exception:
+        return raw_url
+
+
 def run_resume_assistant(user, setting: AICustomerSetting, job_title: str, image_urls, rois=None):
     ocr_text, ocr_meta = extract_job_requirements(image_urls, rois=rois)
     skill_points = extract_skill_points(setting, job_title, ocr_text)
@@ -663,7 +711,7 @@ def run_resume_assistant(user, setting: AICustomerSetting, job_title: str, image
     pdf_bytes = render_resume_pdf(job_title, resume_text, ocr_text, skill_points=skill_points)
     pdf_url, pdf_key = upload_resume_pdf(user, pdf_bytes)
     return {
-        "pdf_url": pdf_url,
+        "pdf_url": build_resume_download_url(pdf_url, pdf_key=pdf_key),
         "pdf_key": pdf_key,
         "ocr_text": ocr_text,
         "ocr_meta": ocr_meta,

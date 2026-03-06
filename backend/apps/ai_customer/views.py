@@ -42,7 +42,12 @@ from apps.ai_customer.services import (
     optimize_image_prompt,
     generate_image_with_ark,
 )
-from apps.ai_customer.resume_services import ResumeAssistantError, run_resume_assistant, resume_points_cost
+from apps.ai_customer.resume_services import (
+    ResumeAssistantError,
+    build_resume_download_url,
+    run_resume_assistant,
+    resume_points_cost,
+)
 from apps.ai_customer.resume_tasks import dispatch_resume_task
 
 logger = logging.getLogger(__name__)
@@ -95,6 +100,7 @@ def _sse_error(message: str, status: int = 400):
 
 
 def _serialize_resume_task(task: ResumeAssistantTask):
+    pdf_url = build_resume_download_url(task.pdf_url or "")
     return {
         "task_id": task.id,
         "request_id": task.request_id,
@@ -102,7 +108,7 @@ def _serialize_resume_task(task: ResumeAssistantTask):
         "progress": int(task.progress or 0),
         "cost_points": float(task.cost_points or 0),
         "result": {
-            "pdf_url": task.pdf_url or "",
+            "pdf_url": pdf_url,
             "ocr_text": task.ocr_text or "",
             "skill_points": task.skill_points or [],
             "resume_text": task.resume_text or "",

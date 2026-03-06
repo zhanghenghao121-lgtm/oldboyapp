@@ -379,10 +379,9 @@ def extract_job_requirements(image_urls, rois=None):
         cleaned.append(row)
 
     ocr_text = "\n".join(cleaned).strip()
-    min_chars = max(int(getattr(settings, "AI_RESUME_OCR_MIN_TEXT_CHARS", 12)), 1)
-    min_lines = max(int(getattr(settings, "AI_RESUME_OCR_MIN_LINES", 1)), 1)
-    if len(ocr_text) < min_chars or len(cleaned) < min_lines:
-        raise ResumeAssistantError("OCR识别结果过少，请上传更清晰的职位要求截图", 400)
+    # 只要识别到至少一条文本就继续流程，避免可用截图被“过少”误判拦截。
+    if not cleaned or not ocr_text:
+        raise ResumeAssistantError("OCR未识别到有效文本，请上传更清晰的职位要求截图", 400)
 
     avg_conf = sum(avg_conf_values) / len(avg_conf_values) if avg_conf_values else 0.0
     return ocr_text, {"line_count": len(cleaned), "avg_conf": round(avg_conf, 4)}

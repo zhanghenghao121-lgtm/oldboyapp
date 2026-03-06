@@ -443,6 +443,35 @@ const stopResumePolling = () => {
   }
 }
 
+const triggerPdfDownload = async (pdfUrl, jobTitle = 'resume') => {
+  const safeName = String(jobTitle || 'resume').replace(/[\\\\/:*?\"<>|\\s]+/g, '_').slice(0, 40) || 'resume'
+  const fileName = `${safeName}.pdf`
+  try {
+    const resp = await fetch(pdfUrl, { credentials: 'omit' })
+    if (!resp.ok) throw new Error(`下载失败(${resp.status})`)
+    const blob = await resp.blob()
+    const blobUrl = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(blobUrl)
+    return
+  } catch {
+    // 部分跨域场景无法fetch，降级为浏览器打开
+  }
+  const a = document.createElement('a')
+  a.href = pdfUrl
+  a.download = fileName
+  a.target = '_blank'
+  a.rel = 'noreferrer'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
 const resumeStatusText = computed(() => {
   if (resumeStatus.value === 'created') return '已创建，等待处理'
   if (resumeStatus.value === 'running') return '处理中'
@@ -464,7 +493,9 @@ const startResumeTaskPolling = (taskId) => {
         stopResumePolling()
         resumeGenerating.value = false
         const pdfUrl = data.result?.pdf_url
-        if (pdfUrl) window.open(pdfUrl, '_blank')
+        if (pdfUrl) {
+          await triggerPdfDownload(pdfUrl, resumeJobTitle.value)
+        }
         ElMessage.success('简历PDF已生成')
         resumeDialogVisible.value = false
         return

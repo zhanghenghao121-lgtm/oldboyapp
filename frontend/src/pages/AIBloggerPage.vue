@@ -142,7 +142,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   createBloggerPost,
@@ -167,6 +167,7 @@ const creatingPost = ref(false)
 const creatingVideo = ref(false)
 let postTimer = null
 let videoTimer = null
+const BLOGGER_TASK_KEY = 'ai_blogger_active_task'
 
 const postState = reactive({
   postId: null,
@@ -206,6 +207,20 @@ const videoState = reactive({
   errorText: '',
   videoUrl: '',
 })
+
+const persistActiveTask = () => {
+  if (!postState.postId) {
+    localStorage.removeItem(BLOGGER_TASK_KEY)
+    return
+  }
+  localStorage.setItem(
+    BLOGGER_TASK_KEY,
+    JSON.stringify({
+      postId: postState.postId,
+      videoTaskId: videoState.taskId || null,
+    })
+  )
+}
 
 const loadHotwords = async (forceRefresh = false) => {
   if (!forceRefresh && hotwordsFetched.value && hotwords.value.length) {
@@ -262,6 +277,7 @@ const queryPost = async () => {
   postState.images = data.images || []
   postState.selectedCoverKey = data.selected_cover_key || ''
   postState.errorText = data.error_text || ''
+  persistActiveTask()
   if (['success', 'failed'].includes(postState.status)) clearPostPolling()
 }
 
@@ -287,6 +303,7 @@ const createPost = async () => {
       image_count: imageCount.value,
     })
     postState.postId = res.data?.post_id
+    persistActiveTask()
     await queryPost()
     postTimer = setInterval(async () => {
       try {
@@ -320,6 +337,7 @@ const queryVideo = async () => {
   videoState.statusVideo = data.status_video || 'idle'
   videoState.errorText = data.error_text || ''
   videoState.videoUrl = data.video?.url || ''
+  persistActiveTask()
   if (['success', 'failed', 'idle'].includes(videoState.statusVideo)) clearVideoPolling()
 }
 
@@ -330,6 +348,7 @@ const createVideo = async () => {
   try {
     const res = await createBloggerVideo(postState.postId, { ...videoConfig })
     videoState.taskId = res.data?.video_task_id
+    persistActiveTask()
     await queryVideo()
     videoTimer = setInterval(async () => {
       try {
@@ -348,6 +367,45 @@ const createVideo = async () => {
 watch(inputMode, (next) => {
   if (next === 'manual') {
     selectedHotWord.value = ''
+  }
+})
+
+onMounted(async () => {
+  const raw = localStorage.getItem(BLOGGER_TASK_KEY)
+  if (!raw) return
+  try {
+    const saved = JSON.parse(raw)
+    const postId = Number(saved?.postId || 0)
+    if (!postId) {
+      localStorage.removeItem(BLOGGER_TASK_KEY)
+      return
+    }
+    postState.postId = postId
+    videoState.taskId = saved?.videoTaskId || null
+    await queryPost()
+    if (!['success', 'failed'].includes(String(postState.status || '').toLowerCase())) {
+      postTimer = setInterval(async () => {
+        try {
+          await queryPost()
+        } catch {
+          // ignore transient errors
+        }
+      }, 1800)
+    }
+    if (videoState.taskId) {
+      await queryVideo()
+      if (!['success', 'failed', 'idle'].includes(String(videoState.statusVideo || '').toLowerCase())) {
+        videoTimer = setInterval(async () => {
+          try {
+            await queryVideo()
+          } catch {
+            // ignore transient errors
+          }
+        }, 2500)
+      }
+    }
+  } catch {
+    localStorage.removeItem(BLOGGER_TASK_KEY)
   }
 })
 

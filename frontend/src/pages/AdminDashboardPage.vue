@@ -323,14 +323,11 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { uploadToCos } from '../api/storage'
 import {
-  completeAICsKnowledgeUpload,
   cancelAICsDoc,
   getAICsDocs,
-  getAICsKnowledgeUploadStatus,
   deleteAICsDoc,
   getAICsSettings,
   getAICsTickets,
-  initAICsKnowledgeUpload,
   getConsoleConfigs,
   consoleLogout,
   consoleMe,
@@ -340,8 +337,8 @@ import {
   updateAICsTicket,
   updateConsoleConfig,
   updateConsoleUser,
-  uploadAICsKnowledgeChunk,
 } from '../api/console'
+import { startKnowledgeUploadTask, subscribeKnowledgeUpload } from '../services/knowledgeUploadManager'
 
 const router = useRouter()
 const adminUser = ref(null)
@@ -408,6 +405,7 @@ const selectedTicketIds = ref([])
 const syncingKnowledge = ref(false)
 let knowledgePollingTimer = null
 let knowledgePollingInFlight = false
+let stopKnowledgeUploadSubscription = null
 
 const toggleAiMenu = () => {
   aiMenuOpen.value = !aiMenuOpen.value
@@ -643,82 +641,6 @@ const pickKnowledgeFile = () => {
   if (knowledgeInputRef.value) knowledgeInputRef.value.click()
 }
 
-const KB_RESUME_KEY = 'ai_kb_resume_upload'
-const getKnowledgeFingerprint = (file) => `${file.name}__${file.size}__${file.lastModified}`
-const chunkRangeSize = (fileSize, chunkSize, chunkIndex, totalChunks) => {
-  const start = chunkIndex * chunkSize
-  const end = chunkIndex === totalChunks - 1 ? fileSize : Math.min(start + chunkSize, fileSize)
-  return Math.max(end - start, 0)
-}
-
-const updateUploadProgress = (committedBytes, totalBytes, inChunkLoaded = 0) => {
-  const value = ((committedBytes + inChunkLoaded) / Math.max(totalBytes, 1)) * 100
-  knowledgeUpload.progress = Number(Math.min(100, Math.max(0, value)).toFixed(2))
-}
-
-const uploadKnowledgeByChunks = async (file) => {
-  const fingerprint = getKnowledgeFingerprint(file)
-  const initRes = await initAICsKnowledgeUpload({
-    file_name: file.name,
-    file_size: file.size,
-    title: knowledgeTitle.value || '',
-    fingerprint,
-  })
-  const uploadId = initRes.data?.upload_id
-  const chunkSize = Number(initRes.data?.chunk_size || 0)
-  const totalChunks = Number(initRes.data?.total_chunks || 0)
-  if (!uploadId || !chunkSize || !totalChunks) {
-    throw new Error('初始化分片上传失败')
-  }
-
-  knowledgeUpload.uploadId = uploadId
-  knowledgeUpload.fileName = file.name
-  knowledgeUpload.totalChunks = totalChunks
-  localStorage.setItem(KB_RESUME_KEY, JSON.stringify({ upload_id: uploadId, fingerprint }))
-
-  const uploadedSet = new Set((initRes.data?.uploaded_chunks || []).map((i) => Number(i)))
-  knowledgeUpload.resumed = uploadedSet.size > 0
-  knowledgeUpload.uploadedChunks = uploadedSet.size
-
-  let committedBytes = 0
-  for (const idx of uploadedSet) {
-    committedBytes += chunkRangeSize(file.size, chunkSize, idx, totalChunks)
-  }
-  updateUploadProgress(committedBytes, file.size, 0)
-
-  for (let idx = 0; idx < totalChunks; idx += 1) {
-    if (uploadedSet.has(idx)) continue
-    const start = idx * chunkSize
-    const end = Math.min(start + chunkSize, file.size)
-    const blob = file.slice(start, end)
-    const formData = new FormData()
-    formData.append('upload_id', uploadId)
-    formData.append('chunk_index', String(idx))
-    formData.append('chunk_total', String(totalChunks))
-    formData.append('chunk', blob, `${file.name}.part${idx}`)
-    await uploadAICsKnowledgeChunk(formData, (evt) => {
-      const loaded = Number(evt?.loaded || 0)
-      updateUploadProgress(committedBytes, file.size, Math.min(loaded, blob.size))
-    })
-    committedBytes += blob.size
-    uploadedSet.add(idx)
-    knowledgeUpload.uploadedChunks = uploadedSet.size
-    updateUploadProgress(committedBytes, file.size, 0)
-  }
-
-  const statusRes = await getAICsKnowledgeUploadStatus(uploadId)
-  if ((statusRes.data?.uploaded_chunks || []).length < totalChunks) {
-    throw new Error('分片状态校验失败，请重试')
-  }
-  const completeRes = await completeAICsKnowledgeUpload({
-    upload_id: uploadId,
-    title: knowledgeTitle.value || '',
-  })
-  knowledgeUpload.progress = 100
-  localStorage.removeItem(KB_RESUME_KEY)
-  return completeRes
-}
-
 const handleKnowledgeFile = async (event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -734,15 +656,8 @@ const handleKnowledgeFile = async (event) => {
     return
   }
 
-  uploadingKnowledge.value = true
-  knowledgeUpload.uploadId = ''
-  knowledgeUpload.fileName = file.name
-  knowledgeUpload.progress = 0
-  knowledgeUpload.uploadedChunks = 0
-  knowledgeUpload.totalChunks = 0
-  knowledgeUpload.resumed = false
   try {
-    const res = await uploadKnowledgeByChunks(file)
+    const res = await startKnowledgeUploadTask(file, knowledgeTitle.value || '')
     if (res.data?.queued) {
       ElMessage.success('已加入向量化队列，请稍后刷新查看结果')
     } else {
@@ -755,8 +670,6 @@ const handleKnowledgeFile = async (event) => {
     }
   } catch (e) {
     ElMessage.error(e)
-  } finally {
-    uploadingKnowledge.value = false
   }
 }
 
@@ -909,6 +822,15 @@ const handleLogout = async () => {
 }
 
 onMounted(async () => {
+  stopKnowledgeUploadSubscription = subscribeKnowledgeUpload((snapshot) => {
+    uploadingKnowledge.value = snapshot.status === 'running'
+    knowledgeUpload.uploadId = snapshot.uploadId || ''
+    knowledgeUpload.fileName = snapshot.fileName || ''
+    knowledgeUpload.progress = Number(snapshot.progress || 0)
+    knowledgeUpload.uploadedChunks = Number(snapshot.uploadedChunks || 0)
+    knowledgeUpload.totalChunks = Number(snapshot.totalChunks || 0)
+    knowledgeUpload.resumed = Boolean(snapshot.resumed)
+  })
   try {
     await loadAdminMe()
   } catch {
@@ -939,6 +861,10 @@ watch(
 
 onBeforeUnmount(() => {
   stopKnowledgePolling()
+  if (stopKnowledgeUploadSubscription) {
+    stopKnowledgeUploadSubscription()
+    stopKnowledgeUploadSubscription = null
+  }
 })
 </script>
 

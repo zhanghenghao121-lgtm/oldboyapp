@@ -74,7 +74,7 @@
 
       <section v-if="postState.postId" class="section-block">
         <div class="status-line">
-          <span>任务状态：{{ postState.statusText }} / {{ postState.stageText }}</span>
+          <span>任务状态：{{ postStatusLabel }}{{ postStageLabel ? ` / ${postStageLabel}` : '' }}</span>
           <el-button class="neon-btn" @click="queryPost">刷新</el-button>
         </div>
         <div v-if="isPostGenerating" class="gen-status">
@@ -192,6 +192,22 @@ const generatingStageLabel = computed(() => {
   if (stage === 'images' || postState.stageText === '配图') return '正在绘制视觉配图'
   if (stage === 'done' || postState.stageText === '完成') return '即将完成图文作品'
   return '正在生成图文内容'
+})
+const postStatusLabel = computed(() => {
+  const status = String(postState.statusText || '').toLowerCase()
+  if (status === 'queued') return '排队中'
+  if (status === 'running') return '处理中'
+  if (status === 'success') return '成功'
+  if (status === 'failed') return '失败'
+  return postState.statusText || '-'
+})
+const postStageLabel = computed(() => {
+  const stage = String(postState.stageText || '').toLowerCase()
+  if (stage === 'title') return '标题生成'
+  if (stage === 'copy') return '文案生成'
+  if (stage === 'images') return '配图生成'
+  if (stage === 'done') return '完成'
+  return postState.stageText || ''
 })
 
 const videoConfig = reactive({

@@ -182,10 +182,86 @@ def _extract_by_json_base64(ocr_url: str, images_bytes):
     if resp.status_code >= 400:
         raise ResumeAssistantError(f"OCR服务错误({resp.status_code})", 502)
     data = _safe_json(resp)
-    results = data.get("results") if isinstance(data, dict) else None
-    if not isinstance(results, list):
+    if not isinstance(data, (dict, list)):
         raise ResumeAssistantError("OCR返回结构异常", 502)
-    return results
+    return _normalize_ocr_results(data)
+
+
+def _normalize_conf(value):
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+    return None
+
+
+def _collect_ocr_lines(node, out, depth=0):
+    if depth > 8:
+        return
+    if isinstance(node, dict):
+        text_value = None
+        for key in ("rec_text", "text", "word", "words", "content", "label"):
+            value = node.get(key)
+            if isinstance(value, str) and value.strip():
+                text_value = value.strip()
+                break
+        if text_value:
+            conf = None
+            for key in ("score", "conf", "confidence", "prob"):
+                conf = _normalize_conf(node.get(key))
+                if conf is not None:
+                    break
+            out.append({"text": text_value, "conf": conf if conf is not None else 1.0})
+
+        for key, value in node.items():
+            if key in {"text", "rec_text", "word", "words", "content", "label", "score", "conf", "confidence", "prob"}:
+                continue
+            _collect_ocr_lines(value, out, depth + 1)
+        return
+
+    if isinstance(node, list):
+        for item in node:
+            _collect_ocr_lines(item, out, depth + 1)
+        return
+
+    if isinstance(node, str):
+        row = node.strip()
+        if row:
+            out.append({"text": row, "conf": 1.0})
+
+
+def _normalize_ocr_results(payload):
+    # Expected format: {"results":[{"lines":[...], "avg_conf": ...}, ...]}
+    if isinstance(payload, dict) and isinstance(payload.get("results"), list):
+        normalized = []
+        for image_result in payload.get("results") or []:
+            if isinstance(image_result, dict):
+                lines = image_result.get("lines")
+                if isinstance(lines, list):
+                    normalized.append({"lines": lines, "avg_conf": image_result.get("avg_conf", 0.0)})
+                    continue
+                extracted = []
+                _collect_ocr_lines(image_result, extracted)
+                normalized.append({"lines": extracted, "avg_conf": image_result.get("avg_conf", 0.0)})
+            else:
+                extracted = []
+                _collect_ocr_lines(image_result, extracted)
+                normalized.append({"lines": extracted, "avg_conf": 0.0})
+        if normalized:
+            return normalized
+
+    # Fallback: extract from any JSON structure.
+    extracted = []
+    _collect_ocr_lines(payload, extracted)
+    if not extracted:
+        raise ResumeAssistantError("OCR返回结构异常", 502)
+    return [{"lines": extracted, "avg_conf": 0.0}]
 
 
 def _extract_by_sparrow(ocr_url: str, images_bytes):
@@ -262,6 +338,7 @@ def extract_job_requirements(image_urls, rois=None):
 
     texts = []
     avg_conf_values = []
+    conf_threshold = float(getattr(settings, "AI_RESUME_OCR_CONF_MIN", 0.20))
     for image_result in results:
         if not isinstance(image_result, dict):
             continue
@@ -275,7 +352,7 @@ def extract_job_requirements(image_urls, rois=None):
                 if isinstance(line, dict):
                     text = str(line.get("text", "")).strip()
                     conf = line.get("conf")
-                    if text and (not isinstance(conf, (int, float)) or float(conf) >= 0.35):
+                    if text and (not isinstance(conf, (int, float)) or float(conf) >= conf_threshold):
                         texts.append(text)
                 elif isinstance(line, str):
                     line = line.strip()
@@ -294,7 +371,9 @@ def extract_job_requirements(image_urls, rois=None):
         cleaned.append(row)
 
     ocr_text = "\n".join(cleaned).strip()
-    if len(ocr_text) < 30:
+    min_chars = max(int(getattr(settings, "AI_RESUME_OCR_MIN_TEXT_CHARS", 12)), 1)
+    min_lines = max(int(getattr(settings, "AI_RESUME_OCR_MIN_LINES", 1)), 1)
+    if len(ocr_text) < min_chars or len(cleaned) < min_lines:
         raise ResumeAssistantError("OCR识别结果过少，请上传更清晰的职位要求截图", 400)
 
     avg_conf = sum(avg_conf_values) / len(avg_conf_values) if avg_conf_values else 0.0

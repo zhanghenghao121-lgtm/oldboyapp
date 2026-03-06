@@ -419,6 +419,8 @@ def process_post_generation(post_id: int):
     post = AiBloggerPost.objects.select_related("user").filter(id=post_id).first()
     if not post:
         return
+    if post.status_text == AiBloggerPost.STATUS_CANCELED:
+        return
     if post.status_text == AiBloggerPost.STATUS_SUCCESS:
         return
 
@@ -426,18 +428,30 @@ def process_post_generation(post_id: int):
     post.stage_text = AiBloggerPost.STAGE_TITLE
     post.error_text = ""
     post.save(update_fields=["status_text", "stage_text", "error_text", "updated_at"])
+    post.refresh_from_db(fields=["status_text"])
+    if post.status_text == AiBloggerPost.STATUS_CANCELED:
+        return
 
     title = gen_title(post.hot_word, post.style_prompt)
+    post.refresh_from_db(fields=["status_text"])
+    if post.status_text == AiBloggerPost.STATUS_CANCELED:
+        return
     post.title = title
     post.stage_text = AiBloggerPost.STAGE_COPY
     post.save(update_fields=["title", "stage_text", "updated_at"])
 
     copy_text = gen_copy(post.hot_word, title, post.style_prompt)
+    post.refresh_from_db(fields=["status_text"])
+    if post.status_text == AiBloggerPost.STATUS_CANCELED:
+        return
     post.copy = copy_text
     post.stage_text = AiBloggerPost.STAGE_IMAGES
     post.save(update_fields=["copy", "stage_text", "updated_at"])
 
     assets = generate_post_images(post)
+    post.refresh_from_db(fields=["status_text"])
+    if post.status_text == AiBloggerPost.STATUS_CANCELED:
+        return
     if assets and not post.selected_cover_key:
         post.selected_cover_key = assets[0].cos_key
     post.status_text = AiBloggerPost.STATUS_SUCCESS
@@ -450,12 +464,17 @@ def process_video_generation(video_task_id: int):
     task = AiBloggerVideoTask.objects.select_related("post", "post__user").filter(id=video_task_id).first()
     if not task:
         return
+    if task.status_video == AiBloggerVideoTask.STATUS_CANCELED:
+        return
     if task.status_video == AiBloggerVideoTask.STATUS_SUCCESS:
         return
 
     task.status_video = AiBloggerVideoTask.STATUS_RUNNING
     task.error_text = ""
     task.save(update_fields=["status_video", "error_text", "updated_at"])
+    task.refresh_from_db(fields=["status_video"])
+    if task.status_video == AiBloggerVideoTask.STATUS_CANCELED:
+        return
 
     post = task.post
     cover = None
@@ -467,12 +486,18 @@ def process_video_generation(video_task_id: int):
         raise BloggerError("缺少封面图片，无法生成视频", 400)
 
     seedance_task_id = create_seedance_task(post, cover.url, task)
+    task.refresh_from_db(fields=["status_video"])
+    if task.status_video == AiBloggerVideoTask.STATUS_CANCELED:
+        return
     task.seedance_task_id = seedance_task_id
     task.save(update_fields=["seedance_task_id", "updated_at"])
 
     max_polls = max(int(getattr(settings, "AI_BLOGGER_VIDEO_MAX_POLLS", 60)), 10)
     interval_s = max(float(getattr(settings, "AI_BLOGGER_VIDEO_POLL_INTERVAL", 3)), 1.0)
     for _ in range(max_polls):
+        task.refresh_from_db(fields=["status_video"])
+        if task.status_video == AiBloggerVideoTask.STATUS_CANCELED:
+            return
         result = poll_seedance_task(seedance_task_id)
         status = str(result.get("status") or "").lower()
         if status in {"succeeded", "success", "completed", "done"}:

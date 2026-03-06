@@ -287,3 +287,36 @@ def ai_blogger_video_detail(request, post_id: int):
             }
         )
     return ok(_serialize_video_task(task))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@csrf_exempt
+def ai_blogger_post_cancel(request, post_id: int):
+    post = AiBloggerPost.objects.filter(id=post_id, user=request.user).first()
+    if not post:
+        return bad("任务不存在", 404)
+    if post.status_text not in {AiBloggerPost.STATUS_QUEUED, AiBloggerPost.STATUS_RUNNING}:
+        return bad("当前任务状态不可取消")
+    post.status_text = AiBloggerPost.STATUS_CANCELED
+    post.error_text = "已取消图文生成"
+    post.save(update_fields=["status_text", "error_text", "updated_at"])
+    return ok({"post_id": post.id, "status_text": post.status_text})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@csrf_exempt
+def ai_blogger_video_cancel(request, post_id: int):
+    post = AiBloggerPost.objects.filter(id=post_id, user=request.user).first()
+    if not post:
+        return bad("任务不存在", 404)
+    task = post.video_tasks.order_by("-id").first()
+    if not task:
+        return bad("视频任务不存在", 404)
+    if task.status_video not in {AiBloggerVideoTask.STATUS_QUEUED, AiBloggerVideoTask.STATUS_RUNNING}:
+        return bad("当前视频任务状态不可取消")
+    task.status_video = AiBloggerVideoTask.STATUS_CANCELED
+    task.error_text = "已取消视频生成"
+    task.save(update_fields=["status_video", "error_text", "updated_at"])
+    return ok({"video_task_id": task.id, "status_video": task.status_video})

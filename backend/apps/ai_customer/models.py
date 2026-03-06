@@ -242,11 +242,13 @@ class AiBloggerPost(models.Model):
     STATUS_RUNNING = "running"
     STATUS_SUCCESS = "success"
     STATUS_FAILED = "failed"
+    STATUS_CANCELED = "canceled"
     STATUS_CHOICES = (
         (STATUS_QUEUED, "排队中"),
         (STATUS_RUNNING, "处理中"),
         (STATUS_SUCCESS, "成功"),
         (STATUS_FAILED, "失败"),
+        (STATUS_CANCELED, "已取消"),
     )
 
     STAGE_TITLE = "title"
@@ -303,11 +305,13 @@ class AiBloggerVideoTask(models.Model):
     STATUS_RUNNING = "running"
     STATUS_SUCCESS = "success"
     STATUS_FAILED = "failed"
+    STATUS_CANCELED = "canceled"
     STATUS_CHOICES = (
         (STATUS_QUEUED, "排队中"),
         (STATUS_RUNNING, "处理中"),
         (STATUS_SUCCESS, "成功"),
         (STATUS_FAILED, "失败"),
+        (STATUS_CANCELED, "已取消"),
     )
 
     post = models.ForeignKey(AiBloggerPost, on_delete=models.CASCADE, related_name="video_tasks")

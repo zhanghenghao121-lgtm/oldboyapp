@@ -14,9 +14,11 @@ from apps.ai_customer.views import (
 from apps.ai_customer.blogger_views import (
     ai_blogger_hotwords,
     ai_blogger_hotwords_refresh,
+    ai_blogger_post_cancel,
     ai_blogger_post_create,
     ai_blogger_post_detail,
     ai_blogger_select_cover,
+    ai_blogger_video_cancel,
     ai_blogger_video_create,
     ai_blogger_video_detail,
 )
@@ -49,8 +51,10 @@ urlpatterns = [
     path("ai-blogger/hotwords/refresh", ai_blogger_hotwords_refresh),
     path("ai-blogger/posts", ai_blogger_post_create),
     path("ai-blogger/posts/<int:post_id>", ai_blogger_post_detail),
+    path("ai-blogger/posts/<int:post_id>/cancel", ai_blogger_post_cancel),
     path("ai-blogger/posts/<int:post_id>/select-cover", ai_blogger_select_cover),
     path("ai-blogger/posts/<int:post_id>/video", ai_blogger_video_create),
+    path("ai-blogger/posts/<int:post_id>/video/cancel", ai_blogger_video_cancel),
     path("ai-blogger/posts/<int:post_id>/video/status", ai_blogger_video_detail),
 
     path("console/ai-cs/settings", ai_cs_settings),

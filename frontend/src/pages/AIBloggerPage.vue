@@ -75,7 +75,17 @@
       <section v-if="postState.postId" class="section-block">
         <div class="status-line">
           <span>任务状态：{{ postStatusLabel }}{{ postStageLabel ? ` / ${postStageLabel}` : '' }}</span>
-          <el-button class="neon-btn" @click="queryPost">刷新</el-button>
+          <div class="entry-row">
+            <el-button class="neon-btn" @click="queryPost">刷新</el-button>
+            <el-button
+              v-if="isPostGenerating"
+              class="neon-btn danger-btn"
+              :loading="cancelingPost"
+              @click="cancelPostTask"
+            >
+              取消图文
+            </el-button>
+          </div>
         </div>
         <div v-if="isPostGenerating" class="gen-status">
           <span class="gen-badge">生成中</span>
@@ -131,6 +141,9 @@
         </el-form>
 
         <p class="status-line">视频状态：{{ videoState.statusVideo }}</p>
+        <div v-if="isVideoGenerating" class="entry-row">
+          <el-button class="neon-btn danger-btn" :loading="cancelingVideo" @click="cancelVideoTask">取消视频</el-button>
+        </div>
         <p v-if="videoState.errorText" class="error-line">{{ videoState.errorText }}</p>
         <video v-if="videoState.videoUrl" class="video-player" controls :src="videoState.videoUrl"></video>
         <div v-if="videoState.videoUrl" class="entry-row">
@@ -145,6 +158,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
+  cancelBloggerPost,
+  cancelBloggerVideo,
   createBloggerPost,
   createBloggerVideo,
   getBloggerHotwords,
@@ -165,6 +180,8 @@ const hotwordsLoading = ref(false)
 const hotwordsFetched = ref(false)
 const creatingPost = ref(false)
 const creatingVideo = ref(false)
+const cancelingPost = ref(false)
+const cancelingVideo = ref(false)
 let postTimer = null
 let videoTimer = null
 const BLOGGER_TASK_KEY = 'ai_blogger_active_task'
@@ -183,7 +200,7 @@ const postState = reactive({
 const isPostGenerating = computed(() => {
   if (!postState.postId) return false
   const status = String(postState.status || '').toLowerCase()
-  return !['success', 'failed'].includes(status)
+  return !['success', 'failed', 'canceled'].includes(status)
 })
 const generatingStageLabel = computed(() => {
   const stage = String(postState.stageText || '').toLowerCase()
@@ -199,6 +216,7 @@ const postStatusLabel = computed(() => {
   if (status === 'running') return '处理中'
   if (status === 'success') return '成功'
   if (status === 'failed') return '失败'
+  if (status === 'canceled') return '已取消'
   return postState.statusText || '-'
 })
 const postStageLabel = computed(() => {
@@ -222,6 +240,10 @@ const videoState = reactive({
   statusVideo: 'idle',
   errorText: '',
   videoUrl: '',
+})
+const isVideoGenerating = computed(() => {
+  const status = String(videoState.statusVideo || '').toLowerCase()
+  return ['queued', 'running'].includes(status)
 })
 
 const persistActiveTask = () => {
@@ -294,7 +316,7 @@ const queryPost = async () => {
   postState.selectedCoverKey = data.selected_cover_key || ''
   postState.errorText = data.error_text || ''
   persistActiveTask()
-  if (['success', 'failed'].includes(postState.status)) clearPostPolling()
+  if (['success', 'failed', 'canceled'].includes(String(postState.status || '').toLowerCase())) clearPostPolling()
 }
 
 const createPost = async () => {
@@ -354,7 +376,42 @@ const queryVideo = async () => {
   videoState.errorText = data.error_text || ''
   videoState.videoUrl = data.video?.url || ''
   persistActiveTask()
-  if (['success', 'failed', 'idle'].includes(videoState.statusVideo)) clearVideoPolling()
+  if (['success', 'failed', 'idle', 'canceled'].includes(String(videoState.statusVideo || '').toLowerCase())) clearVideoPolling()
+}
+
+const cancelPostTask = async () => {
+  if (!postState.postId || cancelingPost.value) return
+  cancelingPost.value = true
+  try {
+    await cancelBloggerPost(postState.postId)
+    clearPostPolling()
+    postState.status = 'canceled'
+    postState.statusText = 'canceled'
+    postState.errorText = '已取消图文生成'
+    ElMessage.success('已取消图文生成')
+    persistActiveTask()
+  } catch (e) {
+    ElMessage.error(String(e || '取消图文失败'))
+  } finally {
+    cancelingPost.value = false
+  }
+}
+
+const cancelVideoTask = async () => {
+  if (!postState.postId || cancelingVideo.value) return
+  cancelingVideo.value = true
+  try {
+    await cancelBloggerVideo(postState.postId)
+    clearVideoPolling()
+    videoState.statusVideo = 'canceled'
+    videoState.errorText = '已取消视频生成'
+    ElMessage.success('已取消视频生成')
+    persistActiveTask()
+  } catch (e) {
+    ElMessage.error(String(e || '取消视频失败'))
+  } finally {
+    cancelingVideo.value = false
+  }
 }
 
 const createVideo = async () => {
@@ -571,6 +628,12 @@ onBeforeUnmount(() => {
   color: #ebf8ff;
   background: linear-gradient(125deg, rgba(39, 138, 227, 0.75), rgba(74, 76, 198, 0.72));
   box-shadow: 0 0 0 1px rgba(171, 232, 255, 0.2), 0 0 16px rgba(98, 194, 255, 0.35);
+}
+.danger-btn {
+  border-color: rgba(255, 157, 192, 0.58);
+  color: #ffe8f1;
+  background: linear-gradient(125deg, rgba(205, 52, 118, 0.78), rgba(142, 53, 180, 0.72));
+  box-shadow: 0 0 0 1px rgba(255, 186, 214, 0.2), 0 0 16px rgba(255, 106, 170, 0.32);
 }
 @media (max-width: 768px) {
   .hotword-row {

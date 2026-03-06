@@ -3,11 +3,11 @@
     <el-card class="surface-card recharge-card" shadow="never">
       <div class="title-block">
         <h2>积分充值中心</h2>
-        <p>当前页面仅展示充值入口，实际支付能力暂未开通。</p>
+        <p>开发者微信号：Dsdfcc2000</p>
       </div>
       <div class="status-line">
         <span class="pill">即将上线</span>
-        <p>可先联系管理员人工充值，或返回继续优化剧本。</p>
+        <p>如需充值请添加开发者微信沟通处理。</p>
       </div>
       <div class="actions">
         <el-button class="main-btn" type="primary" @click="$router.push('/script-optimizer')">返回剧本优化</el-button>

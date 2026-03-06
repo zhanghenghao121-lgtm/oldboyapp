@@ -199,6 +199,13 @@ def ai_cs_settings(request):
 @permission_classes([IsConsoleAdmin])
 def ai_cs_docs(request):
     rows = KnowledgeDocument.objects.all().order_by("-id")[:200]
+    status_text_map = {
+        KnowledgeDocument.STATUS_PENDING: "排队中",
+        KnowledgeDocument.STATUS_RUNNING: "处理中",
+        KnowledgeDocument.STATUS_SUCCESS: "成功",
+        KnowledgeDocument.STATUS_FAILED: "失败",
+        KnowledgeDocument.STATUS_CANCELED: "取消上传",
+    }
     return ok(
         [
             {
@@ -206,6 +213,7 @@ def ai_cs_docs(request):
                 "title": row.title,
                 "source_name": row.source_name,
                 "status": row.status,
+                "status_text": status_text_map.get(row.status, row.status),
                 "chunk_count": row.chunk_count,
                 "error_message": row.error_message,
                 "created_at": row.created_at,

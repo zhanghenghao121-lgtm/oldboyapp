@@ -1,7 +1,9 @@
 import threading
+import time
 
 from django.conf import settings
 from django.db import close_old_connections
+from django.db import transaction
 from celery import shared_task
 from qcloud_cos import CosConfig, CosS3Client
 
@@ -37,12 +39,24 @@ def _download_source_bytes(source_key: str) -> bytes:
 
 
 def _process_knowledge_document(doc_id: int):
-    doc = KnowledgeDocument.objects.filter(id=doc_id).first()
+    with transaction.atomic():
+        doc = KnowledgeDocument.objects.select_for_update().filter(id=doc_id).first()
+        if not doc:
+            return
+        if doc.status in {
+            KnowledgeDocument.STATUS_RUNNING,
+            KnowledgeDocument.STATUS_SUCCESS,
+            KnowledgeDocument.STATUS_FAILED,
+            KnowledgeDocument.STATUS_CANCELED,
+        }:
+            return
+        if doc.status != KnowledgeDocument.STATUS_PENDING:
+            return
+        doc.status = KnowledgeDocument.STATUS_RUNNING
+        doc.error_message = ""
+        doc.save(update_fields=["status", "error_message", "updated_at"])
+
     if not doc:
-        return
-    if doc.status == KnowledgeDocument.STATUS_CANCELED:
-        return
-    if doc.status == KnowledgeDocument.STATUS_SUCCESS:
         return
     if not doc.source_key:
         doc.status = KnowledgeDocument.STATUS_FAILED
@@ -115,13 +129,26 @@ def _thread_run(doc_id: int):
         close_old_connections()
 
 
+def _thread_run_delayed(doc_id: int, delay_seconds: int):
+    time.sleep(max(int(delay_seconds), 0))
+    _thread_run(doc_id)
+
+
 def dispatch_knowledge_vectorize(doc_id: int):
     use_celery = bool(getattr(settings, "AI_CS_USE_CELERY", True))
+    queued = False
     if use_celery:
         try:
             knowledge_vectorize_task.delay(doc_id)
-            return
+            queued = True
         except Exception:
-            pass
+            queued = False
+    if queued:
+        fallback_enabled = bool(getattr(settings, "AI_CS_KNOWLEDGE_LOCAL_FALLBACK_ENABLED", True))
+        if fallback_enabled:
+            fallback_delay = max(int(getattr(settings, "AI_CS_KNOWLEDGE_LOCAL_FALLBACK_DELAY", 20)), 1)
+            t = threading.Thread(target=_thread_run_delayed, args=(doc_id, fallback_delay), daemon=True)
+            t.start()
+        return
     t = threading.Thread(target=_thread_run, args=(doc_id,), daemon=True)
     t.start()

@@ -211,11 +211,12 @@
           <el-table-column prop="source_name" label="来源文件" min-width="180" />
           <el-table-column label="状态" width="120">
             <template #default="scope">
-              <el-tag v-if="scope.row.status === 'pending'" type="warning">pending</el-tag>
-              <el-tag v-else-if="scope.row.status === 'success'" type="success">success</el-tag>
-              <el-tag v-else-if="scope.row.status === 'failed'" type="danger">failed</el-tag>
+              <el-tag v-if="scope.row.status === 'pending'" type="warning">排队中</el-tag>
+              <el-tag v-else-if="scope.row.status === 'running'" type="primary">处理中</el-tag>
+              <el-tag v-else-if="scope.row.status === 'success'" type="success">成功</el-tag>
+              <el-tag v-else-if="scope.row.status === 'failed'" type="danger">失败</el-tag>
               <el-tag v-else-if="scope.row.status === 'canceled'" type="info">取消上传</el-tag>
-              <el-tag v-else>{{ scope.row.status || '-' }}</el-tag>
+              <el-tag v-else>{{ scope.row.status_text || scope.row.status || '-' }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="chunk_count" label="分块数" width="90" />

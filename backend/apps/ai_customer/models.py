@@ -30,14 +30,16 @@ class AICustomerSetting(models.Model):
 
 class KnowledgeDocument(models.Model):
     STATUS_PENDING = "pending"
+    STATUS_RUNNING = "running"
     STATUS_SUCCESS = "success"
     STATUS_FAILED = "failed"
     STATUS_CANCELED = "canceled"
     STATUS_CHOICES = (
-        (STATUS_PENDING, "处理中"),
+        (STATUS_PENDING, "排队中"),
+        (STATUS_RUNNING, "处理中"),
         (STATUS_SUCCESS, "成功"),
         (STATUS_FAILED, "失败"),
-        (STATUS_CANCELED, "已取消"),
+        (STATUS_CANCELED, "取消上传"),
     )
 
     title = models.CharField(max_length=200)

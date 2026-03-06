@@ -318,7 +318,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { uploadToCos } from '../api/storage'
@@ -406,6 +406,8 @@ const replying = ref(false)
 const replyTarget = reactive({ id: null, question: '' })
 const selectedTicketIds = ref([])
 const syncingKnowledge = ref(false)
+let knowledgePollingTimer = null
+let knowledgePollingInFlight = false
 
 const toggleAiMenu = () => {
   aiMenuOpen.value = !aiMenuOpen.value
@@ -600,13 +602,41 @@ const openFeishuIntegration = () => {
   window.open(url, '_blank')
 }
 
-const loadAiCsDocs = async () => {
+const hasRunningKnowledgeJobs = () =>
+  (knowledgeDocs.value || []).some((row) => ['pending', 'running'].includes(String(row?.status || '')))
+
+const stopKnowledgePolling = () => {
+  if (knowledgePollingTimer) {
+    clearInterval(knowledgePollingTimer)
+    knowledgePollingTimer = null
+  }
+}
+
+const loadAiCsDocs = async ({ silent = false } = {}) => {
   try {
     const res = await getAICsDocs()
     knowledgeDocs.value = res.data || []
+    if (!hasRunningKnowledgeJobs()) {
+      stopKnowledgePolling()
+    }
   } catch (e) {
-    ElMessage.error(e)
+    if (!silent) ElMessage.error(e)
   }
+}
+
+const startKnowledgePolling = async () => {
+  if (knowledgePollingTimer) return
+  await loadAiCsDocs({ silent: true })
+  if (!hasRunningKnowledgeJobs()) return
+  knowledgePollingTimer = setInterval(async () => {
+    if (knowledgePollingInFlight) return
+    knowledgePollingInFlight = true
+    try {
+      await loadAiCsDocs({ silent: true })
+    } finally {
+      knowledgePollingInFlight = false
+    }
+  }, 3000)
 }
 
 const pickKnowledgeFile = () => {
@@ -720,6 +750,9 @@ const handleKnowledgeFile = async (event) => {
     }
     knowledgeTitle.value = ''
     await loadAiCsDocs()
+    if (activeModule.value === 'ai_knowledge') {
+      await startKnowledgePolling()
+    }
   } catch (e) {
     ElMessage.error(e)
   } finally {
@@ -890,6 +923,22 @@ onMounted(async () => {
     loadAiCsDocs(),
     loadAiCsTickets(),
   ])
+})
+
+watch(
+  activeModule,
+  async (next) => {
+    if (next === 'ai_knowledge') {
+      await startKnowledgePolling()
+      return
+    }
+    stopKnowledgePolling()
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  stopKnowledgePolling()
 })
 </script>
 

@@ -3,11 +3,14 @@
     <el-card class="surface-card recharge-card" shadow="never">
       <div class="title-block">
         <h2>积分充值中心</h2>
-        <p>开发者微信号：Dsdfcc2000</p>
+        <p>开发者微信号：{{ wechatId }}</p>
       </div>
       <div class="status-line">
         <span class="pill">即将上线</span>
         <p>如需充值请添加开发者微信沟通处理。</p>
+      </div>
+      <div v-if="qrUrl" class="qr-wrap">
+        <img :src="qrUrl" alt="微信二维码" class="qr-image" />
       </div>
       <div class="actions">
         <el-button class="main-btn" type="primary" @click="$router.push('/script-optimizer')">返回剧本优化</el-button>
@@ -18,6 +21,24 @@
 </template>
 
 <script setup>
+import { onMounted, ref } from 'vue'
+import { getSiteBackgrounds } from '../api/site'
+
+const wechatId = ref('Dsdfcc2000')
+const qrUrl = ref('')
+
+const loadRechargeConfig = async () => {
+  try {
+    const res = await getSiteBackgrounds()
+    wechatId.value = res.data.recharge_wechat_id || 'Dsdfcc2000'
+    qrUrl.value = res.data.recharge_qr_url || ''
+  } catch {
+    wechatId.value = 'Dsdfcc2000'
+    qrUrl.value = ''
+  }
+}
+
+onMounted(loadRechargeConfig)
 </script>
 
 <style scoped>
@@ -56,5 +77,20 @@
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+.qr-wrap {
+  margin: 14px 0 18px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(145, 213, 255, 0.35);
+  background: rgba(18, 29, 82, 0.48);
+  display: flex;
+  justify-content: center;
+}
+.qr-image {
+  display: block;
+  width: min(320px, 100%);
+  border-radius: 10px;
+  object-fit: contain;
 }
 </style>

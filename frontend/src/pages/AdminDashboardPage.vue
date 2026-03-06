@@ -57,7 +57,7 @@
       </section>
 
       <section v-if="activeModule === 'page'" class="panel-card">
-        <div class="panel-tip">页面管理：仅保留用户默认头像上传管理（COS）</div>
+        <div class="panel-tip">页面管理：支持配置默认头像和充值页微信信息（COS）</div>
         <div class="avatar-row">
           <div class="avatar-left">
             <p class="row-label">用户默认头像</p>
@@ -77,6 +77,30 @@
             <div class="row-actions">
               <el-button class="main-btn" type="primary" @click="saveDefaultAvatar">保存</el-button>
               <el-button plain :loading="defaultAvatarUploading" @click="pickDefaultAvatarFile">上传图片</el-button>
+            </div>
+          </div>
+        </div>
+        <el-divider />
+        <div class="avatar-row">
+          <div class="avatar-left">
+            <p class="row-label">充值页二维码</p>
+            <div class="avatar-thumb qr-thumb">
+              <img
+                v-if="rechargeQrUrl"
+                :src="thumbSrc(rechargeQrUrl)"
+                alt="recharge qrcode"
+                @error="rechargeQrUrl = ''"
+              />
+              <span v-else>待上传二维码</span>
+            </div>
+          </div>
+          <div class="avatar-right">
+            <el-input v-model="rechargeWechatId" placeholder="请输入充值页微信号，例如 Dsdfcc2000" />
+            <el-input v-model="rechargeQrUrl" class="mt-2" placeholder="请输入二维码图片 URL（可选）" />
+            <input id="recharge-qr-upload" type="file" accept="image/*" class="file-hidden" @change="handleRechargeQrUpload" />
+            <div class="row-actions">
+              <el-button class="main-btn" type="primary" :loading="savingRechargeConfig" @click="saveRechargeConfig">保存充值页配置</el-button>
+              <el-button plain :loading="rechargeQrUploading" @click="pickRechargeQrFile">上传二维码</el-button>
             </div>
           </div>
         </div>
@@ -364,6 +388,10 @@ const pageSize = ref(10)
 const keyword = ref('')
 const defaultAvatarUrl = ref('')
 const defaultAvatarUploading = ref(false)
+const rechargeWechatId = ref('')
+const rechargeQrUrl = ref('')
+const rechargeQrUploading = ref(false)
+const savingRechargeConfig = ref(false)
 const scriptStoryboardPrompt = ref('')
 const scriptParagraphPrompt = ref('')
 const savingPrompts = ref(false)
@@ -424,6 +452,8 @@ const loadConfigs = async () => {
   const res = await getConsoleConfigs()
   const map = Object.fromEntries(res.data.map((item) => [item.key, item.value]))
   defaultAvatarUrl.value = map.default_avatar_url || '/octopus-avatar.svg'
+  rechargeWechatId.value = map.recharge_wechat_id || 'Dsdfcc2000'
+  rechargeQrUrl.value = map.recharge_qr_url || ''
   scriptStoryboardPrompt.value = map.storyboard_default_prompt || ''
   scriptParagraphPrompt.value = map.paragraph_default_prompt || ''
 }
@@ -439,6 +469,11 @@ const saveDefaultAvatar = async () => {
 
 const pickDefaultAvatarFile = () => {
   const input = document.getElementById('default-avatar-upload')
+  if (input) input.click()
+}
+
+const pickRechargeQrFile = () => {
+  const input = document.getElementById('recharge-qr-upload')
   if (input) input.click()
 }
 
@@ -501,6 +536,39 @@ const handleDefaultAvatarUpload = async (event) => {
     ElMessage.error(e)
   } finally {
     defaultAvatarUploading.value = false
+  }
+}
+
+const handleRechargeQrUpload = async (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!file.type.startsWith('image/')) return ElMessage.warning('请上传图片文件')
+  if (file.size > 8 * 1024 * 1024) return ElMessage.warning('二维码图片不能超过8MB')
+
+  rechargeQrUploading.value = true
+  try {
+    const compressed = await compressImageBeforeUpload(file)
+    const res = await uploadToCos(compressed, 'images/recharge')
+    rechargeQrUrl.value = res.data.url
+    ElMessage.success('二维码上传成功，请点击保存配置')
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    rechargeQrUploading.value = false
+  }
+}
+
+const saveRechargeConfig = async () => {
+  savingRechargeConfig.value = true
+  try {
+    await updateConsoleConfig('recharge_wechat_id', { value: (rechargeWechatId.value || '').trim() })
+    await updateConsoleConfig('recharge_qr_url', { value: (rechargeQrUrl.value || '').trim() })
+    ElMessage.success('充值页配置已保存')
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    savingRechargeConfig.value = false
   }
 }
 
@@ -1025,6 +1093,9 @@ onBeforeUnmount(() => {
   color: #a8badd;
 }
 .avatar-thumb img { width: 100%; height: 100%; object-fit: contain; background: #171921; }
+.qr-thumb {
+  height: 130px;
+}
 .row-actions { margin-top: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
 .ai-actions {
   margin-top: 18px;

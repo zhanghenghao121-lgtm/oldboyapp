@@ -36,10 +36,14 @@ class SiteConfig(models.Model):
     KEY_DEFAULT_AVATAR = "default_avatar_url"
     KEY_STORYBOARD_PROMPT = "storyboard_default_prompt"
     KEY_PARAGRAPH_PROMPT = "paragraph_default_prompt"
+    KEY_RECHARGE_WECHAT = "recharge_wechat_id"
+    KEY_RECHARGE_QR_URL = "recharge_qr_url"
     KEY_CHOICES = [
         (KEY_DEFAULT_AVATAR, "默认头像URL"),
         (KEY_STORYBOARD_PROMPT, "剧本分镜默认提示词"),
         (KEY_PARAGRAPH_PROMPT, "段落分镜默认提示词"),
+        (KEY_RECHARGE_WECHAT, "充值页微信号"),
+        (KEY_RECHARGE_QR_URL, "充值页二维码URL"),
     ]
 
     key = models.CharField(max_length=64, choices=KEY_CHOICES, unique=True)

@@ -206,7 +206,7 @@ def _collect_ocr_lines(node, out, depth=0):
         return
     if isinstance(node, dict):
         text_value = None
-        for key in ("rec_text", "text", "word", "words", "content", "label"):
+        for key in ("rec_text", "text", "word", "words", "content", "label", "ocr_text", "raw_text"):
             value = node.get(key)
             if isinstance(value, str) and value.strip():
                 text_value = value.strip()
@@ -337,6 +337,7 @@ def extract_job_requirements(image_urls, rois=None):
         results = _extract_by_json_base64(ocr_url, images_bytes)
 
     texts = []
+    fallback_texts = []
     avg_conf_values = []
     conf_threshold = float(getattr(settings, "AI_RESUME_OCR_CONF_MIN", 0.20))
     for image_result in results:
@@ -352,12 +353,19 @@ def extract_job_requirements(image_urls, rois=None):
                 if isinstance(line, dict):
                     text = str(line.get("text", "")).strip()
                     conf = line.get("conf")
-                    if text and (not isinstance(conf, (int, float)) or float(conf) >= conf_threshold):
-                        texts.append(text)
+                    if text:
+                        fallback_texts.append(text)
+                        if not isinstance(conf, (int, float)) or float(conf) >= conf_threshold:
+                            texts.append(text)
                 elif isinstance(line, str):
                     line = line.strip()
                     if line:
+                        fallback_texts.append(line)
                         texts.append(line)
+
+    # OCR 置信度偏低时，允许回退使用原始文本，避免可用截图被误判为“识别过少”。
+    if not texts and fallback_texts:
+        texts = fallback_texts
 
     cleaned = []
     seen = set()

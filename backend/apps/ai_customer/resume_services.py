@@ -313,6 +313,49 @@ def _extract_by_sparrow(ocr_url: str, images_bytes):
     return results
 
 
+def _collect_texts_from_results(results, conf_threshold: float):
+    texts = []
+    fallback_texts = []
+    avg_conf_values = []
+    for image_result in results or []:
+        if not isinstance(image_result, dict):
+            continue
+        avg_conf = image_result.get("avg_conf")
+        if isinstance(avg_conf, (int, float)):
+            avg_conf_values.append(float(avg_conf))
+
+        lines = image_result.get("lines") or []
+        if isinstance(lines, list):
+            for line in lines:
+                if isinstance(line, dict):
+                    text = str(line.get("text", "")).strip()
+                    conf = line.get("conf")
+                    if text:
+                        fallback_texts.append(text)
+                        if not isinstance(conf, (int, float)) or float(conf) >= conf_threshold:
+                            texts.append(text)
+                elif isinstance(line, str):
+                    row = line.strip()
+                    if row:
+                        fallback_texts.append(row)
+                        texts.append(row)
+    if not texts and fallback_texts:
+        texts = fallback_texts
+
+    cleaned = []
+    seen = set()
+    for text in texts:
+        row = " ".join(str(text or "").split())
+        if not row:
+            continue
+        if row in seen:
+            continue
+        seen.add(row)
+        cleaned.append(row)
+    avg_conf = sum(avg_conf_values) / len(avg_conf_values) if avg_conf_values else 0.0
+    return cleaned, avg_conf
+
+
 def extract_job_requirements(image_urls, rois=None):
     if not isinstance(image_urls, list) or not image_urls:
         raise ResumeAssistantError("请至少上传1张职位要求截图", 400)
@@ -336,54 +379,30 @@ def extract_job_requirements(image_urls, rois=None):
     else:
         results = _extract_by_json_base64(ocr_url, images_bytes)
 
-    texts = []
-    fallback_texts = []
-    avg_conf_values = []
     conf_threshold = float(getattr(settings, "AI_RESUME_OCR_CONF_MIN", 0.20))
-    for image_result in results:
-        if not isinstance(image_result, dict):
-            continue
-        avg_conf = image_result.get("avg_conf")
-        if isinstance(avg_conf, (int, float)):
-            avg_conf_values.append(float(avg_conf))
+    cleaned, avg_conf = _collect_texts_from_results(results, conf_threshold)
 
-        lines = image_result.get("lines") or []
-        if isinstance(lines, list):
-            for line in lines:
-                if isinstance(line, dict):
-                    text = str(line.get("text", "")).strip()
-                    conf = line.get("conf")
-                    if text:
-                        fallback_texts.append(text)
-                        if not isinstance(conf, (int, float)) or float(conf) >= conf_threshold:
-                            texts.append(text)
-                elif isinstance(line, str):
-                    line = line.strip()
-                    if line:
-                        fallback_texts.append(line)
-                        texts.append(line)
-
-    # OCR 置信度偏低时，允许回退使用原始文本，避免可用截图被误判为“识别过少”。
-    if not texts and fallback_texts:
-        texts = fallback_texts
-
-    cleaned = []
-    seen = set()
-    for text in texts:
-        row = " ".join(text.split())
-        if not row:
-            continue
-        if row in seen:
-            continue
-        seen.add(row)
-        cleaned.append(row)
+    # 自动双通道兜底：当前 provider 未识别到文本时，尝试另一种请求协议。
+    if not cleaned:
+        alt_results = []
+        try:
+            if provider == "sparrow":
+                alt_results = _extract_by_json_base64(ocr_url, images_bytes)
+            else:
+                alt_results = _extract_by_sparrow(ocr_url, images_bytes)
+        except Exception:
+            alt_results = []
+        if alt_results:
+            cleaned_alt, avg_conf_alt = _collect_texts_from_results(alt_results, conf_threshold)
+            if cleaned_alt:
+                cleaned = cleaned_alt
+                avg_conf = avg_conf_alt
 
     ocr_text = "\n".join(cleaned).strip()
     # 只要识别到至少一条文本就继续流程，避免可用截图被“过少”误判拦截。
     if not cleaned or not ocr_text:
-        raise ResumeAssistantError("OCR未识别到有效文本，请上传更清晰的职位要求截图", 400)
+        raise ResumeAssistantError("OCR未识别到有效文本，请重试或重新框选岗位要求区域", 400)
 
-    avg_conf = sum(avg_conf_values) / len(avg_conf_values) if avg_conf_values else 0.0
     return ocr_text, {"line_count": len(cleaned), "avg_conf": round(avg_conf, 4)}
 
 

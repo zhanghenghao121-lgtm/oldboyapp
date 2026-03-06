@@ -209,15 +209,31 @@
         <el-table :data="knowledgeDocs" style="width: 100%; margin-top: 12px" stripe>
           <el-table-column prop="title" label="标题" min-width="180" />
           <el-table-column prop="source_name" label="来源文件" min-width="180" />
-          <el-table-column prop="status" label="状态" width="100" />
+          <el-table-column label="状态" width="120">
+            <template #default="scope">
+              <el-tag v-if="scope.row.status === 'pending'" type="warning">pending</el-tag>
+              <el-tag v-else-if="scope.row.status === 'success'" type="success">success</el-tag>
+              <el-tag v-else-if="scope.row.status === 'failed'" type="danger">failed</el-tag>
+              <el-tag v-else-if="scope.row.status === 'canceled'" type="info">取消上传</el-tag>
+              <el-tag v-else>{{ scope.row.status || '-' }}</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="chunk_count" label="分块数" width="90" />
           <el-table-column prop="error_message" label="失败原因" min-width="220" />
-          <el-table-column label="操作" width="110">
+          <el-table-column label="操作" width="180">
             <template #default="scope">
               <el-button
                 link
+                type="warning"
+                :disabled="scope.row.status !== 'pending' || cancellingDocId === scope.row.id"
+                @click="cancelKnowledgeDoc(scope.row)"
+              >
+                {{ cancellingDocId === scope.row.id ? '取消中...' : '取消上传' }}
+              </el-button>
+              <el-button
+                link
                 type="danger"
-                :disabled="scope.row.status !== 'success' || deletingDocId === scope.row.id"
+                :disabled="scope.row.status !== 'success' || deletingDocId === scope.row.id || cancellingDocId === scope.row.id"
                 @click="deleteKnowledgeDoc(scope.row)"
               >
                 {{ deletingDocId === scope.row.id ? '删除中...' : '删除' }}
@@ -307,6 +323,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { uploadToCos } from '../api/storage'
 import {
   completeAICsKnowledgeUpload,
+  cancelAICsDoc,
   getAICsDocs,
   getAICsKnowledgeUploadStatus,
   deleteAICsDoc,
@@ -370,6 +387,7 @@ const knowledgeDocs = ref([])
 const knowledgeTitle = ref('')
 const knowledgeInputRef = ref()
 const uploadingKnowledge = ref(false)
+const cancellingDocId = ref(null)
 const knowledgeUpload = reactive({
   uploadId: '',
   fileName: '',
@@ -730,6 +748,31 @@ const deleteKnowledgeDoc = async (row) => {
     ElMessage.error(e)
   } finally {
     deletingDocId.value = null
+  }
+}
+
+const cancelKnowledgeDoc = async (row) => {
+  const docId = Number(row?.id || 0)
+  if (!docId) return
+  try {
+    await ElMessageBox.confirm('确认取消该上传任务？状态将变为“取消上传”。', '取消上传', {
+      confirmButtonText: '确认取消',
+      cancelButtonText: '返回',
+      type: 'warning',
+      customClass: 'anime-neon-message-box',
+    })
+  } catch {
+    return
+  }
+  cancellingDocId.value = docId
+  try {
+    await cancelAICsDoc(docId)
+    ElMessage.success('已取消上传')
+    await loadAiCsDocs()
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    cancellingDocId.value = null
   }
 }
 

@@ -6,7 +6,14 @@ from celery import shared_task
 from qcloud_cos import CosConfig, CosS3Client
 
 from apps.ai_customer.models import KnowledgeDocument, KnowledgeChunk
-from apps.ai_customer.services import parse_text_file, chunk_text, split_texts_for_embedding, embed_texts, upsert_chunks
+from apps.ai_customer.services import (
+    delete_vector_ids,
+    parse_text_file,
+    chunk_text,
+    split_texts_for_embedding,
+    embed_texts,
+    upsert_chunks,
+)
 
 
 def _download_source_bytes(source_key: str) -> bytes:
@@ -33,6 +40,8 @@ def _process_knowledge_document(doc_id: int):
     doc = KnowledgeDocument.objects.filter(id=doc_id).first()
     if not doc:
         return
+    if doc.status == KnowledgeDocument.STATUS_CANCELED:
+        return
     if doc.status == KnowledgeDocument.STATUS_SUCCESS:
         return
     if not doc.source_key:
@@ -43,6 +52,9 @@ def _process_knowledge_document(doc_id: int):
 
     try:
         raw = _download_source_bytes(doc.source_key)
+        doc.refresh_from_db(fields=["status"])
+        if doc.status == KnowledgeDocument.STATUS_CANCELED:
+            return
         text = parse_text_file(doc.source_name, raw)
         chunks = chunk_text(text)
         if not chunks:
@@ -50,9 +62,20 @@ def _process_knowledge_document(doc_id: int):
         batch_size = max(int(getattr(settings, "AI_CS_EMBED_BATCH_SIZE", 64)), 1)
         batch_max_chars = max(int(getattr(settings, "AI_CS_EMBED_BATCH_MAX_CHARS", 18000)), 1)
         total = 0
+        inserted_vector_ids = []
         for batch in split_texts_for_embedding(chunks, max_items=batch_size, max_chars=batch_max_chars):
+            doc.refresh_from_db(fields=["status"])
+            if doc.status == KnowledgeDocument.STATUS_CANCELED:
+                if inserted_vector_ids:
+                    try:
+                        delete_vector_ids(inserted_vector_ids)
+                    except Exception:
+                        pass
+                    KnowledgeChunk.objects.filter(document_id=doc.id).delete()
+                return
             vectors = embed_texts(batch)
             vector_ids = upsert_chunks(doc.id, batch, vectors, start_index=total)
+            inserted_vector_ids.extend(vector_ids)
             rows = [
                 KnowledgeChunk(document=doc, chunk_index=total + i, text=batch[i], vector_id=vector_ids[i])
                 for i in range(len(batch))
@@ -60,6 +83,15 @@ def _process_knowledge_document(doc_id: int):
             KnowledgeChunk.objects.bulk_create(rows, batch_size=200)
             total += len(batch)
 
+        doc.refresh_from_db(fields=["status"])
+        if doc.status == KnowledgeDocument.STATUS_CANCELED:
+            if inserted_vector_ids:
+                try:
+                    delete_vector_ids(inserted_vector_ids)
+                except Exception:
+                    pass
+                KnowledgeChunk.objects.filter(document_id=doc.id).delete()
+            return
         doc.status = KnowledgeDocument.STATUS_SUCCESS
         doc.chunk_count = total
         doc.error_message = ""

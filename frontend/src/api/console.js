@@ -32,6 +32,7 @@ export const updateConsoleUser = (userId, payload) => http.patch(`/console/users
 export const getAICsSettings = () => http.get('/console/ai-cs/settings', consoleHeaders())
 export const updateAICsSettings = (payload) => http.put('/console/ai-cs/settings', payload, consoleHeaders())
 export const getAICsDocs = () => http.get('/console/ai-cs/knowledge/docs', consoleHeaders())
+export const cancelAICsDoc = (docId) => http.post(`/console/ai-cs/knowledge/docs/${docId}/cancel`, {}, consoleHeaders())
 export const deleteAICsDoc = (docId) => http.delete(`/console/ai-cs/knowledge/docs/${docId}`, consoleHeaders())
 export const uploadAICsKnowledge = (formData) => {
   const headers = consoleHeaders().headers

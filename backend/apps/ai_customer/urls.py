@@ -20,6 +20,7 @@ from apps.ai_customer.blogger_views import (
 )
 from apps.ai_customer.admin_views import (
     ai_cs_docs,
+    ai_cs_doc_cancel,
     ai_cs_doc_delete,
     ai_cs_settings,
     ai_cs_upload_knowledge_chunk,
@@ -55,6 +56,7 @@ urlpatterns = [
     path("console/ai-cs/knowledge/upload/chunk", ai_cs_upload_knowledge_chunk),
     path("console/ai-cs/knowledge/upload/status", ai_cs_upload_knowledge_status),
     path("console/ai-cs/knowledge/upload/complete", ai_cs_upload_knowledge_complete),
+    path("console/ai-cs/knowledge/docs/<int:doc_id>/cancel", ai_cs_doc_cancel),
     path("console/ai-cs/knowledge/docs/<int:doc_id>", ai_cs_doc_delete),
     path("console/ai-cs/tickets", ai_cs_tickets),
     path("console/ai-cs/tickets/sync-knowledge", ai_cs_ticket_sync_knowledge),

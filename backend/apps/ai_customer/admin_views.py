@@ -503,6 +503,32 @@ def ai_cs_doc_delete(request, doc_id: int):
     return ok({"deleted": True, "doc_id": doc_id})
 
 
+@api_view(["POST"])
+@permission_classes([IsConsoleAdmin])
+@csrf_exempt
+def ai_cs_doc_cancel(request, doc_id: int):
+    doc = KnowledgeDocument.objects.filter(id=doc_id).first()
+    if not doc:
+        return bad("文档不存在", 404)
+    if doc.status != KnowledgeDocument.STATUS_PENDING:
+        return bad("仅支持取消 pending 状态的任务")
+
+    try:
+        vector_ids = list(KnowledgeChunk.objects.filter(document_id=doc.id).values_list("vector_id", flat=True))
+        if vector_ids:
+            delete_vector_ids(vector_ids)
+        KnowledgeChunk.objects.filter(document_id=doc.id).delete()
+    except Exception as exc:
+        logger.exception("ai_cs_doc_cancel cleanup failed: %s", exc)
+        return bad(f"取消上传失败：{exc}", 500)
+
+    doc.status = KnowledgeDocument.STATUS_CANCELED
+    doc.chunk_count = 0
+    doc.error_message = "取消上传"
+    doc.save(update_fields=["status", "chunk_count", "error_message", "updated_at"])
+    return ok({"id": doc.id, "status": doc.status})
+
+
 @api_view(["GET"])
 @permission_classes([IsConsoleAdmin])
 def ai_cs_tickets(request):

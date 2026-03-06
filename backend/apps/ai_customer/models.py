@@ -32,10 +32,12 @@ class KnowledgeDocument(models.Model):
     STATUS_PENDING = "pending"
     STATUS_SUCCESS = "success"
     STATUS_FAILED = "failed"
+    STATUS_CANCELED = "canceled"
     STATUS_CHOICES = (
         (STATUS_PENDING, "处理中"),
         (STATUS_SUCCESS, "成功"),
         (STATUS_FAILED, "失败"),
+        (STATUS_CANCELED, "已取消"),
     )
 
     title = models.CharField(max_length=200)

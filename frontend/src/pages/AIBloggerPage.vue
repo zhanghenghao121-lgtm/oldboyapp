@@ -77,6 +77,11 @@
           <span>任务状态：{{ postState.statusText }} / {{ postState.stageText }}</span>
           <el-button class="neon-btn" @click="queryPost">刷新</el-button>
         </div>
+        <div v-if="isPostGenerating" class="gen-status">
+          <span class="gen-badge">生成中</span>
+          <span class="gen-text">{{ generatingStageLabel }}</span>
+          <span class="dot-flow"><i></i><i></i><i></i></span>
+        </div>
 
         <div v-if="postState.errorText" class="error-line">{{ postState.errorText }}</div>
         <h4 v-if="postState.title">标题：{{ postState.title }}</h4>
@@ -137,7 +142,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   createBloggerPost,
@@ -173,6 +178,19 @@ const postState = reactive({
   images: [],
   selectedCoverKey: '',
   errorText: '',
+})
+const isPostGenerating = computed(() => {
+  if (!postState.postId) return false
+  const status = String(postState.status || '').toLowerCase()
+  return !['success', 'failed'].includes(status)
+})
+const generatingStageLabel = computed(() => {
+  const stage = String(postState.stageText || '').toLowerCase()
+  if (stage === 'title' || postState.stageText === '标题') return '正在雕刻爆款标题'
+  if (stage === 'copy' || postState.stageText === '文案') return '正在打磨高能文案'
+  if (stage === 'images' || postState.stageText === '配图') return '正在绘制视觉配图'
+  if (stage === 'done' || postState.stageText === '完成') return '即将完成图文作品'
+  return '正在生成图文内容'
 })
 
 const videoConfig = reactive({
@@ -381,6 +399,46 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   color: #d5e8ff;
+}
+.gen-status {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(147, 219, 255, 0.52);
+  background: linear-gradient(135deg, rgba(35, 110, 214, 0.3), rgba(72, 196, 255, 0.2));
+  box-shadow: 0 0 0 1px rgba(170, 230, 255, 0.16), 0 0 18px rgba(88, 194, 255, 0.28);
+}
+.gen-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f3fcff;
+  letter-spacing: 0.4px;
+}
+.gen-text {
+  color: #cfe9ff;
+  font-size: 13px;
+}
+.dot-flow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dot-flow i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #96e2ff;
+  opacity: 0.2;
+  animation: dotFlow 1.2s infinite ease-in-out;
+}
+.dot-flow i:nth-child(2) { animation-delay: 0.2s; }
+.dot-flow i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dotFlow {
+  0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
 }
 .error-line {
   margin: 10px 0;

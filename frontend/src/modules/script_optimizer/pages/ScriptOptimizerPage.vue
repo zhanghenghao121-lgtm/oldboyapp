@@ -30,7 +30,6 @@
             type="textarea"
             :rows="10"
             maxlength="10000"
-            show-word-limit
             placeholder="请输入剧本（最多10000字）"
           />
         </el-form-item>

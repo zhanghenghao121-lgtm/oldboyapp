@@ -22,7 +22,7 @@
 
       <el-form :model="form" label-width="90px" class="mt-2 dark-form">
         <el-form-item label="用户名">
-          <el-input v-model="form.username" maxlength="20" show-word-limit />
+          <el-input v-model="form.username" maxlength="20" />
         </el-form-item>
         <el-form-item label="用户邮箱">
           <el-input v-model="form.email" disabled />
@@ -31,7 +31,7 @@
           <el-input :model-value="Number(form.points || 0).toFixed(2)" disabled />
         </el-form-item>
         <el-form-item label="用户签名">
-          <el-input v-model="form.signature" maxlength="120" show-word-limit />
+          <el-input v-model="form.signature" maxlength="120" />
         </el-form-item>
       </el-form>
 

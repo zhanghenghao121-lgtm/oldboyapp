@@ -25,7 +25,6 @@
                 v-if="inputMode === 'manual'"
                 v-model="manualHotWord"
                 maxlength="50"
-                show-word-limit
                 placeholder="输入你要创作的热点词"
               />
               <template v-else>
@@ -52,7 +51,6 @@
             <el-input
               v-model="stylePrompt"
               maxlength="400"
-              show-word-limit
               placeholder="例如：热血动漫，霓虹夜景，角色特写"
             />
           </el-form-item>

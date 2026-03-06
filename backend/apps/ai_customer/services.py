@@ -556,6 +556,9 @@ def build_system_prompt(
     setting: AICustomerSetting,
     context_blocks: List[Tuple[str, float]],
     web_results: Optional[List[Dict[str, Any]]] = None,
+    profile_memory_lines: Optional[List[str]] = None,
+    session_summary: str = "",
+    semantic_memory_hits: Optional[List[Tuple[str, float]]] = None,
 ) -> str:
     context_lines = []
     threshold = Decimal(str(settings.AI_CS_CONTEXT_MIN_SCORE))
@@ -577,15 +580,30 @@ def build_system_prompt(
             head += f" ({url})"
         web_lines.append(f"{head}\n{content}")
     web_text = "\n\n".join(web_lines) or "无联网检索结果"
+    profile_text = "\n".join([f"- {item}" for item in (profile_memory_lines or []) if str(item).strip()]) or "无用户长期偏好记忆"
+    summary_text = (session_summary or "").strip() or "无会话摘要"
+    mem_lines = []
+    for idx, item in enumerate(semantic_memory_hits or [], start=1):
+        if not isinstance(item, tuple) or len(item) < 2:
+            continue
+        text, score = item[0], item[1]
+        if not str(text).strip():
+            continue
+        mem_lines.append(f"[M{idx}] score={float(score):.4f}\n{str(text).strip()}")
+    semantic_text = "\n\n".join(mem_lines) or "无语义记忆命中"
 
     return (
         f"{setting.base_prompt}\n"
         f"你的语气风格：{setting.tone_style}\n"
         "请严格遵守：\n"
         "1) 优先依据知识库上下文回答，不得编造事实。\n"
-        "2) 当知识库不足时，可结合联网检索结果回答，并尽量引用 [Wn]。\n"
-        "3) 若上下文不足，先明确不确定，再给出可执行建议。\n"
-        "4) 当仍无法可靠回答时，必须在回复最后追加 [NEED_HUMAN]。\n"
+        "2) 同时参考用户长期记忆、会话摘要和语义记忆，保持回答连续一致。\n"
+        "3) 当知识库不足时，可结合联网检索结果回答，并尽量引用 [Wn]。\n"
+        "4) 若上下文不足，先明确不确定，再给出可执行建议。\n"
+        "5) 当仍无法可靠回答时，必须在回复最后追加 [NEED_HUMAN]。\n"
+        f"\n用户长期记忆:\n{profile_text}\n"
+        f"\n会话摘要:\n{summary_text}\n"
+        f"\n语义记忆命中:\n{semantic_text}\n"
         f"\n知识库上下文:\n{context_text}\n"
         f"\n联网检索结果:\n{web_text}\n"
     )

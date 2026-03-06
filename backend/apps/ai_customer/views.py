@@ -21,6 +21,17 @@ from apps.ai_customer.models import (
     HumanReplyClearState,
     ResumeAssistantTask,
 )
+from apps.ai_customer.memory_services import (
+    activate_session,
+    create_session,
+    get_memory_prompt_parts,
+    get_or_create_active_session,
+    get_recent_messages,
+    get_session_for_user,
+    list_sessions,
+    maybe_update_session_title,
+    schedule_memory_update,
+)
 from apps.ai_customer.services import (
     build_system_prompt,
     search_context,
@@ -126,10 +137,17 @@ def _notify_feishu_if_needed(setting: AICustomerSetting, ticket: HumanHandoverTi
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def chat_history(request):
-    rows = ChatMessage.objects.filter(user=request.user).order_by("-id")[:30]
+    session_id = request.query_params.get("session_id")
+    try:
+        sid = int(session_id) if session_id is not None else None
+    except (TypeError, ValueError):
+        sid = None
+    session = get_session_for_user(request.user, sid)
+    rows = ChatMessage.objects.filter(user=request.user, session=session).order_by("-id")[:30]
     items = [
         {
             "id": row.id,
+            "session_id": row.session_id,
             "role": row.role,
             "content": row.content,
             "attachments": row.attachments or [],
@@ -142,9 +160,43 @@ def chat_history(request):
         {
             "enabled": setting.enabled,
             "no_answer_text": setting.no_answer_text,
+            "active_session_id": session.id,
+            "sessions": list_sessions(request.user),
             "messages": items,
         }
     )
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def chat_sessions(request):
+    if request.method == "GET":
+        return ok({"active_session_id": get_or_create_active_session(request.user).id, "items": list_sessions(request.user)})
+    payload = request.data or {}
+    title = str(payload.get("title", "")).strip()
+    scene_type = str(payload.get("scene_type", "general")).strip() or "general"
+    row = create_session(request.user, title=title, scene_type=scene_type)
+    return ok(
+        {
+            "id": row.id,
+            "title": row.title,
+            "scene_type": row.scene_type,
+            "summary": row.summary,
+            "is_active": row.is_active,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+    )
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def chat_session_activate(request, session_id: int):
+    row = activate_session(request.user, session_id)
+    if not row:
+        return bad("会话不存在", 404)
+    return ok({"id": row.id, "is_active": row.is_active})
 
 
 @api_view(["GET"])
@@ -293,6 +345,11 @@ def chat_stream(request):
 
         message = str(payload.get("message", "")).strip()
         attachments = payload.get("attachments") or []
+        session_id = payload.get("session_id")
+        try:
+            session_id = int(session_id) if session_id is not None else None
+        except (TypeError, ValueError):
+            session_id = None
         if not isinstance(attachments, list):
             attachments = []
         if not message:
@@ -302,8 +359,12 @@ def chat_stream(request):
         if not setting.enabled:
             return _sse_error("AI客服已关闭", 403)
 
+        session = get_session_for_user(request.user, session_id)
+        maybe_update_session_title(session, message)
+
         ChatMessage.objects.create(
             user=request.user,
+            session=session,
             role=ChatMessage.ROLE_USER,
             content=message,
             attachments=attachments,
@@ -324,11 +385,16 @@ def chat_stream(request):
                 except Exception:
                     web_hits = []
 
-            system_prompt = build_system_prompt(setting, context_hits, web_hits)
-            recent = ChatMessage.objects.filter(user=request.user).order_by("-id")[:8]
-            recent_messages = []
-            for row in reversed(list(recent)):
-                recent_messages.append({"role": row.role, "content": row.content})
+            profile_lines, session_summary, semantic_hits = get_memory_prompt_parts(request.user, session, message)
+            system_prompt = build_system_prompt(
+                setting,
+                context_hits,
+                web_hits,
+                profile_memory_lines=profile_lines,
+                session_summary=session_summary,
+                semantic_memory_hits=semantic_hits,
+            )
+            recent_messages = get_recent_messages(session, limit=max(int(getattr(settings, "AI_MEMORY_RECENT_LIMIT", 8)), 2))
 
             llm_messages = [{"role": "system", "content": system_prompt}, *recent_messages]
     except Exception as exc:
@@ -343,10 +409,12 @@ def chat_stream(request):
                 final_text = "已根据你的需求生成图片。"
                 ChatMessage.objects.create(
                     user=request.user,
+                    session=session,
                     role=ChatMessage.ROLE_ASSISTANT,
                     content=final_text,
                     attachments=[image_attachment],
                 )
+                schedule_memory_update(request.user.id, session.id, message, final_text)
                 yield "data: " + json.dumps(
                     {
                         "type": "done",
@@ -380,10 +448,12 @@ def chat_stream(request):
 
             ChatMessage.objects.create(
                 user=request.user,
+                session=session,
                 role=ChatMessage.ROLE_ASSISTANT,
                 content=full,
                 attachments=[],
             )
+            schedule_memory_update(request.user.id, session.id, message, full)
 
             if handover:
                 ticket = HumanHandoverTicket.objects.create(

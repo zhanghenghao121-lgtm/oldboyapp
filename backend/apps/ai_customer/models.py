@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from decimal import Decimal
 
 
 class AICustomerSetting(models.Model):
@@ -94,6 +95,43 @@ class KnowledgeUploadSession(models.Model):
         ordering = ["-id"]
 
 
+class ChatSession(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="chat_sessions")
+    title = models.CharField(max_length=120, default="新的对话")
+    scene_type = models.CharField(max_length=32, default="general")
+    summary = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+
+
+class UserProfileMemory(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile_memories")
+    mem_key = models.CharField(max_length=64)
+    mem_value = models.TextField()
+    confidence = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal("0.70"))
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+        unique_together = ("user", "mem_key")
+
+
+class MemoryChunk(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memory_chunks")
+    session = models.ForeignKey(ChatSession, null=True, blank=True, on_delete=models.SET_NULL, related_name="memory_chunks")
+    content = models.TextField()
+    vector_id = models.CharField(max_length=64, unique=True)
+    source = models.CharField(max_length=32, default="chat")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
+
+
 class ChatMessage(models.Model):
     ROLE_USER = "user"
     ROLE_ASSISTANT = "assistant"
@@ -103,6 +141,7 @@ class ChatMessage(models.Model):
     )
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    session = models.ForeignKey(ChatSession, null=True, blank=True, on_delete=models.SET_NULL, related_name="messages")
     role = models.CharField(max_length=16, choices=ROLE_CHOICES)
     content = models.TextField()
     attachments = models.JSONField(default=list, blank=True)

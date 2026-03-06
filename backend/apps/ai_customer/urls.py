@@ -2,6 +2,8 @@ from django.urls import path
 
 from apps.ai_customer.views import (
     chat_history,
+    chat_sessions,
+    chat_session_activate,
     chat_stream,
     human_replies,
     clear_human_replies,
@@ -35,6 +37,8 @@ from apps.ai_customer.admin_views import (
 
 urlpatterns = [
     path("ai-customer/history", chat_history),
+    path("ai-customer/sessions", chat_sessions),
+    path("ai-customer/sessions/<int:session_id>/activate", chat_session_activate),
     path("ai-customer/human-replies", human_replies),
     path("ai-customer/human-replies/clear", clear_human_replies),
     path("ai-customer/resume-assistant/generate", resume_assistant_generate),

@@ -636,7 +636,7 @@ const startKnowledgePolling = async () => {
     } finally {
       knowledgePollingInFlight = false
     }
-  }, 3000)
+  }, 20000)
 }
 
 const pickKnowledgeFile = () => {

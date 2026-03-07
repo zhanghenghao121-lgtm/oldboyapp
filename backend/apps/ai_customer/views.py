@@ -49,6 +49,8 @@ from apps.ai_customer.resume_services import (
     resume_points_cost,
 )
 from apps.ai_customer.resume_tasks import dispatch_resume_task
+from apps.ai_memory.models import AIConversationSummary, AIUserFact
+from apps.ai_memory.services import MemoryOrchestrator
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -238,6 +240,58 @@ def clear_human_replies(request):
         defaults={"cleared_at": timezone.now()},
     )
     return ok({"cleared": True})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def memory_summary(request):
+    session = get_or_create_active_session(request.user)
+    orchestrator = MemoryOrchestrator()
+    ai_session = orchestrator.ensure_ai_session(request.user, session)
+    row = (
+        AIConversationSummary.objects.filter(session=ai_session, is_active=True)
+        .order_by("-version", "-id")
+        .first()
+    )
+    if not row:
+        return ok({"summary": None})
+    return ok(
+        {
+            "summary": {
+                "id": row.id,
+                "task_stage": row.task_stage,
+                "current_goal": row.current_goal,
+                "recent_decisions": row.recent_decisions or [],
+                "open_questions": row.open_questions or [],
+                "important_entities": row.important_entities or [],
+                "next_action": row.next_action,
+                "version": row.version,
+                "updated_at": row.updated_at,
+            }
+        }
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def memory_facts(request):
+    rows = AIUserFact.objects.filter(user=request.user, status=AIUserFact.STATUS_ACTIVE).order_by("-updated_at", "-id")[:50]
+    return ok(
+        {
+            "list": [
+                {
+                    "id": row.id,
+                    "fact_key": row.fact_key,
+                    "fact_value": row.fact_value,
+                    "fact_type": row.fact_type,
+                    "confidence": float(row.confidence or 0),
+                    "version": row.version,
+                    "updated_at": row.updated_at,
+                }
+                for row in rows
+            ]
+        }
+    )
 
 
 @csrf_exempt

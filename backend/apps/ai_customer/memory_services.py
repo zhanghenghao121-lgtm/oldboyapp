@@ -20,6 +20,7 @@ from qdrant_client.models import (
 
 from apps.ai_customer.models import ChatMessage, ChatSession, MemoryChunk, UserProfileMemory
 from apps.ai_customer.services import embed_texts
+from apps.ai_memory.services import MemoryOrchestrator
 
 
 def _memory_enabled() -> bool:
@@ -91,11 +92,15 @@ def maybe_update_session_title(session: ChatSession, user_message: str):
 
 
 def get_recent_messages(session: ChatSession, limit: int = 8) -> List[Dict[str, str]]:
-    rows = ChatMessage.objects.filter(session=session).order_by("-id")[: max(int(limit or 1), 1)]
-    output = []
-    for row in reversed(list(rows)):
-        output.append({"role": row.role, "content": row.content})
-    return output
+    try:
+        orchestrator = MemoryOrchestrator()
+        return orchestrator.get_recent_messages(session, limit=max(int(limit or 1), 1))
+    except Exception:
+        rows = ChatMessage.objects.filter(session=session).order_by("-id")[: max(int(limit or 1), 1)]
+        output = []
+        for row in reversed(list(rows)):
+            output.append({"role": row.role, "content": row.content})
+        return output
 
 
 def extract_profile_memory_candidates(text: str) -> Dict[str, str]:
@@ -287,13 +292,24 @@ def summarize_session_if_needed(session_id: int):
 def schedule_memory_update(user_id: int, session_id: int, user_message: str, assistant_message: str):
     if not _memory_enabled():
         return
+    session = ChatSession.objects.filter(id=session_id).first()
+    if not session:
+        return
+    try:
+        orchestrator = MemoryOrchestrator()
+        orchestrator.schedule_postprocess(
+            user=session.user,
+            chat_session=session,
+            user_message=user_message,
+            assistant_message=assistant_message,
+        )
+        return
+    except Exception:
+        pass
 
     def _run():
         close_old_connections()
         try:
-            session = ChatSession.objects.filter(id=session_id).first()
-            if not session:
-                return
             user = session.user
             upsert_profile_memories(user, user_message)
             try:
@@ -313,15 +329,20 @@ def schedule_memory_update(user_id: int, session_id: int, user_message: str, ass
 
 
 def get_memory_prompt_parts(user, session: ChatSession, query: str) -> Tuple[List[str], str, List[Tuple[str, float]]]:
-    profile_lines = get_profile_memory_lines(user, limit=max(int(getattr(settings, "AI_MEMORY_PROFILE_MAX_ITEMS", 10)), 1))
-    session_summary = (session.summary or "").strip() if session else ""
-    semantic_hits: List[Tuple[str, float]] = []
     try:
-        semantic_hits = search_semantic_memories(
-            user.id,
-            query,
-            top_k=max(int(getattr(settings, "AI_MEMORY_TOP_K", 3)), 1),
-        )
+        orchestrator = MemoryOrchestrator()
+        ctx = orchestrator.build_prompt_context(user, session, query)
+        return ctx.fact_lines, ctx.summary_text, ctx.vector_hits
     except Exception:
-        semantic_hits = []
-    return profile_lines, session_summary, semantic_hits
+        profile_lines = get_profile_memory_lines(user, limit=max(int(getattr(settings, "AI_MEMORY_PROFILE_MAX_ITEMS", 10)), 1))
+        session_summary = (session.summary or "").strip() if session else ""
+        semantic_hits: List[Tuple[str, float]] = []
+        try:
+            semantic_hits = search_semantic_memories(
+                user.id,
+                query,
+                top_k=max(int(getattr(settings, "AI_MEMORY_TOP_K", 3)), 1),
+            )
+        except Exception:
+            semantic_hits = []
+        return profile_lines, session_summary, semantic_hits

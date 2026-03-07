@@ -4,6 +4,7 @@ import json
 import uuid
 import re
 import logging
+from urllib.parse import urlparse, urlunparse
 import requests
 from decimal import Decimal
 from typing import List, Tuple, Dict, Any, Optional
@@ -200,6 +201,31 @@ def _extract_vectors_from_embedding_response(data: Any, expected_count: int) -> 
     return vectors
 
 
+def _normalize_embedding_base_url(base_url: str) -> str:
+    raw = (base_url or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    path = (parsed.path or "").rstrip("/")
+    if path.endswith("/embeddings/multimodal"):
+        path = path[: -len("/embeddings/multimodal")]
+    elif path.endswith("/embeddings"):
+        path = path[: -len("/embeddings")]
+    normalized = parsed._replace(path=path)
+    return urlunparse(normalized).rstrip("/")
+
+
+def _embedding_endpoint_candidates(configured_endpoint: str) -> List[str]:
+    endpoint = (configured_endpoint or "/embeddings").strip() or "/embeddings"
+    if not endpoint.startswith("/"):
+        endpoint = "/" + endpoint
+    candidates = [endpoint]
+    fallback = "/embeddings/multimodal" if endpoint != "/embeddings/multimodal" else "/embeddings"
+    candidates.append(fallback)
+    # de-duplicate while keeping order
+    return list(dict.fromkeys(candidates))
+
+
 def embed_texts(texts: List[str]) -> List[List[float]]:
     texts = [str(text or "").strip() for text in (texts or [])]
     texts = [text for text in texts if text]
@@ -209,26 +235,38 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     if not api_key:
         raise RuntimeError("ARK_API_KEY 未配置")
     endpoint = (getattr(settings, "ARK_EMBEDDING_ENDPOINT", "/embeddings") or "/embeddings").strip()
-    if not endpoint.startswith("/"):
-        endpoint = "/" + endpoint
-    url = settings.ARK_EMBEDDING_BASE_URL.rstrip("/") + endpoint
+    base_url = _normalize_embedding_base_url(getattr(settings, "ARK_EMBEDDING_BASE_URL", ""))
+    if not base_url:
+        raise RuntimeError("ARK_EMBEDDING_BASE_URL 未配置")
+    candidate_endpoints = _embedding_endpoint_candidates(endpoint)
+    candidate_urls = [base_url + ep for ep in candidate_endpoints]
     timeout_s = max(int(getattr(settings, "ARK_EMBEDDING_TIMEOUT", 8)), 3)
-    payload = _build_embedding_payload(texts, endpoint)
-    try:
-        resp = requests.post(
-            url,
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=timeout_s,
-        )
-    except requests.RequestException as exc:
-        raise RuntimeError(f"Embedding 请求失败: {exc}")
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Embedding 接口错误({resp.status_code})")
-    try:
-        data = resp.json()
-    except ValueError:
-        raise RuntimeError("Embedding 返回非JSON格式")
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    data = None
+    url = candidate_urls[0]
+    selected_endpoint = candidate_endpoints[0]
+    last_error = ""
+    for idx, (u, ep) in enumerate(zip(candidate_urls, candidate_endpoints), start=1):
+        payload = _build_embedding_payload(texts, ep)
+        try:
+            resp = requests.post(u, json=payload, headers=headers, timeout=timeout_s)
+        except requests.RequestException as exc:
+            last_error = f"Embedding 请求失败: {exc}"
+            continue
+        if resp.status_code == 404 and idx < len(candidate_urls):
+            logger.warning("Embedding endpoint 404, fallback to %s", candidate_endpoints[idx])
+            continue
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Embedding 接口错误({resp.status_code})")
+        try:
+            data = resp.json()
+            url = u
+            selected_endpoint = ep
+            break
+        except ValueError:
+            raise RuntimeError("Embedding 返回非JSON格式")
+    if data is None:
+        raise RuntimeError(last_error or "Embedding 接口不可用")
     try:
         return _extract_vectors_from_embedding_response(data, expected_count=len(texts))
     except RuntimeError as exc:
@@ -238,12 +276,12 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
 
     fallback_vectors: List[List[float]] = []
     for idx, text in enumerate(texts, start=1):
-        single_payload = _build_embedding_payload([text], endpoint)
+        single_payload = _build_embedding_payload([text], selected_endpoint)
         try:
             single_resp = requests.post(
                 url,
                 json=single_payload,
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                headers=headers,
                 timeout=timeout_s,
             )
         except requests.RequestException as single_exc:

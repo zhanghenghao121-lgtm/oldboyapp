@@ -226,11 +226,7 @@ def _embedding_endpoint_candidates(configured_endpoint: str) -> List[str]:
     return list(dict.fromkeys(candidates))
 
 
-def embed_texts(texts: List[str]) -> List[List[float]]:
-    texts = [str(text or "").strip() for text in (texts or [])]
-    texts = [text for text in texts if text]
-    if not texts:
-        return []
+def _embed_texts_ark(texts: List[str]) -> List[List[float]]:
     api_key = settings.ARK_API_KEY.strip()
     if not api_key:
         raise RuntimeError("ARK_API_KEY 未配置")
@@ -295,6 +291,80 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
         vectors = _extract_vectors_from_embedding_response(single_data, expected_count=1)
         fallback_vectors.append(vectors[0])
     return fallback_vectors
+
+
+def _normalize_zhipu_base_url(base_url: str) -> str:
+    raw = (base_url or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    path = (parsed.path or "").rstrip("/")
+    if path.endswith("/embeddings"):
+        path = path[: -len("/embeddings")]
+    normalized = parsed._replace(path=path)
+    return urlunparse(normalized).rstrip("/")
+
+
+def _embed_texts_zhipu(texts: List[str]) -> List[List[float]]:
+    api_key = (getattr(settings, "ZHIPU_API_KEY", "") or "").strip()
+    if not api_key:
+        raise RuntimeError("ZHIPU_API_KEY 未配置")
+    base_url = _normalize_zhipu_base_url(getattr(settings, "ZHIPU_EMBEDDING_BASE_URL", ""))
+    if not base_url:
+        raise RuntimeError("ZHIPU_EMBEDDING_BASE_URL 未配置")
+    url = f"{base_url}/embeddings"
+    model = (getattr(settings, "ZHIPU_EMBEDDING_MODEL", "embedding-3") or "embedding-3").strip()
+    timeout_s = max(int(getattr(settings, "ZHIPU_EMBEDDING_TIMEOUT", 20)), 3)
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    payload: Dict[str, Any] = {"model": model, "input": texts if len(texts) > 1 else texts[0]}
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=timeout_s)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Embedding 请求失败: {exc}")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Embedding 接口错误({resp.status_code})")
+    try:
+        data = resp.json()
+    except ValueError:
+        raise RuntimeError("Embedding 返回非JSON格式")
+
+    try:
+        return _extract_vectors_from_embedding_response(data, expected_count=len(texts))
+    except RuntimeError as exc:
+        if "返回数量异常" not in str(exc) or len(texts) <= 1:
+            raise
+        logger.warning("Zhipu embedding batch size mismatch, fallback to single embedding. detail=%s", exc)
+
+    vectors: List[List[float]] = []
+    for idx, text in enumerate(texts, start=1):
+        single_payload = {"model": model, "input": text}
+        try:
+            single_resp = requests.post(url, json=single_payload, headers=headers, timeout=timeout_s)
+        except requests.RequestException as single_exc:
+            raise RuntimeError(f"Embedding 单条请求失败(index={idx}): {single_exc}")
+        if single_resp.status_code >= 400:
+            raise RuntimeError(f"Embedding 单条接口错误(index={idx}, status={single_resp.status_code})")
+        try:
+            single_data = single_resp.json()
+        except ValueError:
+            raise RuntimeError(f"Embedding 单条返回非JSON(index={idx})")
+        one = _extract_vectors_from_embedding_response(single_data, expected_count=1)
+        vectors.append(one[0])
+    return vectors
+
+
+def embed_texts(texts: List[str]) -> List[List[float]]:
+    texts = [str(text or "").strip() for text in (texts or [])]
+    texts = [text for text in texts if text]
+    if not texts:
+        return []
+    provider = (getattr(settings, "EMBEDDING_PROVIDER", "zhipu") or "zhipu").strip().lower()
+    if provider == "zhipu":
+        return _embed_texts_zhipu(texts)
+    if provider == "ark":
+        return _embed_texts_ark(texts)
+    raise RuntimeError(f"不支持的向量化服务提供方: {provider}")
 
 
 def _qdrant_client() -> QdrantClient:

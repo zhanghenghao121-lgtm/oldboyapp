@@ -185,6 +185,11 @@ ARK_EMBEDDING_INSTRUCTIONS = env(
     "ARK_EMBEDDING_INSTRUCTIONS",
     default="Target_modality: text.\\nInstruction: summarize semantics for retrieval.\\nQuery:",
 )
+EMBEDDING_PROVIDER = env("EMBEDDING_PROVIDER", default="zhipu").strip().lower()
+ZHIPU_API_KEY = env("ZHIPU_API_KEY", default="")
+ZHIPU_EMBEDDING_BASE_URL = env("ZHIPU_EMBEDDING_BASE_URL", default="https://open.bigmodel.cn/api/paas/v4")
+ZHIPU_EMBEDDING_MODEL = env("ZHIPU_EMBEDDING_MODEL", default="embedding-3")
+ZHIPU_EMBEDDING_TIMEOUT = env.int("ZHIPU_EMBEDDING_TIMEOUT", default=20)
 QDRANT_URL = env("QDRANT_URL", default="")
 QDRANT_API_KEY = env("QDRANT_API_KEY", default="")
 QDRANT_COLLECTION = env("QDRANT_COLLECTION", default="oldboy_ai_customer")

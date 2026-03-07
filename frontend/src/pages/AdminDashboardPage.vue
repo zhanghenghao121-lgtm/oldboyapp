@@ -33,6 +33,14 @@
           <span v-if="aiUnreadCount > 0" class="unread-badge">{{ aiUnreadCount > 99 ? '99+' : aiUnreadCount }}</span>
         </button>
       </div>
+
+      <button class="side-btn ai-side-btn" :class="{ active: toolMenuOpen || activeModule === 'tool_file_split' }" @click="toggleToolMenu">
+        <span>工具箱</span>
+        <span class="submenu-arrow">{{ toolMenuOpen ? '▾' : '▸' }}</span>
+      </button>
+      <div v-if="toolMenuOpen" class="submenu-wrap">
+        <button class="submenu-btn" :class="{ active: activeModule === 'tool_file_split' }" @click="activeModule = 'tool_file_split'">大文件切片</button>
+      </div>
     </aside>
 
     <main class="admin-main">
@@ -162,6 +170,36 @@
           </el-form-item>
         </el-form>
         <el-button type="primary" class="main-btn" :loading="savingPrompts" @click="saveScriptPrompts">保存设置</el-button>
+      </section>
+
+      <section v-if="activeModule === 'tool_file_split'" class="panel-card">
+        <h4 class="placeholder-title">大文件切片</h4>
+        <p class="placeholder-sub">支持 jsonl/csv/txt，文件大小至少 5MB。切片后自动打包为 zip 下载。</p>
+        <div class="kb-upload-row">
+          <el-input :model-value="splitTask.fileName" readonly placeholder="请选择文件（至少5MB）" />
+          <input ref="splitInputRef" type="file" class="file-hidden" accept=".jsonl,.csv,.txt" @change="handleSplitFile" />
+          <div class="row-actions">
+            <el-button @click="pickSplitFile">选择文件</el-button>
+            <el-button class="main-btn" type="primary" :disabled="!splitTask.file" :loading="splitTask.running" @click="startSplitFile">开始切片</el-button>
+            <el-button type="warning" plain :disabled="!splitTask.running" @click="cancelSplitFile">取消切片</el-button>
+          </div>
+        </div>
+        <div v-if="splitTask.fileName" class="split-meta">
+          <span>文件：{{ splitTask.fileName }}</span>
+          <span>大小：{{ formatSize(splitTask.totalBytes) }}</span>
+          <span>状态：{{ splitTask.statusText }}</span>
+        </div>
+        <div v-if="splitTask.progress > 0" class="kb-progress-wrap">
+          <el-progress :percentage="splitTask.progress" :stroke-width="14" />
+          <p class="kb-progress-text">
+            已处理 {{ formatSize(splitTask.processedBytes) }} / {{ formatSize(splitTask.totalBytes) }}
+            <span v-if="splitTask.totalParts">，分片 {{ splitTask.currentPart }}/{{ splitTask.totalParts }}</span>
+          </p>
+        </div>
+        <div v-if="splitTask.downloadUrl" class="row-actions">
+          <el-button type="success" @click="downloadSplitZip">下载切片压缩包</el-button>
+        </div>
+        <p v-if="splitTask.error" class="split-error">{{ splitTask.error }}</p>
       </section>
 
       <section v-if="activeModule === 'ai_customer'" class="panel-card">
@@ -345,6 +383,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import JSZip from 'jszip'
 import { uploadToCos } from '../api/storage'
 import {
   cancelAICsDoc,
@@ -369,12 +408,14 @@ const adminUser = ref(null)
 const activeModule = ref('stats')
 const aiMenuOpen = ref(true)
 const humanMenuOpen = ref(true)
+const toolMenuOpen = ref(false)
 
 const moduleTitle = computed(() => {
   if (activeModule.value === 'stats') return '信息统计'
   if (activeModule.value === 'page') return '页面管理'
   if (activeModule.value === 'users') return '用户信息'
   if (activeModule.value === 'script') return '剧本优化'
+  if (activeModule.value === 'tool_file_split') return '大文件切片'
   if (activeModule.value === 'ai_knowledge') return 'AI知识库'
   if (activeModule.value === 'ai_customer') return 'AI客服'
   if (activeModule.value === 'ai_resume') return '简历助手'
@@ -431,6 +472,23 @@ const replying = ref(false)
 const replyTarget = reactive({ id: null, question: '' })
 const selectedTicketIds = ref([])
 const syncingKnowledge = ref(false)
+const splitInputRef = ref(null)
+const splitTask = reactive({
+  file: null,
+  fileName: '',
+  totalBytes: 0,
+  processedBytes: 0,
+  progress: 0,
+  running: false,
+  canceled: false,
+  totalParts: 0,
+  currentPart: 0,
+  statusText: '待开始',
+  downloadUrl: '',
+  zipName: '',
+  error: '',
+})
+let splitTaskToken = 0
 let knowledgePollingTimer = null
 let knowledgePollingInFlight = false
 let stopKnowledgeUploadSubscription = null
@@ -441,6 +499,149 @@ const toggleAiMenu = () => {
 
 const toggleHumanMenu = () => {
   humanMenuOpen.value = !humanMenuOpen.value
+}
+
+const toggleToolMenu = () => {
+  toolMenuOpen.value = !toolMenuOpen.value
+}
+
+const formatSize = (bytes) => {
+  const num = Number(bytes || 0)
+  if (!num) return '0 B'
+  if (num < 1024) return `${num} B`
+  if (num < 1024 * 1024) return `${(num / 1024).toFixed(2)} KB`
+  if (num < 1024 * 1024 * 1024) return `${(num / (1024 * 1024)).toFixed(2)} MB`
+  return `${(num / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+const releaseSplitDownloadUrl = () => {
+  if (splitTask.downloadUrl) {
+    URL.revokeObjectURL(splitTask.downloadUrl)
+    splitTask.downloadUrl = ''
+  }
+}
+
+const resetSplitTaskState = () => {
+  releaseSplitDownloadUrl()
+  splitTask.processedBytes = 0
+  splitTask.progress = 0
+  splitTask.running = false
+  splitTask.canceled = false
+  splitTask.totalParts = 0
+  splitTask.currentPart = 0
+  splitTask.statusText = '待开始'
+  splitTask.zipName = ''
+  splitTask.error = ''
+}
+
+const pickSplitFile = () => {
+  if (splitInputRef.value) splitInputRef.value.click()
+}
+
+const handleSplitFile = (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  const lower = String(file.name || '').toLowerCase()
+  const allowed = ['.jsonl', '.csv', '.txt']
+  if (!allowed.some((ext) => lower.endsWith(ext))) {
+    ElMessage.warning('仅支持 jsonl/csv/txt 文件')
+    return
+  }
+  if (file.size < 5 * 1024 * 1024) {
+    ElMessage.warning('文件必须至少 5MB 才可切片')
+    return
+  }
+  resetSplitTaskState()
+  splitTask.file = file
+  splitTask.fileName = file.name
+  splitTask.totalBytes = Number(file.size || 0)
+}
+
+const waitUiFrame = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+const startSplitFile = async () => {
+  if (!splitTask.file || splitTask.running) return
+  const file = splitTask.file
+  const chunkSize = 5 * 1024 * 1024
+  const token = Date.now()
+  splitTaskToken = token
+  splitTask.running = true
+  splitTask.canceled = false
+  splitTask.error = ''
+  splitTask.statusText = '切片中'
+  splitTask.progress = 1
+  splitTask.processedBytes = 0
+  splitTask.currentPart = 0
+  splitTask.totalParts = Math.ceil(file.size / chunkSize)
+
+  try {
+    const zip = new JSZip()
+    const dotIdx = file.name.lastIndexOf('.')
+    const baseName = dotIdx > 0 ? file.name.slice(0, dotIdx) : file.name
+    const ext = dotIdx > 0 ? file.name.slice(dotIdx) : ''
+    let offset = 0
+    let index = 1
+
+    while (offset < file.size) {
+      if (splitTaskToken !== token || splitTask.canceled) throw new Error('__SPLIT_CANCELED__')
+      const next = Math.min(offset + chunkSize, file.size)
+      const blob = file.slice(offset, next)
+      const partNo = String(index).padStart(3, '0')
+      zip.file(`${baseName}.part${partNo}${ext}`, blob)
+      offset = next
+      index += 1
+      splitTask.processedBytes = offset
+      splitTask.currentPart = Math.min(index - 1, splitTask.totalParts)
+      splitTask.progress = Math.min(90, Math.max(1, Math.round((offset / file.size) * 90)))
+      await waitUiFrame()
+    }
+
+    splitTask.statusText = '打包中'
+    const zipBlob = await zip.generateAsync(
+      { type: 'blob', compression: 'STORE' },
+      (meta) => {
+        if (splitTaskToken !== token || splitTask.canceled) throw new Error('__SPLIT_CANCELED__')
+        splitTask.progress = Math.min(99, 90 + Math.round((Number(meta.percent || 0) / 100) * 9))
+      }
+    )
+
+    if (splitTaskToken !== token || splitTask.canceled) throw new Error('__SPLIT_CANCELED__')
+    releaseSplitDownloadUrl()
+    splitTask.zipName = `${baseName}_chunks_5MB.zip`
+    splitTask.downloadUrl = URL.createObjectURL(zipBlob)
+    splitTask.progress = 100
+    splitTask.statusText = '成功'
+    ElMessage.success('切片完成，可下载压缩包')
+  } catch (e) {
+    if (String(e?.message || e) === '__SPLIT_CANCELED__') {
+      splitTask.statusText = '已取消'
+      splitTask.error = ''
+      ElMessage.warning('已取消切片')
+    } else {
+      splitTask.statusText = '失败'
+      splitTask.error = String(e?.message || e || '切片失败')
+      ElMessage.error(splitTask.error)
+    }
+  } finally {
+    splitTask.running = false
+  }
+}
+
+const cancelSplitFile = () => {
+  if (!splitTask.running) return
+  splitTask.canceled = true
+  splitTask.statusText = '取消中'
+}
+
+const downloadSplitZip = () => {
+  if (!splitTask.downloadUrl) return
+  const a = document.createElement('a')
+  a.href = splitTask.downloadUrl
+  a.download = splitTask.zipName || 'split_chunks.zip'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 const loadAdminMe = async () => {
@@ -929,6 +1130,8 @@ watch(
 
 onBeforeUnmount(() => {
   stopKnowledgePolling()
+  splitTaskToken = 0
+  releaseSplitDownloadUrl()
   if (stopKnowledgeUploadSubscription) {
     stopKnowledgeUploadSubscription()
     stopKnowledgeUploadSubscription = null
@@ -1113,6 +1316,19 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 10px;
+  align-items: center;
+}
+.split-meta {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #cfe4ff;
+  font-size: 13px;
+}
+.split-error {
+  margin: 10px 0 0;
+  color: #ff8fa6;
 }
 .kb-progress-wrap {
   margin-top: 12px;

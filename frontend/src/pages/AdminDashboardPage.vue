@@ -695,12 +695,12 @@ const toBlob = (canvas, type, quality) =>
     canvas.toBlob((blob) => resolve(blob), type, quality)
   })
 
-const compressImageBeforeUpload = async (file) => {
+const compressImageBeforeUpload = async (file, options = {}) => {
   const mime = file.type || 'image/jpeg'
   if (!mime.startsWith('image/')) return file
   const img = await loadImage(file)
-  const maxW = 1920
-  const maxH = 1920
+  const maxW = Number(options.maxW || 1920)
+  const maxH = Number(options.maxH || 1920)
   let { width, height } = img
   const ratio = Math.min(maxW / width, maxH / height, 1)
   width = Math.round(width * ratio)
@@ -712,9 +712,20 @@ const compressImageBeforeUpload = async (file) => {
   const ctx = canvas.getContext('2d')
   ctx.drawImage(img, 0, 0, width, height)
 
-  const targetType = mime === 'image/png' ? 'image/webp' : mime
-  const quality = targetType === 'image/jpeg' || targetType === 'image/webp' ? 0.82 : undefined
-  const blob = await toBlob(canvas, targetType, quality)
+  const preferredType = String(options.targetType || '').trim()
+  const targetType = preferredType || (mime === 'image/png' ? 'image/webp' : mime)
+  const qualityStart = Number(options.qualityStart ?? 0.82)
+  const qualityFloor = Number(options.qualityFloor ?? 0.55)
+  const qualityStep = Number(options.qualityStep ?? 0.08)
+  const targetMaxBytes = Number(options.targetMaxBytes || 0)
+  let quality = targetType === 'image/jpeg' || targetType === 'image/webp' ? qualityStart : undefined
+  let blob = await toBlob(canvas, targetType, quality)
+  if (targetMaxBytes > 0 && blob && quality !== undefined) {
+    while (blob.size > targetMaxBytes && quality > qualityFloor) {
+      quality = Math.max(qualityFloor, quality - qualityStep)
+      blob = await toBlob(canvas, targetType, quality)
+    }
+  }
   URL.revokeObjectURL(img.src)
   if (!blob || blob.size >= file.size) return file
   const extMap = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
@@ -749,12 +760,20 @@ const handleRechargeQrUpload = async (event) => {
   event.target.value = ''
   if (!file) return
   if (!file.type.startsWith('image/')) return ElMessage.warning('请上传图片文件')
-  if (file.size > 8 * 1024 * 1024) return ElMessage.warning('二维码图片不能超过8MB')
+  if (file.size > 12 * 1024 * 1024) return ElMessage.warning('二维码图片不能超过12MB')
 
   rechargeQrUploading.value = true
   try {
-    const compressed = await compressImageBeforeUpload(file)
-    const res = await uploadToCos(compressed, 'images/recharge')
+    const compressed = await compressImageBeforeUpload(file, {
+      maxW: 1080,
+      maxH: 1080,
+      targetType: 'image/webp',
+      qualityStart: 0.74,
+      qualityFloor: 0.48,
+      qualityStep: 0.08,
+      targetMaxBytes: 700 * 1024,
+    })
+    const res = await uploadToCos(compressed, 'images/recharge', { timeout: 90 * 1000 })
     rechargeQrUrl.value = res.data.url
     ElMessage.success('二维码上传成功，请点击保存配置')
   } catch (e) {

@@ -288,10 +288,14 @@
               <el-button
                 link
                 type="warning"
-                :disabled="scope.row.status !== 'pending' || cancellingDocId === scope.row.id"
+                :disabled="!['pending', 'running'].includes(scope.row.status) || cancellingDocId === scope.row.id"
                 @click="cancelKnowledgeDoc(scope.row)"
               >
-                {{ cancellingDocId === scope.row.id ? '取消中...' : '取消上传' }}
+                {{
+                  cancellingDocId === scope.row.id
+                    ? (scope.row.status === 'running' ? '停止中...' : '取消中...')
+                    : (scope.row.status === 'running' ? '停止向量化' : '取消上传')
+                }}
               </el-button>
               <el-button
                 link
@@ -970,20 +974,25 @@ const deleteKnowledgeDoc = async (row) => {
 const cancelKnowledgeDoc = async (row) => {
   const docId = Number(row?.id || 0)
   if (!docId) return
+  const isRunning = row?.status === 'running'
   try {
-    await ElMessageBox.confirm('确认取消该上传任务？状态将变为“取消上传”。', '取消上传', {
-      confirmButtonText: '确认取消',
+    await ElMessageBox.confirm(
+      isRunning ? '确认停止该向量化任务？停止后将不再继续消耗模型配额。' : '确认取消该上传任务？状态将变为“取消上传”。',
+      isRunning ? '停止向量化' : '取消上传',
+      {
+      confirmButtonText: isRunning ? '确认停止' : '确认取消',
       cancelButtonText: '返回',
       type: 'warning',
       customClass: 'anime-neon-message-box',
-    })
+    }
+    )
   } catch {
     return
   }
   cancellingDocId.value = docId
   try {
     await cancelAICsDoc(docId)
-    ElMessage.success('已取消上传')
+    ElMessage.success(isRunning ? '已停止向量化' : '已取消上传')
     await loadAiCsDocs()
   } catch (e) {
     ElMessage.error(e)

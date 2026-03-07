@@ -518,8 +518,10 @@ def ai_cs_doc_cancel(request, doc_id: int):
     doc = KnowledgeDocument.objects.filter(id=doc_id).first()
     if not doc:
         return bad("文档不存在", 404)
-    if doc.status != KnowledgeDocument.STATUS_PENDING:
-        return bad("仅支持取消 pending 状态的任务")
+    if doc.status not in {KnowledgeDocument.STATUS_PENDING, KnowledgeDocument.STATUS_RUNNING}:
+        return bad("仅支持取消排队中/处理中任务")
+
+    is_running = doc.status == KnowledgeDocument.STATUS_RUNNING
 
     try:
         vector_ids = list(KnowledgeChunk.objects.filter(document_id=doc.id).values_list("vector_id", flat=True))
@@ -532,7 +534,7 @@ def ai_cs_doc_cancel(request, doc_id: int):
 
     doc.status = KnowledgeDocument.STATUS_CANCELED
     doc.chunk_count = 0
-    doc.error_message = "取消上传"
+    doc.error_message = "停止向量化" if is_running else "取消上传"
     doc.save(update_fields=["status", "chunk_count", "error_message", "updated_at"])
     return ok({"id": doc.id, "status": doc.status})
 

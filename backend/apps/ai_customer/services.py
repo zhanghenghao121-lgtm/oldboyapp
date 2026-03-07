@@ -4,8 +4,11 @@ import json
 import uuid
 import re
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, urlunparse
 import requests
+from requests.adapters import HTTPAdapter
 from decimal import Decimal
 from typing import List, Tuple, Dict, Any, Optional
 from openpyxl import load_workbook
@@ -16,6 +19,22 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, PointIdsLi
 from apps.ai_customer.models import AICustomerSetting
 
 logger = logging.getLogger(__name__)
+_thread_local = threading.local()
+
+
+def _http_session() -> requests.Session:
+    session = getattr(_thread_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=32, pool_maxsize=64, max_retries=0)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        _thread_local.session = session
+    return session
+
+
+def _post_json(url: str, *, headers: Dict[str, str], payload: Dict[str, Any], timeout: int) -> requests.Response:
+    return _http_session().post(url, json=payload, headers=headers, timeout=timeout)
 
 
 def parse_text_file(file_name: str, raw: bytes) -> str:
@@ -245,7 +264,7 @@ def _embed_texts_ark(texts: List[str]) -> List[List[float]]:
     for idx, (u, ep) in enumerate(zip(candidate_urls, candidate_endpoints), start=1):
         payload = _build_embedding_payload(texts, ep)
         try:
-            resp = requests.post(u, json=payload, headers=headers, timeout=timeout_s)
+            resp = _post_json(u, payload=payload, headers=headers, timeout=timeout_s)
         except requests.RequestException as exc:
             last_error = f"Embedding 请求失败: {exc}"
             continue
@@ -270,16 +289,15 @@ def _embed_texts_ark(texts: List[str]) -> List[List[float]]:
             raise
         logger.warning("Embedding batch size mismatch, fallback to single embedding. detail=%s", exc)
 
-    fallback_vectors: List[List[float]] = []
-    for idx, text in enumerate(texts, start=1):
+    fallback_workers = max(int(getattr(settings, "AI_CS_EMBED_SINGLE_FALLBACK_WORKERS", 4)), 1)
+    fallback_workers = min(fallback_workers, len(texts))
+    fallback_vectors: List[Optional[List[float]]] = [None] * len(texts)
+
+    def _single_ark(pair):
+        idx, text = pair
         single_payload = _build_embedding_payload([text], selected_endpoint)
         try:
-            single_resp = requests.post(
-                url,
-                json=single_payload,
-                headers=headers,
-                timeout=timeout_s,
-            )
+            single_resp = _post_json(url, payload=single_payload, headers=headers, timeout=timeout_s)
         except requests.RequestException as single_exc:
             raise RuntimeError(f"Embedding 单条请求失败(index={idx}): {single_exc}")
         if single_resp.status_code >= 400:
@@ -289,7 +307,15 @@ def _embed_texts_ark(texts: List[str]) -> List[List[float]]:
         except ValueError:
             raise RuntimeError(f"Embedding 单条返回非JSON(index={idx})")
         vectors = _extract_vectors_from_embedding_response(single_data, expected_count=1)
-        fallback_vectors.append(vectors[0])
+        return idx - 1, vectors[0]
+
+    with ThreadPoolExecutor(max_workers=fallback_workers) as executor:
+        futures = [executor.submit(_single_ark, (idx, text)) for idx, text in enumerate(texts, start=1)]
+        for future in as_completed(futures):
+            pos, vector = future.result()
+            fallback_vectors[pos] = vector
+    if any(vec is None for vec in fallback_vectors):
+        raise RuntimeError("Embedding 单条回退结果不完整")
     return fallback_vectors
 
 
@@ -319,7 +345,7 @@ def _embed_texts_zhipu(texts: List[str]) -> List[List[float]]:
 
     payload: Dict[str, Any] = {"model": model, "input": texts if len(texts) > 1 else texts[0]}
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=timeout_s)
+        resp = _post_json(url, payload=payload, headers=headers, timeout=timeout_s)
     except requests.RequestException as exc:
         raise RuntimeError(f"Embedding 请求失败: {exc}")
     if resp.status_code >= 400:
@@ -336,11 +362,15 @@ def _embed_texts_zhipu(texts: List[str]) -> List[List[float]]:
             raise
         logger.warning("Zhipu embedding batch size mismatch, fallback to single embedding. detail=%s", exc)
 
-    vectors: List[List[float]] = []
-    for idx, text in enumerate(texts, start=1):
+    fallback_workers = max(int(getattr(settings, "AI_CS_EMBED_SINGLE_FALLBACK_WORKERS", 4)), 1)
+    fallback_workers = min(fallback_workers, len(texts))
+    vectors: List[Optional[List[float]]] = [None] * len(texts)
+
+    def _single_zhipu(pair):
+        idx, text = pair
         single_payload = {"model": model, "input": text}
         try:
-            single_resp = requests.post(url, json=single_payload, headers=headers, timeout=timeout_s)
+            single_resp = _post_json(url, payload=single_payload, headers=headers, timeout=timeout_s)
         except requests.RequestException as single_exc:
             raise RuntimeError(f"Embedding 单条请求失败(index={idx}): {single_exc}")
         if single_resp.status_code >= 400:
@@ -350,7 +380,15 @@ def _embed_texts_zhipu(texts: List[str]) -> List[List[float]]:
         except ValueError:
             raise RuntimeError(f"Embedding 单条返回非JSON(index={idx})")
         one = _extract_vectors_from_embedding_response(single_data, expected_count=1)
-        vectors.append(one[0])
+        return idx - 1, one[0]
+
+    with ThreadPoolExecutor(max_workers=fallback_workers) as executor:
+        futures = [executor.submit(_single_zhipu, (idx, text)) for idx, text in enumerate(texts, start=1)]
+        for future in as_completed(futures):
+            pos, vector = future.result()
+            vectors[pos] = vector
+    if any(vec is None for vec in vectors):
+        raise RuntimeError("Embedding 单条回退结果不完整")
     return vectors
 
 

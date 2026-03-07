@@ -653,9 +653,11 @@ def ai_cs_ticket_sync_knowledge(request):
         doc.error_message = ""
         doc.save(update_fields=["status", "chunk_count", "error_message", "updated_at"])
 
+        now = timezone.now()
         for row in valid_rows:
             row.synced_to_knowledge = True
-            row.save(update_fields=["synced_to_knowledge", "updated_at"])
+            row.updated_at = now
+        HumanHandoverTicket.objects.bulk_update(valid_rows, ["synced_to_knowledge", "updated_at"], batch_size=200)
 
         return ok({"doc_id": doc.id, "count": total})
     except Exception as exc:

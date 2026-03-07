@@ -1,8 +1,11 @@
+from urllib.parse import urlparse
+
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.views.decorators.csrf import csrf_exempt
+from qcloud_cos import CosConfig, CosS3Client
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -17,6 +20,7 @@ from apps.console.serializers import (
     ConsoleUserSerializer,
     ConsoleUserUpdateSerializer,
 )
+from apps.storage.models import UploadedFileRecord
 
 User = get_user_model()
 
@@ -68,6 +72,40 @@ def _get_admin_user(request):
     return user
 
 
+def _resolve_uploaded_file_key(raw_url: str) -> str:
+    url = str(raw_url or "").strip()
+    if not url:
+        return ""
+    record = UploadedFileRecord.objects.filter(url=url).order_by("-id").first()
+    if record and record.key:
+        return str(record.key).strip()
+    parsed = urlparse(url)
+    return parsed.path.lstrip("/")
+
+
+def _build_signed_file_url(raw_url: str) -> str:
+    url = str(raw_url or "").strip()
+    if not url:
+        return ""
+    if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
+        return url
+    key = _resolve_uploaded_file_key(url)
+    if not key:
+        return url
+    try:
+        config = CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY)
+        client = CosS3Client(config)
+        signed = client.get_presigned_url(
+            Method="GET",
+            Bucket=settings.COS_BUCKET,
+            Key=key,
+            Expired=max(int(getattr(settings, "RECHARGE_QR_SIGN_EXPIRE", 3600)), 300),
+        )
+        return signed or url
+    except Exception:
+        return url
+
+
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def public_backgrounds(request):
@@ -87,8 +125,8 @@ def public_backgrounds(request):
     data["recharge_wechat_id"] = configs.get(
         SiteConfig.KEY_RECHARGE_WECHAT, _config_defaults()[SiteConfig.KEY_RECHARGE_WECHAT]
     )
-    data["recharge_qr_url"] = configs.get(
-        SiteConfig.KEY_RECHARGE_QR_URL, _config_defaults()[SiteConfig.KEY_RECHARGE_QR_URL]
+    data["recharge_qr_url"] = _build_signed_file_url(
+        configs.get(SiteConfig.KEY_RECHARGE_QR_URL, _config_defaults()[SiteConfig.KEY_RECHARGE_QR_URL])
     )
     res = ok(data)
     res["Cache-Control"] = "no-store"
@@ -139,8 +177,13 @@ def console_logout(request):
 @permission_classes([IsConsoleAdmin])
 def console_configs(request):
     _ensure_config_defaults()
-    serializer = SiteConfigSerializer(SiteConfig.objects.all(), many=True)
-    return ok(serializer.data)
+    rows = []
+    for item in SiteConfig.objects.all():
+        value = item.value
+        if item.key == SiteConfig.KEY_RECHARGE_QR_URL:
+            value = _build_signed_file_url(value)
+        rows.append({"key": item.key, "value": value, "updated_at": item.updated_at})
+    return ok(rows)
 
 
 @csrf_exempt

@@ -1,6 +1,9 @@
 <template>
   <div class="page-shell recharge-shell">
     <el-card class="surface-card recharge-card" shadow="never">
+      <div class="top-actions">
+        <el-button @click="$router.push('/home')">返回首页</el-button>
+      </div>
       <div class="title-block">
         <h2>积分充值中心</h2>
         <p>开发者微信号：{{ wechatId }}</p>
@@ -14,7 +17,6 @@
       </div>
       <div class="actions">
         <el-button class="main-btn" type="primary" @click="$router.push('/script-optimizer')">返回剧本优化</el-button>
-        <el-button @click="$router.push('/home')">回到首页</el-button>
       </div>
     </el-card>
   </div>
@@ -47,6 +49,11 @@ onMounted(loadRechargeConfig)
 }
 .recharge-card {
   width: min(680px, 100%);
+}
+.top-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 .status-line {
   margin: 10px 0 22px;

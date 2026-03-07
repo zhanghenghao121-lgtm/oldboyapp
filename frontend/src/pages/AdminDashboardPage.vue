@@ -802,7 +802,8 @@ const handleDefaultAvatarUpload = async (event) => {
   try {
     const compressed = await compressImageBeforeUpload(file)
     const res = await uploadToCos(compressed, 'images/avatars')
-    defaultAvatarUrl.value = res.data.url
+    defaultAvatarUrl.value = res?.data?.url || res?.url || ''
+    if (!defaultAvatarUrl.value) throw new Error('上传返回缺少图片地址')
     await updateConsoleConfig('default_avatar_url', { value: defaultAvatarUrl.value })
     ElMessage.success('默认头像上传并保存成功')
   } catch (e) {
@@ -831,8 +832,10 @@ const handleRechargeQrUpload = async (event) => {
       targetMaxBytes: 700 * 1024,
     })
     const res = await uploadToCos(compressed, 'images/recharge', { timeout: 90 * 1000 })
-    rechargeQrUrl.value = res.data.url
-    ElMessage.success('二维码上传成功，请点击保存配置')
+    rechargeQrUrl.value = res?.data?.url || res?.url || ''
+    if (!rechargeQrUrl.value) throw new Error('上传返回缺少二维码地址')
+    await updateConsoleConfig('recharge_qr_url', { value: rechargeQrUrl.value })
+    ElMessage.success('二维码上传并保存成功')
   } catch (e) {
     ElMessage.error(e)
   } finally {

@@ -138,15 +138,8 @@ def split_texts_for_embedding(texts: List[str], max_items: int = 64, max_chars: 
     return batches
 
 
-def embed_texts(texts: List[str]) -> List[List[float]]:
-    api_key = settings.ARK_API_KEY.strip()
-    if not api_key:
-        raise RuntimeError("ARK_API_KEY 未配置")
-    endpoint = (getattr(settings, "ARK_EMBEDDING_ENDPOINT", "/embeddings/multimodal") or "/embeddings/multimodal").strip()
-    if not endpoint.startswith("/"):
-        endpoint = "/" + endpoint
-    url = settings.ARK_EMBEDDING_BASE_URL.rstrip("/") + endpoint
-    payload = {"model": settings.ARK_EMBEDDING_MODEL, "input": texts}
+def _build_embedding_payload(texts: List[str], endpoint: str) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"model": settings.ARK_EMBEDDING_MODEL, "input": texts}
     if "multimodal" in endpoint:
         payload = {
             "model": settings.ARK_EMBEDDING_MODEL,
@@ -157,22 +150,10 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
             "sparse_embedding": {"type": "enabled"},
             "encoding_format": "float",
         }
-    timeout_s = max(int(getattr(settings, "ARK_EMBEDDING_TIMEOUT", 8)), 3)
-    try:
-        resp = requests.post(
-            url,
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=timeout_s,
-        )
-    except requests.RequestException as exc:
-        raise RuntimeError(f"Embedding 请求失败: {exc}")
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Embedding 接口错误({resp.status_code})")
-    try:
-        data = resp.json()
-    except ValueError:
-        raise RuntimeError("Embedding 返回非JSON格式")
+    return payload
+
+
+def _extract_vectors_from_embedding_response(data: Any, expected_count: int) -> List[List[float]]:
     if not isinstance(data, dict):
         raise RuntimeError(f"Embedding 顶层返回结构异常: {type(data).__name__}")
     items = data.get("data") or []
@@ -188,11 +169,9 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
         if isinstance(item, dict):
             normalized.append(item)
             continue
-        # Some providers may return vector list directly.
         if isinstance(item, list) and item and isinstance(item[0], (int, float)):
             normalized.append({"index": idx, "embedding": item})
             continue
-        # Skip unsupported item shape, but don't crash on `.get`.
     items = sorted(normalized, key=lambda x: x.get("index", 0))
     if not items:
         raise RuntimeError(f"Embedding 返回结构不支持: {str(data)[:180]}")
@@ -211,10 +190,69 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
         return None
 
     vectors = [pick_dense_embedding(item) for item in items]
-    vectors = [vec for vec in vectors if vec]
-    if len(vectors) != len(texts):
-        raise RuntimeError(f"Embedding 返回数量异常: got={len(vectors)} expected={len(texts)}")
+    vectors = [vec for vec in vectors if isinstance(vec, list) and vec]
+    if len(vectors) != expected_count:
+        raise RuntimeError(f"Embedding 返回数量异常: got={len(vectors)} expected={expected_count}")
     return vectors
+
+
+def embed_texts(texts: List[str]) -> List[List[float]]:
+    texts = [str(text or "").strip() for text in (texts or [])]
+    texts = [text for text in texts if text]
+    if not texts:
+        return []
+    api_key = settings.ARK_API_KEY.strip()
+    if not api_key:
+        raise RuntimeError("ARK_API_KEY 未配置")
+    endpoint = (getattr(settings, "ARK_EMBEDDING_ENDPOINT", "/embeddings/multimodal") or "/embeddings/multimodal").strip()
+    if not endpoint.startswith("/"):
+        endpoint = "/" + endpoint
+    url = settings.ARK_EMBEDDING_BASE_URL.rstrip("/") + endpoint
+    timeout_s = max(int(getattr(settings, "ARK_EMBEDDING_TIMEOUT", 8)), 3)
+    payload = _build_embedding_payload(texts, endpoint)
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=timeout_s,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Embedding 请求失败: {exc}")
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Embedding 接口错误({resp.status_code})")
+    try:
+        data = resp.json()
+    except ValueError:
+        raise RuntimeError("Embedding 返回非JSON格式")
+    try:
+        return _extract_vectors_from_embedding_response(data, expected_count=len(texts))
+    except RuntimeError as exc:
+        if "返回数量异常" not in str(exc) or len(texts) <= 1:
+            raise
+        logger.warning("Embedding batch size mismatch, fallback to single embedding. detail=%s", exc)
+
+    fallback_vectors: List[List[float]] = []
+    for idx, text in enumerate(texts, start=1):
+        single_payload = _build_embedding_payload([text], endpoint)
+        try:
+            single_resp = requests.post(
+                url,
+                json=single_payload,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                timeout=timeout_s,
+            )
+        except requests.RequestException as single_exc:
+            raise RuntimeError(f"Embedding 单条请求失败(index={idx}): {single_exc}")
+        if single_resp.status_code >= 400:
+            raise RuntimeError(f"Embedding 单条接口错误(index={idx}, status={single_resp.status_code})")
+        try:
+            single_data = single_resp.json()
+        except ValueError:
+            raise RuntimeError(f"Embedding 单条返回非JSON(index={idx})")
+        vectors = _extract_vectors_from_embedding_response(single_data, expected_count=1)
+        fallback_vectors.append(vectors[0])
+    return fallback_vectors
 
 
 def _qdrant_client() -> QdrantClient:

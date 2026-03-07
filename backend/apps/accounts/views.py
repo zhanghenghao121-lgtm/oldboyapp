@@ -50,6 +50,7 @@ def _user_payload(user):
         "avatar_url": user.avatar_url or DEFAULT_AVATAR,
         "signature": user.signature or "",
         "points": float(user.points or 0),
+        "is_member": bool(getattr(user, "is_member", False)),
     }
 
 

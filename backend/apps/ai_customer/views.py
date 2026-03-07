@@ -64,6 +64,14 @@ def bad(message, status=400):
     return Response({"ok": False, "message": message}, status=status)
 
 
+def _member_required_response():
+    return bad("成为会员才可以使用AI章鱼助手", 403)
+
+
+def _require_member(request):
+    return bool(getattr(request.user, "is_member", False))
+
+
 def _consume_user_points(user_id: int, required_points: Decimal, usage_type: str, description: str):
     with transaction.atomic():
         user = User.objects.select_for_update().get(id=user_id)
@@ -145,6 +153,8 @@ def _notify_feishu_if_needed(setting: AICustomerSetting, ticket: HumanHandoverTi
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def chat_history(request):
+    if not _require_member(request):
+        return _member_required_response()
     session_id = request.query_params.get("session_id")
     try:
         sid = int(session_id) if session_id is not None else None
@@ -178,6 +188,8 @@ def chat_history(request):
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def chat_sessions(request):
+    if not _require_member(request):
+        return _member_required_response()
     if request.method == "GET":
         return ok({"active_session_id": get_or_create_active_session(request.user).id, "items": list_sessions(request.user)})
     payload = request.data or {}
@@ -201,6 +213,8 @@ def chat_sessions(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def chat_session_activate(request, session_id: int):
+    if not _require_member(request):
+        return _member_required_response()
     row = activate_session(request.user, session_id)
     if not row:
         return bad("会话不存在", 404)
@@ -210,6 +224,8 @@ def chat_session_activate(request, session_id: int):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def human_replies(request):
+    if not _require_member(request):
+        return _member_required_response()
     qs = HumanHandoverTicket.objects.filter(user=request.user).exclude(admin_reply="")
     clear_state = HumanReplyClearState.objects.filter(user=request.user).only("cleared_at").first()
     if clear_state and clear_state.cleared_at:
@@ -235,6 +251,8 @@ def human_replies(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def clear_human_replies(request):
+    if not _require_member(request):
+        return _member_required_response()
     HumanReplyClearState.objects.update_or_create(
         user=request.user,
         defaults={"cleared_at": timezone.now()},
@@ -245,6 +263,8 @@ def clear_human_replies(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def memory_summary(request):
+    if not _require_member(request):
+        return _member_required_response()
     session = get_or_create_active_session(request.user)
     orchestrator = MemoryOrchestrator()
     ai_session = orchestrator.ensure_ai_session(request.user, session)
@@ -275,6 +295,8 @@ def memory_summary(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def memory_facts(request):
+    if not _require_member(request):
+        return _member_required_response()
     rows = AIUserFact.objects.filter(user=request.user, status=AIUserFact.STATUS_ACTIVE).order_by("-updated_at", "-id")[:50]
     return ok(
         {
@@ -298,6 +320,8 @@ def memory_facts(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def resume_assistant_task_create(request):
+    if not _require_member(request):
+        return _member_required_response()
     payload = request.data or {}
     job_title = str(payload.get("job_title", "")).strip()
     image_urls = payload.get("image_urls") or []
@@ -334,6 +358,8 @@ def resume_assistant_task_create(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def resume_assistant_task_detail(request, task_id: int):
+    if not _require_member(request):
+        return _member_required_response()
     task = ResumeAssistantTask.objects.filter(id=task_id, user=request.user).first()
     if not task:
         return bad("任务不存在", 404)
@@ -346,6 +372,8 @@ def resume_assistant_task_detail(request, task_id: int):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def resume_assistant_generate(request):
+    if not _require_member(request):
+        return _member_required_response()
     payload = request.data or {}
     job_title = str(payload.get("job_title", "")).strip()
     image_urls = payload.get("image_urls") or []
@@ -394,6 +422,8 @@ def chat_stream(request):
     try:
         if not request.user.is_authenticated:
             return _sse_error("请先登录", 401)
+        if not getattr(request.user, "is_member", False):
+            return _sse_error("成为会员才可以使用AI章鱼助手", 403)
 
         if request.method != "POST":
             return _sse_error("Method not allowed", 405)

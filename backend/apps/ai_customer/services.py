@@ -3,6 +3,7 @@ import io
 import json
 import uuid
 import re
+import logging
 import requests
 from decimal import Decimal
 from typing import List, Tuple, Dict, Any, Optional
@@ -12,6 +13,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, PointIdsList
 
 from apps.ai_customer.models import AICustomerSetting
+
+logger = logging.getLogger(__name__)
 
 
 def parse_text_file(file_name: str, raw: bytes) -> str:
@@ -26,7 +29,9 @@ def parse_text_file(file_name: str, raw: bytes) -> str:
 
     if lower.endswith(".jsonl"):
         lines = []
+        invalid_line_numbers = []
         text = raw.decode("utf-8", errors="ignore")
+        tolerant = bool(getattr(settings, "AI_CS_JSONL_TOLERANT", True))
         for idx, row in enumerate(text.splitlines(), start=1):
             row = row.strip()
             if not row:
@@ -34,11 +39,27 @@ def parse_text_file(file_name: str, raw: bytes) -> str:
             try:
                 obj = json.loads(row)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"jsonl第{idx}行格式错误: {exc}")
+                if not tolerant:
+                    raise ValueError(f"jsonl第{idx}行格式错误: {exc}")
+                cleaned = row.replace("\x00", "").strip()
+                if cleaned:
+                    lines.append(cleaned)
+                    invalid_line_numbers.append(idx)
+                continue
             if isinstance(obj, (dict, list)):
                 lines.append(json.dumps(obj, ensure_ascii=False))
             else:
                 lines.append(str(obj))
+        if invalid_line_numbers:
+            preview = ",".join(str(n) for n in invalid_line_numbers[:20])
+            suffix = "..." if len(invalid_line_numbers) > 20 else ""
+            logger.warning(
+                "jsonl parse tolerated %s malformed lines for %s, line(s): %s%s",
+                len(invalid_line_numbers),
+                file_name,
+                preview,
+                suffix,
+            )
         return "\n".join(lines)
 
     if lower.endswith(".csv"):

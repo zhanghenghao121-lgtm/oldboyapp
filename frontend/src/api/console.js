@@ -57,3 +57,6 @@ export const completeAICsKnowledgeUpload = (payload) =>
 export const getAICsTickets = () => http.get('/console/ai-cs/tickets', consoleHeaders())
 export const updateAICsTicket = (ticketId, payload) => http.patch(`/console/ai-cs/tickets/${ticketId}`, payload, consoleHeaders())
 export const syncAICsTicketsToKnowledge = (payload) => http.post('/console/ai-cs/tickets/sync-knowledge', payload, consoleHeaders())
+export const getAIMemoryOverview = (params) => http.get('/console/ai-memory/overview', { ...consoleHeaders(), params })
+export const rebuildAIMemorySummary = (sessionId) => http.post(`/console/ai-memory/summaries/${sessionId}/rebuild`, {}, consoleHeaders())
+export const inactivateAIMemoryFact = (factId) => http.post(`/console/ai-memory/facts/${factId}/inactivate`, {}, consoleHeaders())

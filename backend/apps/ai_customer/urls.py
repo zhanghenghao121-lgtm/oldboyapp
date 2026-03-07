@@ -37,6 +37,9 @@ from apps.ai_customer.admin_views import (
     ai_cs_tickets,
     ai_cs_ticket_update,
     ai_cs_upload_knowledge,
+    ai_memory_admin_overview,
+    ai_memory_fact_inactivate,
+    ai_memory_summary_rebuild,
 )
 
 urlpatterns = [
@@ -73,4 +76,7 @@ urlpatterns = [
     path("console/ai-cs/tickets", ai_cs_tickets),
     path("console/ai-cs/tickets/sync-knowledge", ai_cs_ticket_sync_knowledge),
     path("console/ai-cs/tickets/<int:ticket_id>", ai_cs_ticket_update),
+    path("console/ai-memory/overview", ai_memory_admin_overview),
+    path("console/ai-memory/summaries/<int:session_id>/rebuild", ai_memory_summary_rebuild),
+    path("console/ai-memory/facts/<int:fact_id>/inactivate", ai_memory_fact_inactivate),
 ]

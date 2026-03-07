@@ -18,6 +18,7 @@
         <button class="submenu-btn" :class="{ active: activeModule === 'ai_knowledge' }" @click="activeModule = 'ai_knowledge'">AI知识库</button>
         <button class="submenu-btn" :class="{ active: activeModule === 'ai_customer' }" @click="activeModule = 'ai_customer'">AI客服</button>
         <button class="submenu-btn" :class="{ active: activeModule === 'ai_resume' }" @click="activeModule = 'ai_resume'">简历助手</button>
+        <button class="submenu-btn" :class="{ active: activeModule === 'ai_memory' }" @click="activeModule = 'ai_memory'">记忆管理</button>
       </div>
 
       <button class="side-btn ai-side-btn" :class="{ active: humanMenuOpen || activeModule === 'human_service' }" @click="toggleHumanMenu">
@@ -248,6 +249,53 @@
         </div>
       </section>
 
+      <section v-if="activeModule === 'ai_memory'" class="panel-card">
+        <h4 class="placeholder-title">AI记忆管理</h4>
+        <p class="placeholder-sub">查看近期摘要与长期事实，支持重建摘要与失效事实。</p>
+        <div class="user-filter">
+          <el-input v-model="memoryKeyword" clearable placeholder="按用户名筛选" @keyup.enter="loadMemoryOverview" />
+          <el-button @click="loadMemoryOverview">查询</el-button>
+        </div>
+        <el-divider />
+        <h5 class="memory-subtitle">近期摘要</h5>
+        <el-table :data="memorySummaries" style="width: 100%" stripe>
+          <el-table-column prop="username" label="用户" width="110" />
+          <el-table-column prop="session_id" label="会话ID" width="90" />
+          <el-table-column prop="task_stage" label="阶段" width="120" />
+          <el-table-column prop="current_goal" label="当前目标" min-width="180" />
+          <el-table-column label="近期决策" min-width="220">
+            <template #default="scope">{{ (scope.row.recent_decisions || []).join('；') || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="next_action" label="下一步" min-width="180" />
+          <el-table-column label="操作" width="110">
+            <template #default="scope">
+              <el-button link type="primary" :loading="rebuildingSummaryId === scope.row.session_id" @click="rebuildMemorySummary(scope.row)">
+                {{ rebuildingSummaryId === scope.row.session_id ? '重建中...' : '重建摘要' }}
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-divider />
+        <h5 class="memory-subtitle">长期事实</h5>
+        <el-table :data="memoryFacts" style="width: 100%" stripe>
+          <el-table-column prop="username" label="用户" width="110" />
+          <el-table-column prop="fact_key" label="键" width="160" />
+          <el-table-column prop="fact_value" label="值" min-width="220" />
+          <el-table-column prop="fact_type" label="类型" width="120" />
+          <el-table-column prop="confidence" label="置信度" width="100">
+            <template #default="scope">{{ Number(scope.row.confidence || 0).toFixed(2) }}</template>
+          </el-table-column>
+          <el-table-column prop="status" label="状态" width="90" />
+          <el-table-column label="操作" width="100">
+            <template #default="scope">
+              <el-button link type="warning" :disabled="scope.row.status !== 'active' || inactivatingFactId === scope.row.id" @click="inactivateMemoryFact(scope.row)">
+                {{ inactivatingFactId === scope.row.id ? '处理中...' : '失效' }}
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </section>
+
       <section v-if="activeModule === 'ai_knowledge'" class="panel-card">
         <h4 class="placeholder-title">AI知识库上传向量化</h4>
         <p class="placeholder-sub">支持 json / jsonl / csv / xlsx / txt / md（最大100MB），支持分片上传、进度展示和断点续传。</p>
@@ -395,10 +443,13 @@ import {
   deleteAICsDoc,
   getAICsSettings,
   getAICsTickets,
+  getAIMemoryOverview,
   getConsoleConfigs,
   consoleLogout,
   consoleMe,
   getConsoleUsers,
+  inactivateAIMemoryFact,
+  rebuildAIMemorySummary,
   syncAICsTicketsToKnowledge,
   updateAICsSettings,
   updateAICsTicket,
@@ -423,6 +474,7 @@ const moduleTitle = computed(() => {
   if (activeModule.value === 'ai_knowledge') return 'AI知识库'
   if (activeModule.value === 'ai_customer') return 'AI客服'
   if (activeModule.value === 'ai_resume') return '简历助手'
+  if (activeModule.value === 'ai_memory') return '记忆管理'
   return '人工客服'
 })
 
@@ -476,6 +528,11 @@ const replying = ref(false)
 const replyTarget = reactive({ id: null, question: '' })
 const selectedTicketIds = ref([])
 const syncingKnowledge = ref(false)
+const memoryKeyword = ref('')
+const memorySummaries = ref([])
+const memoryFacts = ref([])
+const rebuildingSummaryId = ref(null)
+const inactivatingFactId = ref(null)
 const splitInputRef = ref(null)
 const splitTask = reactive({
   file: null,
@@ -1030,6 +1087,46 @@ const loadAiCsTickets = async () => {
   }
 }
 
+const loadMemoryOverview = async () => {
+  try {
+    const res = await getAIMemoryOverview({ keyword: memoryKeyword.value })
+    memorySummaries.value = res.data.summaries || []
+    memoryFacts.value = res.data.facts || []
+  } catch (e) {
+    ElMessage.error(e)
+  }
+}
+
+const rebuildMemorySummary = async (row) => {
+  const sessionId = Number(row?.session_id || 0)
+  if (!sessionId) return
+  rebuildingSummaryId.value = sessionId
+  try {
+    await rebuildAIMemorySummary(sessionId)
+    ElMessage.success('摘要已重建')
+    await loadMemoryOverview()
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    rebuildingSummaryId.value = null
+  }
+}
+
+const inactivateMemoryFact = async (row) => {
+  const factId = Number(row?.id || 0)
+  if (!factId) return
+  inactivatingFactId.value = factId
+  try {
+    await inactivateAIMemoryFact(factId)
+    ElMessage.success('事实已失效')
+    await loadMemoryOverview()
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    inactivatingFactId.value = null
+  }
+}
+
 const onTicketSelectionChange = (rows) => {
   selectedTicketIds.value = (rows || []).map((item) => item.id)
 }
@@ -1141,6 +1238,7 @@ onMounted(async () => {
     loadAiCsSettings(),
     loadAiCsDocs(),
     loadAiCsTickets(),
+    loadMemoryOverview(),
   ])
 })
 
@@ -1150,6 +1248,9 @@ watch(
     if (next === 'ai_knowledge') {
       await startKnowledgePolling()
       return
+    }
+    if (next === 'ai_memory') {
+      await loadMemoryOverview()
     }
     stopKnowledgePolling()
   },
@@ -1340,6 +1441,10 @@ onBeforeUnmount(() => {
 .pager-wrap { margin-top: 14px; display: flex; justify-content: flex-end; }
 .placeholder-title { margin: 0; }
 .placeholder-sub { margin-top: 8px; color: #b2c4e8; }
+.memory-subtitle {
+  margin: 0 0 12px;
+  color: #e6f2ff;
+}
 .kb-upload-row {
   display: grid;
   grid-template-columns: 1fr auto;

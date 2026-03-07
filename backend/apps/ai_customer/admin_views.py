@@ -23,6 +23,11 @@ from apps.ai_customer.models import (
 )
 from apps.ai_customer.services import embed_texts, upsert_chunks, split_texts_for_embedding, delete_vector_ids
 from apps.ai_customer.knowledge_tasks import dispatch_knowledge_vectorize
+from apps.ai_customer.memory_services import get_recent_messages
+from apps.ai_customer.models import ChatSession
+from apps.ai_memory.models import AIConversationSummary, AIUserFact
+from apps.ai_memory.services.summary_memory import SummaryMemoryService
+from apps.ai_memory.services.memory_orchestrator import MemoryOrchestrator
 from apps.console.permissions import IsConsoleAdmin
 
 logger = logging.getLogger(__name__)
@@ -666,3 +671,94 @@ def ai_cs_ticket_sync_knowledge(request):
         doc.error_message = str(exc)[:255]
         doc.save(update_fields=["status", "error_message", "updated_at"])
         return bad(f"入库失败：{exc}", 500)
+
+
+@api_view(["GET"])
+@permission_classes([IsConsoleAdmin])
+def ai_memory_admin_overview(request):
+    keyword = str(request.query_params.get("keyword", "")).strip()
+    summary_qs = AIConversationSummary.objects.select_related("user", "session").order_by("-updated_at", "-id")
+    fact_qs = AIUserFact.objects.select_related("user").order_by("-updated_at", "-id")
+    if keyword:
+        summary_qs = summary_qs.filter(user__username__icontains=keyword)
+        fact_qs = fact_qs.filter(user__username__icontains=keyword)
+    summaries = summary_qs[:60]
+    facts = fact_qs[:80]
+    return ok(
+        {
+            "summaries": [
+                {
+                    "id": row.id,
+                    "user_id": row.user_id,
+                    "username": row.user.username,
+                    "session_id": row.session_id,
+                    "task_stage": row.task_stage,
+                    "current_goal": row.current_goal,
+                    "recent_decisions": row.recent_decisions or [],
+                    "open_questions": row.open_questions or [],
+                    "important_entities": row.important_entities or [],
+                    "next_action": row.next_action,
+                    "version": row.version,
+                    "is_active": row.is_active,
+                    "updated_at": row.updated_at,
+                }
+                for row in summaries
+            ],
+            "facts": [
+                {
+                    "id": row.id,
+                    "user_id": row.user_id,
+                    "username": row.user.username,
+                    "fact_key": row.fact_key,
+                    "fact_value": row.fact_value,
+                    "fact_type": row.fact_type,
+                    "confidence": float(row.confidence or 0),
+                    "source": row.source,
+                    "status": row.status,
+                    "version": row.version,
+                    "updated_at": row.updated_at,
+                }
+                for row in facts
+            ],
+        }
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsConsoleAdmin])
+@csrf_exempt
+def ai_memory_summary_rebuild(request, session_id: int):
+    chat_session = ChatSession.objects.filter(id=session_id).first()
+    if not chat_session:
+        return bad("会话不存在", 404)
+    orchestrator = MemoryOrchestrator()
+    ai_session = orchestrator.ensure_ai_session(chat_session.user, chat_session)
+    recent_messages = get_recent_messages(chat_session, limit=max(int(getattr(settings, "AI_MEMORY_SUMMARY_WINDOW", 16)), 4))
+    if not recent_messages:
+        return bad("最近对话为空，无法重建摘要")
+    service = SummaryMemoryService()
+    row = service.force_update_summary(ai_session, recent_messages)
+    return ok(
+        {
+            "id": row.id,
+            "session_id": row.session_id,
+            "task_stage": row.task_stage,
+            "current_goal": row.current_goal,
+            "version": row.version,
+            "updated_at": row.updated_at,
+        }
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsConsoleAdmin])
+@csrf_exempt
+def ai_memory_fact_inactivate(request, fact_id: int):
+    row = AIUserFact.objects.filter(id=fact_id).first()
+    if not row:
+        return bad("事实不存在", 404)
+    if row.status != AIUserFact.STATUS_ACTIVE:
+        return bad("该事实已失效")
+    row.status = AIUserFact.STATUS_INACTIVE
+    row.save(update_fields=["status", "updated_at"])
+    return ok({"id": row.id, "status": row.status})

@@ -1,4 +1,8 @@
+import json
+import re
 from typing import Dict, List
+
+import requests
 
 from django.conf import settings
 
@@ -64,6 +68,90 @@ class SummaryMemoryService:
         )
 
     def _build_summary_payload(self, messages: List[Dict[str, str]]) -> Dict:
+        llm_payload = self._build_summary_payload_with_llm(messages)
+        if llm_payload:
+            return llm_payload
+        return self._build_summary_payload_with_rules(messages)
+
+    def _build_summary_payload_with_llm(self, messages: List[Dict[str, str]]) -> Dict:
+        api_key = (getattr(settings, "AI_CS_LLM_API_KEY", "") or "").strip()
+        base_url = (getattr(settings, "AI_CS_LLM_BASE_URL", "") or "").strip().rstrip("/")
+        model = (getattr(settings, "AI_CS_LLM_MODEL", "") or "").strip()
+        if not api_key or not base_url or not model:
+            return {}
+
+        dialogue_lines = []
+        for item in messages[-max(self.trigger_rounds * 2, 8):]:
+            role = "用户" if item.get("role") == "user" else "助手"
+            content = str(item.get("content", "")).strip()
+            if content:
+                dialogue_lines.append(f"{role}: {content}")
+        if not dialogue_lines:
+            return {}
+
+        prompt = (
+            "请基于最近对话生成结构化近期摘要，只输出 JSON，不要输出 markdown。\n"
+            "字段必须包含：current_goal, recent_decisions, open_questions, important_entities, task_stage, next_action。\n"
+            "其中 recent_decisions/open_questions/important_entities 必须是数组。\n"
+            "对话如下：\n"
+            + "\n".join(dialogue_lines[-20:])
+        )
+        payload = {
+            "model": model,
+            "stream": False,
+            "temperature": 0.2,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是对话记忆压缩助手。"
+                        "只输出合法 JSON，内容必须简洁、可承接后续任务。"
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+        }
+        try:
+            resp = requests.post(
+                f"{base_url}/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                timeout=max(int(getattr(settings, "AI_MEMORY_SUMMARY_TIMEOUT", 45)), 10),
+            )
+            if resp.status_code >= 400:
+                return {}
+            body = resp.json()
+            content = str((((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "")).strip()
+            return self._parse_summary_json(content)
+        except Exception:
+            return {}
+
+    def _parse_summary_json(self, content: str) -> Dict:
+        text = (content or "").strip()
+        if not text:
+            return {}
+        try:
+            data = json.loads(text)
+        except Exception:
+            match = re.search(r"\{[\s\S]*\}", text)
+            if not match:
+                return {}
+            try:
+                data = json.loads(match.group(0))
+            except Exception:
+                return {}
+        if not isinstance(data, dict):
+            return {}
+        return {
+            "task_stage": str(data.get("task_stage", "")).strip()[:64],
+            "current_goal": str(data.get("current_goal", "")).strip()[:500],
+            "recent_decisions": [str(x).strip()[:240] for x in (data.get("recent_decisions") or []) if str(x).strip()][:5],
+            "open_questions": [str(x).strip()[:240] for x in (data.get("open_questions") or []) if str(x).strip()][:5],
+            "important_entities": [str(x).strip()[:120] for x in (data.get("important_entities") or []) if str(x).strip()][:8],
+            "next_action": str(data.get("next_action", "")).strip()[:500],
+        }
+
+    def _build_summary_payload_with_rules(self, messages: List[Dict[str, str]]) -> Dict:
         user_msgs = [str(m.get("content", "")).strip() for m in messages if m.get("role") == "user"]
         assistant_msgs = [str(m.get("content", "")).strip() for m in messages if m.get("role") == "assistant"]
         current_goal = user_msgs[-1][:200] if user_msgs else ""
@@ -82,4 +170,3 @@ class SummaryMemoryService:
             "important_entities": entities[:8],
             "next_action": "继续处理当前用户需求并给出可执行结果",
         }
-

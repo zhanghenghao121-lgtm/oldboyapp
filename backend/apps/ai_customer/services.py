@@ -413,9 +413,37 @@ def _qdrant_client() -> QdrantClient:
     return QdrantClient(url=url, api_key=key or None, timeout=30)
 
 
+def _safe_collection_suffix(text: str) -> str:
+    value = re.sub(r"[^a-zA-Z0-9_]+", "_", str(text or "").strip().lower()).strip("_")
+    return value[:48] if value else "default"
+
+
+def _qdrant_collection_name() -> str:
+    base = (settings.QDRANT_COLLECTION or "oldboy_ai_customer").strip()
+    if not getattr(settings, "QDRANT_COLLECTION_BY_MODEL", True):
+        return base
+    provider = (getattr(settings, "EMBEDDING_PROVIDER", "zhipu") or "zhipu").strip().lower()
+    model = (
+        getattr(settings, "ZHIPU_EMBEDDING_MODEL", "")
+        if provider == "zhipu"
+        else getattr(settings, "ARK_EMBEDDING_MODEL", "")
+    )
+    suffix = f"{_safe_collection_suffix(provider)}_{_safe_collection_suffix(model)}"
+    return f"{base}_{suffix}"[:180]
+
+
+def _qdrant_collection_candidates() -> List[str]:
+    names = [_qdrant_collection_name(), (settings.QDRANT_COLLECTION or "").strip()]
+    out: List[str] = []
+    for name in names:
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 def ensure_collection(vector_size: int):
     client = _qdrant_client()
-    collection = settings.QDRANT_COLLECTION
+    collection = _qdrant_collection_name()
     exists = client.collection_exists(collection)
     if exists:
         return
@@ -430,7 +458,7 @@ def upsert_chunks(document_id: int, chunks: List[str], vectors: List[List[float]
         return []
     ensure_collection(len(vectors[0]))
     client = _qdrant_client()
-    collection = settings.QDRANT_COLLECTION
+    collection = _qdrant_collection_name()
     points = []
     vector_ids = []
     for idx, (text, vec) in enumerate(zip(chunks, vectors)):
@@ -452,10 +480,19 @@ def delete_vector_ids(vector_ids: List[str]):
     if not ids:
         return
     client = _qdrant_client()
-    client.delete(
-        collection_name=settings.QDRANT_COLLECTION,
-        points_selector=PointIdsList(points=ids),
-    )
+    last_error = None
+    for collection_name in _qdrant_collection_candidates():
+        try:
+            client.delete(
+                collection_name=collection_name,
+                points_selector=PointIdsList(points=ids),
+            )
+            return
+        except Exception as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise last_error
 
 
 def search_context(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
@@ -468,7 +505,7 @@ def search_context(query: str, top_k: int = 5) -> List[Tuple[str, float]]:
     query_vec = vectors[0]
     client = _qdrant_client()
     result = client.search(
-        collection_name=settings.QDRANT_COLLECTION,
+        collection_name=_qdrant_collection_name(),
         query_vector=query_vec,
         limit=max(top_k, 1),
         with_payload=True,

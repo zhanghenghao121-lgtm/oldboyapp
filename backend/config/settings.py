@@ -178,8 +178,8 @@ DEEPSEEK_MODEL = env("DEEPSEEK_MODEL", default="deepseek-reasoner")
 
 ARK_API_KEY = env("ARK_API_KEY", default=env("RK_API_KEY", default=""))
 ARK_EMBEDDING_BASE_URL = env("ARK_EMBEDDING_BASE_URL", default="https://ark.cn-beijing.volces.com/api/v3")
-ARK_EMBEDDING_MODEL = env("ARK_EMBEDDING_MODEL", default="doubao-embedding-vision-251215")
-ARK_EMBEDDING_ENDPOINT = env("ARK_EMBEDDING_ENDPOINT", default="/embeddings/multimodal")
+ARK_EMBEDDING_MODEL = env("ARK_EMBEDDING_MODEL", default="doubao-embedding-text-240715")
+ARK_EMBEDDING_ENDPOINT = env("ARK_EMBEDDING_ENDPOINT", default="/embeddings")
 ARK_EMBEDDING_DIMENSIONS = env.int("ARK_EMBEDDING_DIMENSIONS", default=1024)
 ARK_EMBEDDING_INSTRUCTIONS = env(
     "ARK_EMBEDDING_INSTRUCTIONS",

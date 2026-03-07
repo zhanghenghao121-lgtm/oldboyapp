@@ -139,7 +139,11 @@ def split_texts_for_embedding(texts: List[str], max_items: int = 64, max_chars: 
 
 
 def _build_embedding_payload(texts: List[str], endpoint: str) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {"model": settings.ARK_EMBEDDING_MODEL, "input": texts}
+    payload: Dict[str, Any] = {
+        "model": settings.ARK_EMBEDDING_MODEL,
+        "input": texts,
+        "encoding_format": "float",
+    }
     if "multimodal" in endpoint:
         payload = {
             "model": settings.ARK_EMBEDDING_MODEL,
@@ -204,7 +208,7 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     api_key = settings.ARK_API_KEY.strip()
     if not api_key:
         raise RuntimeError("ARK_API_KEY 未配置")
-    endpoint = (getattr(settings, "ARK_EMBEDDING_ENDPOINT", "/embeddings/multimodal") or "/embeddings/multimodal").strip()
+    endpoint = (getattr(settings, "ARK_EMBEDDING_ENDPOINT", "/embeddings") or "/embeddings").strip()
     if not endpoint.startswith("/"):
         endpoint = "/" + endpoint
     url = settings.ARK_EMBEDDING_BASE_URL.rstrip("/") + endpoint

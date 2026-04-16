@@ -11,18 +11,10 @@ class User(AbstractUser):
 
 
 class PointsUsageLog(models.Model):
-    TYPE_SCRIPT_STORYBOARD = "script_storyboard"
-    TYPE_PARAGRAPH_STORYBOARD = "paragraph_storyboard"
     TYPE_RESUME_ASSISTANT = "resume_assistant"
-    TYPE_AI_BLOGGER_POST = "ai_blogger_post"
-    TYPE_AI_BLOGGER_VIDEO = "ai_blogger_video"
     TYPE_REFUND = "refund"
     TYPE_CHOICES = (
-        (TYPE_SCRIPT_STORYBOARD, "剧本分镜消耗"),
-        (TYPE_PARAGRAPH_STORYBOARD, "段落分镜消耗"),
         (TYPE_RESUME_ASSISTANT, "简历助手消耗"),
-        (TYPE_AI_BLOGGER_POST, "章鱼博主图文生成"),
-        (TYPE_AI_BLOGGER_VIDEO, "章鱼博主视频生成"),
         (TYPE_REFUND, "失败退款"),
     )
 

@@ -23,7 +23,6 @@
 3. `docker compose --env-file env.prod exec -T backend python manage.py migrate`
 4. 健康检查：
    - `https://www.oldboyai.com/api/v1/healthz`
-   - `https://www.oldboyai.com/api/v1/script-optimizer/ping`
 
 ## 失败时自动回传内容
 由工作流在服务器执行并收集：

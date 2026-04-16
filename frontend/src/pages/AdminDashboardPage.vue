@@ -9,7 +9,6 @@
       <button class="side-btn" :class="{ active: activeModule === 'stats' }" @click="activeModule = 'stats'">信息统计</button>
       <button class="side-btn" :class="{ active: activeModule === 'page' }" @click="activeModule = 'page'">页面管理</button>
       <button class="side-btn" :class="{ active: activeModule === 'users' }" @click="activeModule = 'users'">用户信息</button>
-      <button class="side-btn" :class="{ active: activeModule === 'script' }" @click="activeModule = 'script'">剧本优化</button>
       <button class="side-btn ai-side-btn" :class="{ active: aiMenuOpen }" @click="toggleAiMenu">
         <span>AI配置</span>
         <span class="submenu-arrow">{{ aiMenuOpen ? '▾' : '▸' }}</span>
@@ -162,20 +161,6 @@
             @current-change="loadUsers"
           />
         </div>
-      </section>
-
-      <section v-if="activeModule === 'script'" class="panel-card">
-        <h4 class="placeholder-title">剧本优化默认提示词</h4>
-        <p class="placeholder-sub">修改后会同步到网站剧本优化页面输入框默认内容。</p>
-        <el-form label-width="130px" class="mt-3">
-          <el-form-item label="剧本分镜提示词">
-            <el-input v-model="scriptStoryboardPrompt" type="textarea" :rows="4" />
-          </el-form-item>
-          <el-form-item label="段落分镜提示词">
-            <el-input v-model="scriptParagraphPrompt" type="textarea" :rows="4" />
-          </el-form-item>
-        </el-form>
-        <el-button type="primary" class="main-btn" :loading="savingPrompts" @click="saveScriptPrompts">保存设置</el-button>
       </section>
 
       <section v-if="activeModule === 'tool_file_split'" class="panel-card">
@@ -477,7 +462,6 @@ const moduleTitle = computed(() => {
   if (activeModule.value === 'stats') return '信息统计'
   if (activeModule.value === 'page') return '页面管理'
   if (activeModule.value === 'users') return '用户信息'
-  if (activeModule.value === 'script') return '剧本优化'
   if (activeModule.value === 'tool_file_split') return '大文件切片'
   if (activeModule.value === 'ai_knowledge') return 'AI知识库'
   if (activeModule.value === 'ai_customer') return 'AI客服'
@@ -497,10 +481,6 @@ const rechargeWechatId = ref('')
 const rechargeQrUrl = ref('')
 const rechargeQrUploading = ref(false)
 const savingRechargeConfig = ref(false)
-const scriptStoryboardPrompt = ref('')
-const scriptParagraphPrompt = ref('')
-const savingPrompts = ref(false)
-
 const editVisible = ref(false)
 const editForm = reactive({ id: null, username: '', email: '', points: 0, is_member: false, is_active: true })
 
@@ -724,8 +704,6 @@ const loadConfigs = async () => {
   defaultAvatarUrl.value = map.default_avatar_url || '/octopus-avatar.svg'
   rechargeWechatId.value = map.recharge_wechat_id || 'Dsdfcc2000'
   rechargeQrUrl.value = map.recharge_qr_url || ''
-  scriptStoryboardPrompt.value = map.storyboard_default_prompt || ''
-  scriptParagraphPrompt.value = map.paragraph_default_prompt || ''
 }
 
 const saveDefaultAvatar = async () => {
@@ -861,19 +839,6 @@ const saveRechargeConfig = async () => {
     ElMessage.error(e)
   } finally {
     savingRechargeConfig.value = false
-  }
-}
-
-const saveScriptPrompts = async () => {
-  savingPrompts.value = true
-  try {
-    await updateConsoleConfig('storyboard_default_prompt', { value: scriptStoryboardPrompt.value || '' })
-    await updateConsoleConfig('paragraph_default_prompt', { value: scriptParagraphPrompt.value || '' })
-    ElMessage.success('默认提示词已保存')
-  } catch (e) {
-    ElMessage.error(e)
-  } finally {
-    savingPrompts.value = false
   }
 }
 

@@ -16,7 +16,7 @@
         <img :src="qrUrl" alt="微信二维码" class="qr-image" />
       </div>
       <div class="actions">
-        <el-button class="main-btn" type="primary" @click="$router.push('/script-optimizer')">返回剧本优化</el-button>
+        <el-button class="main-btn" type="primary" @click="$router.push('/home')">返回首页</el-button>
       </div>
     </el-card>
   </div>

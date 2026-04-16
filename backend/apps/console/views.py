@@ -48,8 +48,6 @@ def _safe_int(raw, default, minimum=None, maximum=None):
 def _config_defaults():
     return {
         SiteConfig.KEY_DEFAULT_AVATAR: getattr(settings, "DEFAULT_AVATAR_URL", "/octopus-avatar.svg") or "/octopus-avatar.svg",
-        SiteConfig.KEY_STORYBOARD_PROMPT: "将输入的剧本生成分镜提示词，模板是分镜号、分镜画面、景别、特效。",
-        SiteConfig.KEY_PARAGRAPH_PROMPT: "将输入的剧本按照**秒～**秒的格式，生成15s以内的分镜提示词。",
         SiteConfig.KEY_RECHARGE_WECHAT: "Dsdfcc2000",
         SiteConfig.KEY_RECHARGE_QR_URL: "",
     }
@@ -115,12 +113,6 @@ def public_backgrounds(request):
     data = {"_version": int(config_latest.timestamp()) if config_latest else 0}
     data["default_avatar"] = (
         configs.get(SiteConfig.KEY_DEFAULT_AVATAR) or _config_defaults()[SiteConfig.KEY_DEFAULT_AVATAR]
-    )
-    data["script_storyboard_prompt"] = configs.get(
-        SiteConfig.KEY_STORYBOARD_PROMPT, _config_defaults()[SiteConfig.KEY_STORYBOARD_PROMPT]
-    )
-    data["script_paragraph_prompt"] = configs.get(
-        SiteConfig.KEY_PARAGRAPH_PROMPT, _config_defaults()[SiteConfig.KEY_PARAGRAPH_PROMPT]
     )
     data["recharge_wechat_id"] = configs.get(
         SiteConfig.KEY_RECHARGE_WECHAT, _config_defaults()[SiteConfig.KEY_RECHARGE_WECHAT]

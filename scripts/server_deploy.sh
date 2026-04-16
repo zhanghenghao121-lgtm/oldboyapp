@@ -46,18 +46,4 @@ if [[ "$ok" -ne 1 ]]; then
   exit 22
 fi
 
-ok=0
-for i in {1..20}; do
-  if health_check "/api/v1/script-optimizer/ping" "/tmp/oldboyapp_script_optimizer_ping.json"; then
-    ok=1
-    break
-  fi
-  sleep 3
-done
-
-if [[ "$ok" -ne 1 ]]; then
-  echo "script-optimizer ping failed after retries" >&2
-  exit 23
-fi
-
 echo "Deploy success"

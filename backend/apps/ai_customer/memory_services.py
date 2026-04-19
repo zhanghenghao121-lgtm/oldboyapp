@@ -1,13 +1,15 @@
 import re
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
 import requests
 from django.conf import settings
 from django.db import close_old_connections
+from django.db.models import Max, Q
+from django.utils import timezone
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
@@ -25,6 +27,29 @@ from apps.ai_memory.services import MemoryOrchestrator
 
 def _memory_enabled() -> bool:
     return bool(getattr(settings, "AI_MEMORY_ENABLED", True))
+
+
+def _chat_retention_days() -> int:
+    return max(int(getattr(settings, "AI_CS_HISTORY_RETENTION_DAYS", 7)), 1)
+
+
+def _recent_cutoff(days: Optional[int] = None):
+    window_days = max(int(days or _chat_retention_days()), 1)
+    return timezone.now() - timedelta(days=window_days)
+
+
+def prune_expired_chat_records(user):
+    cutoff = _recent_cutoff()
+    ChatMessage.objects.filter(user=user, created_at__lt=cutoff).delete()
+    stale_sessions = (
+        ChatSession.objects.filter(user=user)
+        .annotate(latest_message_at=Max("messages__created_at"))
+        .filter(
+            Q(latest_message_at__lt=cutoff)
+            | (Q(latest_message_at__isnull=True) & Q(created_at__lt=cutoff))
+        )
+    )
+    stale_sessions.delete()
 
 
 def get_or_create_active_session(user) -> ChatSession:
@@ -45,8 +70,14 @@ def get_session_for_user(user, session_id: Optional[int]) -> ChatSession:
     return get_or_create_active_session(user)
 
 
-def list_sessions(user, limit: int = 30) -> List[Dict]:
-    rows = ChatSession.objects.filter(user=user).order_by("-updated_at", "-id")[: max(int(limit or 1), 1)]
+def list_sessions(user, limit: int = 30, days: Optional[int] = None) -> List[Dict]:
+    cutoff = _recent_cutoff(days)
+    rows = (
+        ChatSession.objects.filter(user=user)
+        .annotate(latest_message_at=Max("messages__created_at"))
+        .filter(Q(latest_message_at__gte=cutoff) | Q(created_at__gte=cutoff))
+        .order_by("-latest_message_at", "-updated_at", "-id")[: max(int(limit or 1), 1)]
+    )
     return [
         {
             "id": row.id,
@@ -54,6 +85,7 @@ def list_sessions(user, limit: int = 30) -> List[Dict]:
             "scene_type": row.scene_type,
             "summary": row.summary,
             "is_active": row.is_active,
+            "last_message_at": row.latest_message_at,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
         }

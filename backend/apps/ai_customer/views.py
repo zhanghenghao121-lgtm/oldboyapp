@@ -1,6 +1,7 @@
 import json
 import logging
 import requests
+from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.http import StreamingHttpResponse
@@ -22,6 +23,7 @@ from apps.ai_customer.memory_services import (
     get_memory_prompt_parts,
     get_or_create_active_session,
     get_recent_messages,
+    prune_expired_chat_records,
     get_session_for_user,
     list_sessions,
     maybe_update_session_title,
@@ -50,6 +52,14 @@ def ok(data=None):
 
 def bad(message, status=400):
     return Response({"ok": False, "message": message}, status=status)
+
+
+def _parse_window_days(raw, default=3, minimum=1, maximum=7):
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = default
+    return max(min(value, maximum), minimum)
 
 
 def _member_required_response():
@@ -91,13 +101,19 @@ def _notify_feishu_if_needed(setting: AICustomerSetting, ticket: HumanHandoverTi
 def chat_history(request):
     if not _require_member(request):
         return _member_required_response()
+    prune_expired_chat_records(request.user)
     session_id = request.query_params.get("session_id")
+    window_days = _parse_window_days(request.query_params.get("window_days"), default=3)
     try:
         sid = int(session_id) if session_id is not None else None
     except (TypeError, ValueError):
         sid = None
     session = get_session_for_user(request.user, sid)
-    rows = ChatMessage.objects.filter(user=request.user, session=session).order_by("-id")[:30]
+    cutoff = timezone.now() - timedelta(days=window_days)
+    rows = (
+        ChatMessage.objects.filter(user=request.user, session=session, created_at__gte=cutoff)
+        .order_by("-id")[:100]
+    )
     items = [
         {
             "id": row.id,
@@ -115,7 +131,8 @@ def chat_history(request):
             "enabled": setting.enabled,
             "no_answer_text": setting.no_answer_text,
             "active_session_id": session.id,
-            "sessions": list_sessions(request.user),
+            "window_days": window_days,
+            "sessions": list_sessions(request.user, days=7),
             "messages": items,
         }
     )
@@ -126,8 +143,9 @@ def chat_history(request):
 def chat_sessions(request):
     if not _require_member(request):
         return _member_required_response()
+    prune_expired_chat_records(request.user)
     if request.method == "GET":
-        return ok({"active_session_id": get_or_create_active_session(request.user).id, "items": list_sessions(request.user)})
+        return ok({"active_session_id": get_or_create_active_session(request.user).id, "items": list_sessions(request.user, days=7)})
     payload = request.data or {}
     title = str(payload.get("title", "")).strip()
     scene_type = str(payload.get("scene_type", "general")).strip() or "general"
@@ -259,6 +277,7 @@ def chat_stream(request):
             return _sse_error("请先登录", 401)
         if not getattr(request.user, "is_member", False):
             return _sse_error("成为会员才可以使用AI章鱼助手", 403)
+        prune_expired_chat_records(request.user)
 
         if request.method != "POST":
             return _sse_error("Method not allowed", 405)
@@ -294,6 +313,7 @@ def chat_stream(request):
             content=message,
             attachments=attachments,
         )
+        session.save(update_fields=["updated_at"])
 
         image_mode = has_image_generation_intent(message)
         llm_messages = []
@@ -339,6 +359,7 @@ def chat_stream(request):
                     content=final_text,
                     attachments=[image_attachment],
                 )
+                session.save(update_fields=["updated_at"])
                 schedule_memory_update(request.user.id, session.id, message, final_text)
                 yield "data: " + json.dumps(
                     {
@@ -378,6 +399,7 @@ def chat_stream(request):
                 content=full,
                 attachments=[],
             )
+            session.save(update_fields=["updated_at"])
             schedule_memory_update(request.user.id, session.id, message, full)
 
             if handover:

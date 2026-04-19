@@ -7,6 +7,7 @@
           <p>全知全能的君王</p>
         </div>
         <div class="head-actions">
+          <el-button class="neon-btn" @click="openHistoryDialog">历史记录</el-button>
           <el-button class="neon-btn reply-btn" @click="openRepliesDialog">
             人工回复
             <span v-if="unreadReplyCount > 0" class="reply-count">{{ unreadReplyCount }}</span>
@@ -14,6 +15,8 @@
           <el-button class="neon-btn" @click="$router.push('/home')">返回首页</el-button>
         </div>
       </header>
+
+      <p class="history-tip">当前聊天窗口仅展示近 3 天记录，可在“历史记录”中查看近 7 天会话。</p>
 
       <div class="chat-window" ref="chatWindowRef">
         <div v-for="item in messages" :key="item.id || item.localId" class="msg" :class="item.role">
@@ -82,6 +85,54 @@
         </div>
       </div>
     </el-dialog>
+
+    <el-dialog v-model="historyDialogVisible" title="历史聊天记录" width="760px">
+      <div v-loading="historyLoading">
+        <div v-if="!historySessions.length" class="replies-empty">近 7 天暂无历史会话</div>
+        <div v-else class="history-list">
+          <button
+            v-for="item in historySessions"
+            :key="item.id"
+            type="button"
+            class="history-item"
+            @click="openHistoryDetail(item)"
+          >
+            <div>
+              <p class="history-item-title">{{ item.title || '新的对话' }}</p>
+              <p class="history-item-time">{{ formatSessionTime(item.last_message_at || item.updated_at || item.created_at) }}</p>
+            </div>
+            <span class="history-item-arrow">查看</span>
+          </button>
+        </div>
+      </div>
+    </el-dialog>
+
+    <el-dialog v-model="historyDetailVisible" :title="historyDetailTitle" width="760px">
+      <div v-loading="historyDetailLoading" class="history-detail">
+        <div v-if="!historyMessages.length" class="replies-empty">该会话近 7 天内暂无可查看消息</div>
+        <div v-else class="history-detail-list">
+          <div v-for="item in historyMessages" :key="item.id || item.localId" class="msg" :class="item.role">
+            <el-avatar v-if="item.role === 'assistant'" class="msg-avatar" :size="34" :src="aiAvatar" />
+            <div class="bubble">
+              <p>{{ item.content }}</p>
+              <div v-if="item.attachments?.length" class="attach-list">
+                <template v-for="(f, idx) in item.attachments" :key="idx">
+                  <img
+                    v-if="isImageAttachment(f)"
+                    class="attach-image"
+                    :src="f.url"
+                    :alt="f.name || 'history-image'"
+                  />
+                  <a v-else :href="f.url" target="_blank" rel="noreferrer">{{ f.name || f.url }}</a>
+                </template>
+              </div>
+              <p class="history-detail-time">{{ formatDate(item.created_at) }}</p>
+            </div>
+            <el-avatar v-if="item.role === 'user'" class="msg-avatar" :size="34" :src="userAvatarSrc" @error="handleUserAvatarError" />
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -89,7 +140,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { clearAiCustomerHumanReplies, getAiCustomerHistory, getAiCustomerHumanReplies } from '../api/aiCustomer'
+import { clearAiCustomerHumanReplies, getAiCustomerHistory, getAiCustomerHumanReplies, getAiCustomerSessions } from '../api/aiCustomer'
 import { me } from '../api/auth'
 import { uploadToCos } from '../api/storage'
 
@@ -109,6 +160,14 @@ const membershipChecked = ref(false)
 const repliesDialogVisible = ref(false)
 const humanReplies = ref([])
 const clearingReplies = ref(false)
+const historyDialogVisible = ref(false)
+const historyDetailVisible = ref(false)
+const historyLoading = ref(false)
+const historyDetailLoading = ref(false)
+const historySessions = ref([])
+const historyMessages = ref([])
+const historyDetailTitle = ref('历史聊天记录')
+const activeSessionId = ref(null)
 const userId = ref('')
 const seenReplyVersionMap = ref({})
 const seenReplyStorageKey = computed(() => `ai_cs_seen_replies:${userId.value || 'guest'}`)
@@ -156,14 +215,25 @@ const scrollToBottom = async () => {
 }
 
 const loadHistory = async () => {
-  const res = await getAiCustomerHistory()
+  const res = await getAiCustomerHistory({ window_days: 3 })
   if (!res.data.enabled) {
     ElMessage.warning('AI章鱼助手当前未开放')
     router.push('/home')
     return
   }
+  activeSessionId.value = res.data.active_session_id || null
   messages.value = (res.data.messages || []).map((item) => ({ ...item, waiting: false }))
   await scrollToBottom()
+}
+
+const loadHistorySessions = async () => {
+  historyLoading.value = true
+  try {
+    const res = await getAiCustomerSessions()
+    historySessions.value = res.data.items || []
+  } finally {
+    historyLoading.value = false
+  }
 }
 
 const enforceMemberAccess = async () => {
@@ -208,6 +278,32 @@ const openRepliesDialog = async () => {
   }
 }
 
+const openHistoryDialog = async () => {
+  try {
+    await loadHistorySessions()
+    historyDialogVisible.value = true
+  } catch (e) {
+    ElMessage.error(String(e || '获取历史记录失败'))
+  }
+}
+
+const openHistoryDetail = async (session) => {
+  if (!session?.id) return
+  historyDetailTitle.value = session.title || '历史聊天记录'
+  historyDetailLoading.value = true
+  historyMessages.value = []
+  historyDetailVisible.value = true
+  try {
+    const res = await getAiCustomerHistory({ session_id: session.id, window_days: 7 })
+    historyMessages.value = (res.data.messages || []).map((item) => ({ ...item, waiting: false }))
+  } catch (e) {
+    historyDetailVisible.value = false
+    ElMessage.error(String(e || '获取历史详情失败'))
+  } finally {
+    historyDetailLoading.value = false
+  }
+}
+
 const clearAllReplies = async () => {
   if (!humanReplies.value.length || clearingReplies.value) return
   try {
@@ -242,6 +338,8 @@ const formatDate = (value) => {
     d.getHours()
   ).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
+
+const formatSessionTime = (value) => formatDate(value)
 
 const handleUserAvatarError = () => {
   userAvatarFailed.value = true
@@ -358,7 +456,8 @@ const send = async () => {
     messages.value.push(assistantMsg)
     await scrollToBottom()
 
-    await streamChat({ message: text, attachments }, assistantMsg)
+    await streamChat({ message: text, attachments, session_id: activeSessionId.value }, assistantMsg)
+    await loadHistory()
   } catch (e) {
     const last = messages.value[messages.value.length - 1]
     if (last && last.role === 'assistant' && last.waiting) {
@@ -401,6 +500,11 @@ watch(seenReplyStorageKey, () => {
 .head-actions {
   display: inline-flex;
   gap: 8px;
+}
+.history-tip {
+  margin: 12px 0 0;
+  color: #abcbef;
+  font-size: 12px;
 }
 .reply-btn {
   position: relative;
@@ -495,6 +599,53 @@ watch(seenReplyStorageKey, () => {
 .attach-list a {
   color: #92d5ff;
   font-size: 12px;
+}
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.history-item {
+  width: 100%;
+  border: 1px solid rgba(133, 195, 255, 0.3);
+  border-radius: 14px;
+  background: rgba(20, 33, 78, 0.72);
+  color: #ecf5ff;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+}
+.history-item:hover {
+  border-color: rgba(150, 216, 255, 0.52);
+  box-shadow: 0 0 14px rgba(92, 190, 255, 0.2);
+}
+.history-item-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.history-item-time {
+  margin: 0;
+  color: #abcbef;
+  font-size: 12px;
+}
+.history-item-arrow {
+  color: #8fe0ff;
+  font-size: 13px;
+}
+.history-detail {
+  min-height: 180px;
+}
+.history-detail-list {
+  max-height: 60vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+.history-detail-time {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #abcbef;
 }
 .attach-image {
   width: min(280px, 100%);

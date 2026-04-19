@@ -17,6 +17,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, PointIdsList
 
 from apps.ai_customer.models import AICustomerSetting
+from apps.ai_customer.runtime_config import get_runtime_llm_config
 
 logger = logging.getLogger(__name__)
 _thread_local = threading.local()
@@ -603,9 +604,10 @@ def search_web(query: str) -> List[Dict[str, Any]]:
 
 
 def stream_llm_answer(messages):
-    base_url = settings.AI_CS_LLM_BASE_URL.rstrip("/")
-    model = settings.AI_CS_LLM_MODEL
-    api_key = settings.AI_CS_LLM_API_KEY.strip()
+    runtime = get_runtime_llm_config("assistant")
+    base_url = str(runtime.get("base_url") or "").rstrip("/")
+    model = str(runtime.get("model") or "").strip()
+    api_key = str(runtime.get("api_key") or "").strip()
     if not api_key:
         raise RuntimeError("AI_CS_LLM_API_KEY 未配置")
     url = f"{base_url}/chat/completions"
@@ -662,11 +664,14 @@ def optimize_image_prompt(user_text: str) -> str:
     base = (user_text or "").strip()
     if not base:
         return ""
-    api_key = settings.AI_CS_LLM_API_KEY.strip()
-    if not api_key:
+    runtime = get_runtime_llm_config("assistant")
+    api_key = str(runtime.get("api_key") or "").strip()
+    base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
+    model = str(runtime.get("model") or "").strip()
+    if not api_key or not base_url or not model:
         return base
     payload = {
-        "model": settings.AI_CS_LLM_MODEL,
+        "model": model,
         "stream": False,
         "temperature": 0.4,
         "messages": [
@@ -681,7 +686,7 @@ def optimize_image_prompt(user_text: str) -> str:
             {"role": "user", "content": base},
         ],
     }
-    url = f"{settings.AI_CS_LLM_BASE_URL.rstrip('/')}/chat/completions"
+    url = f"{base_url}/chat/completions"
     try:
         resp = requests.post(
             url,

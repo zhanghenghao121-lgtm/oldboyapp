@@ -29,6 +29,16 @@ from apps.ai_customer.memory_services import (
     maybe_update_session_title,
     schedule_memory_update,
 )
+from apps.ai_customer.manga_services import (
+    MangaScriptError,
+    extract_story_source_text,
+    generate_manga_storyboard,
+)
+from apps.ai_customer.runtime_config import (
+    get_assistant_llm_config,
+    get_manga_llm_config,
+    get_manga_storyboard_prompt,
+)
 from apps.ai_customer.services import (
     build_system_prompt,
     generate_image_with_ark,
@@ -68,6 +78,15 @@ def _member_required_response():
 
 def _require_member(request):
     return bool(getattr(request.user, "is_member", False))
+
+
+def _serialize_model_option(option_id: str, label: str, runtime: dict):
+    return {
+        "id": option_id,
+        "label": label,
+        "model": str(runtime.get("model") or "").strip(),
+        "base_url": str(runtime.get("base_url") or "").strip(),
+    }
 
 
 def _sse_error(message: str, status: int = 400):
@@ -212,6 +231,40 @@ def clear_human_replies(request):
         defaults={"cleared_at": timezone.now()},
     )
     return ok({"cleared": True})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def ai_manga_config(request):
+    assistant = get_assistant_llm_config()
+    manga = get_manga_llm_config()
+    return ok(
+        {
+            "default_model_preset": "assistant",
+            "storyboard_prompt": get_manga_storyboard_prompt(),
+            "model_options": [
+                _serialize_model_option("assistant", "助手模型", assistant),
+                _serialize_model_option("manga", "漫剧模型", manga),
+            ],
+        }
+    )
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def ai_manga_storyboard(request):
+    file_obj = request.FILES.get("file")
+    text = str(request.data.get("text", "")).strip()
+    model_preset = str(request.data.get("model_preset", "assistant")).strip().lower() or "assistant"
+    if model_preset not in {"assistant", "manga"}:
+        return bad("模型选项不支持")
+    try:
+        source_text = extract_story_source_text(file_obj=file_obj, text=text)
+        result = generate_manga_storyboard(source_text, model_preset=model_preset)
+        return ok(result)
+    except MangaScriptError as exc:
+        return bad(str(exc), exc.status)
 
 
 @api_view(["GET"])

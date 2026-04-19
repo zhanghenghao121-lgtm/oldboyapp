@@ -19,6 +19,15 @@
         <button class="submenu-btn" :class="{ active: activeModule === 'ai_memory' }" @click="activeModule = 'ai_memory'">记忆管理</button>
       </div>
 
+      <button class="side-btn ai-side-btn" :class="{ active: modelMenuOpen }" @click="toggleModelMenu">
+        <span>模型设置</span>
+        <span class="submenu-arrow">{{ modelMenuOpen ? '▾' : '▸' }}</span>
+      </button>
+      <div v-if="modelMenuOpen" class="submenu-wrap">
+        <button class="submenu-btn" :class="{ active: activeModule === 'assistant_model' }" @click="activeModule = 'assistant_model'">助手模型设置</button>
+        <button class="submenu-btn" :class="{ active: activeModule === 'manga_model' }" @click="activeModule = 'manga_model'">漫剧模型设置</button>
+      </div>
+
       <button class="side-btn ai-side-btn" :class="{ active: humanMenuOpen || activeModule === 'human_service' }" @click="toggleHumanMenu">
         <span>人工处理</span>
         <span class="menu-right">
@@ -217,6 +226,52 @@
         <div class="row-actions ai-actions">
           <el-button class="main-btn" type="primary" :loading="savingAiSettings" @click="saveAiCsSettings">保存AI客服配置</el-button>
           <el-button plain @click="openFeishuIntegration">集成飞书</el-button>
+        </div>
+      </section>
+
+      <section v-if="activeModule === 'assistant_model'" class="panel-card">
+        <h4 class="placeholder-title">助手模型设置</h4>
+        <p class="placeholder-sub">用于 AI章鱼助手回答、会话摘要与相关提示词优化。</p>
+        <el-form label-width="130px" class="mt-3">
+          <el-form-item label="API地址">
+            <el-input v-model="assistantModelForm.base_url" placeholder="https://api.deepseek.com/v1" />
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input v-model="assistantModelForm.api_key" type="password" show-password placeholder="请输入助手模型 API Key" />
+          </el-form-item>
+          <el-form-item label="模型名称">
+            <el-input v-model="assistantModelForm.model" placeholder="例如 deepseek-reasoner" />
+          </el-form-item>
+        </el-form>
+        <div class="row-actions ai-actions">
+          <el-button class="main-btn" type="primary" :loading="savingModelConfig" @click="saveAssistantModelConfig">保存助手模型配置</el-button>
+        </div>
+      </section>
+
+      <section v-if="activeModule === 'manga_model'" class="panel-card">
+        <h4 class="placeholder-title">漫剧模型设置</h4>
+        <p class="placeholder-sub">用于 AI漫剧文档/文本解析与分镜创作输出，也可在前台切换到此模型。</p>
+        <el-form label-width="130px" class="mt-3">
+          <el-form-item label="API地址">
+            <el-input v-model="mangaModelForm.base_url" placeholder="默认可复用助手模型 API 地址" />
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input v-model="mangaModelForm.api_key" type="password" show-password placeholder="默认可复用助手模型 API Key" />
+          </el-form-item>
+          <el-form-item label="模型名称">
+            <el-input v-model="mangaModelForm.model" placeholder="例如 deepseek-reasoner" />
+          </el-form-item>
+          <el-form-item label="分镜提示词">
+            <el-input
+              v-model="mangaModelForm.storyboard_prompt"
+              type="textarea"
+              :rows="10"
+              placeholder="请输入 AI漫剧默认分镜提示词"
+            />
+          </el-form-item>
+        </el-form>
+        <div class="row-actions ai-actions">
+          <el-button class="main-btn" type="primary" :loading="savingModelConfig" @click="saveMangaModelConfig">保存漫剧模型配置</el-button>
         </div>
       </section>
 
@@ -436,6 +491,7 @@ const router = useRouter()
 const adminUser = ref(null)
 const activeModule = ref('stats')
 const aiMenuOpen = ref(true)
+const modelMenuOpen = ref(false)
 const humanMenuOpen = ref(true)
 const toolMenuOpen = ref(false)
 
@@ -446,6 +502,8 @@ const moduleTitle = computed(() => {
   if (activeModule.value === 'tool_file_split') return '大文件切片'
   if (activeModule.value === 'ai_knowledge') return 'AI知识库'
   if (activeModule.value === 'ai_customer') return 'AI客服'
+  if (activeModule.value === 'assistant_model') return '助手模型设置'
+  if (activeModule.value === 'manga_model') return '漫剧模型设置'
   if (activeModule.value === 'ai_memory') return '记忆管理'
   return '人工客服'
 })
@@ -472,7 +530,19 @@ const aiCsForm = reactive({
   feishu_bot_config_url: '',
   feishu_webhook_url: '',
 })
+const assistantModelForm = reactive({
+  base_url: '',
+  api_key: '',
+  model: '',
+})
+const mangaModelForm = reactive({
+  base_url: '',
+  api_key: '',
+  model: '',
+  storyboard_prompt: '',
+})
 const savingAiSettings = ref(false)
+const savingModelConfig = ref(false)
 const knowledgeDocs = ref([])
 const knowledgeTitle = ref('')
 const knowledgeInputRef = ref()
@@ -523,6 +593,10 @@ let stopKnowledgeUploadSubscription = null
 
 const toggleAiMenu = () => {
   aiMenuOpen.value = !aiMenuOpen.value
+}
+
+const toggleModelMenu = () => {
+  modelMenuOpen.value = !modelMenuOpen.value
 }
 
 const toggleHumanMenu = () => {
@@ -683,6 +757,42 @@ const loadConfigs = async () => {
   defaultAvatarUrl.value = map.default_avatar_url || '/octopus-avatar.svg'
   rechargeWechatId.value = map.recharge_wechat_id || 'Dsdfcc2000'
   rechargeQrUrl.value = map.recharge_qr_url || ''
+  assistantModelForm.base_url = map.ai_assistant_base_url || ''
+  assistantModelForm.api_key = map.ai_assistant_api_key || ''
+  assistantModelForm.model = map.ai_assistant_model || ''
+  mangaModelForm.base_url = map.ai_manga_base_url || ''
+  mangaModelForm.api_key = map.ai_manga_api_key || ''
+  mangaModelForm.model = map.ai_manga_model || ''
+  mangaModelForm.storyboard_prompt = map.ai_manga_storyboard_prompt || ''
+}
+
+const saveAssistantModelConfig = async () => {
+  savingModelConfig.value = true
+  try {
+    await updateConsoleConfig('ai_assistant_base_url', { value: (assistantModelForm.base_url || '').trim() })
+    await updateConsoleConfig('ai_assistant_api_key', { value: (assistantModelForm.api_key || '').trim() })
+    await updateConsoleConfig('ai_assistant_model', { value: (assistantModelForm.model || '').trim() })
+    ElMessage.success('助手模型配置已保存')
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    savingModelConfig.value = false
+  }
+}
+
+const saveMangaModelConfig = async () => {
+  savingModelConfig.value = true
+  try {
+    await updateConsoleConfig('ai_manga_base_url', { value: (mangaModelForm.base_url || '').trim() })
+    await updateConsoleConfig('ai_manga_api_key', { value: (mangaModelForm.api_key || '').trim() })
+    await updateConsoleConfig('ai_manga_model', { value: (mangaModelForm.model || '').trim() })
+    await updateConsoleConfig('ai_manga_storyboard_prompt', { value: (mangaModelForm.storyboard_prompt || '').trim() })
+    ElMessage.success('漫剧模型配置已保存')
+  } catch (e) {
+    ElMessage.error(e)
+  } finally {
+    savingModelConfig.value = false
+  }
 }
 
 const saveDefaultAvatar = async () => {

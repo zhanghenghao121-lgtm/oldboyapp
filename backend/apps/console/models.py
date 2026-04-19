@@ -34,10 +34,24 @@ class SiteConfig(models.Model):
     KEY_DEFAULT_AVATAR = "default_avatar_url"
     KEY_RECHARGE_WECHAT = "recharge_wechat_id"
     KEY_RECHARGE_QR_URL = "recharge_qr_url"
+    KEY_AI_ASSISTANT_BASE_URL = "ai_assistant_base_url"
+    KEY_AI_ASSISTANT_API_KEY = "ai_assistant_api_key"
+    KEY_AI_ASSISTANT_MODEL = "ai_assistant_model"
+    KEY_AI_MANGA_BASE_URL = "ai_manga_base_url"
+    KEY_AI_MANGA_API_KEY = "ai_manga_api_key"
+    KEY_AI_MANGA_MODEL = "ai_manga_model"
+    KEY_AI_MANGA_STORYBOARD_PROMPT = "ai_manga_storyboard_prompt"
     KEY_CHOICES = [
         (KEY_DEFAULT_AVATAR, "默认头像URL"),
         (KEY_RECHARGE_WECHAT, "充值页微信号"),
         (KEY_RECHARGE_QR_URL, "充值页二维码URL"),
+        (KEY_AI_ASSISTANT_BASE_URL, "助手模型API地址"),
+        (KEY_AI_ASSISTANT_API_KEY, "助手模型API Key"),
+        (KEY_AI_ASSISTANT_MODEL, "助手模型名称"),
+        (KEY_AI_MANGA_BASE_URL, "漫剧模型API地址"),
+        (KEY_AI_MANGA_API_KEY, "漫剧模型API Key"),
+        (KEY_AI_MANGA_MODEL, "漫剧模型名称"),
+        (KEY_AI_MANGA_STORYBOARD_PROMPT, "AI漫剧分镜提示词"),
     ]
 
     key = models.CharField(max_length=64, choices=KEY_CHOICES, unique=True)

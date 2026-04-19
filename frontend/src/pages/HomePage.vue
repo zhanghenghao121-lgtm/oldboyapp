@@ -9,7 +9,8 @@
         <p>智能服务工作区</p>
       </div>
 
-      <button class="side-btn active" type="button">AI章鱼助手</button>
+      <button class="side-btn active" type="button" @click="$router.push('/ai-customer')">AI章鱼助手</button>
+      <button class="side-btn" type="button" @click="$router.push('/ai-manga')">AI漫剧</button>
     </aside>
 
     <main class="main-panel">
@@ -68,6 +69,31 @@
           </div>
           <div class="entry-row">
             <el-button type="primary" class="main-btn" @click="$router.push('/ai-customer')">进入 AI章鱼助手</el-button>
+          </div>
+        </div>
+        <div class="panel-card manga-card">
+          <h4>AI漫剧 · 分镜创作间</h4>
+          <p>支持上传 PDF、Word 文档或粘贴剧情文本，自动整理为可复制的漫画分镜稿。</p>
+          <div class="feature-grid manga-grid">
+            <div class="feature-item">
+              <span>01</span>
+              <p>文档剧本识别</p>
+            </div>
+            <div class="feature-item">
+              <span>02</span>
+              <p>分镜提示词驱动</p>
+            </div>
+            <div class="feature-item">
+              <span>03</span>
+              <p>模型切换输出</p>
+            </div>
+            <div class="feature-item">
+              <span>04</span>
+              <p>结果一键复制</p>
+            </div>
+          </div>
+          <div class="entry-row">
+            <el-button type="primary" class="main-btn warm-btn" @click="$router.push('/ai-manga')">进入 AI漫剧</el-button>
           </div>
         </div>
       </section>
@@ -320,6 +346,11 @@ onMounted(async () => {
   gap: 16px;
   margin-bottom: 18px;
 }
+.main-content {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
 .headline .kicker {
   margin: 0 0 8px;
   color: #8fd6ff;
@@ -416,6 +447,24 @@ onMounted(async () => {
 .main-btn {
   min-width: 170px;
 }
+.manga-card {
+  border-color: rgba(255, 188, 121, 0.22);
+  background:
+    radial-gradient(240px 140px at top right, rgba(255, 150, 72, 0.16), transparent 60%),
+    linear-gradient(145deg, rgba(58, 28, 18, 0.94), rgba(30, 18, 24, 0.88));
+}
+.manga-grid .feature-item {
+  border-color: rgba(255, 196, 132, 0.16);
+  background: rgba(72, 30, 18, 0.42);
+}
+.manga-grid .feature-item span {
+  background: rgba(255, 170, 90, 0.16);
+  color: #ffd18d;
+}
+.warm-btn {
+  background: linear-gradient(135deg, #ff9b57, #ff6f5e);
+  border-color: transparent;
+}
 .points-empty {
   padding: 30px 0;
   text-align: center;
@@ -463,6 +512,9 @@ onMounted(async () => {
 }
 @media (max-width: 900px) {
   .workspace-shell {
+    grid-template-columns: 1fr;
+  }
+  .main-content {
     grid-template-columns: 1fr;
   }
   .main-header {

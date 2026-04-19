@@ -6,6 +6,7 @@ import requests
 
 from django.conf import settings
 
+from apps.ai_customer.runtime_config import get_runtime_llm_config
 from apps.ai_memory.models import AIConversationSummary
 
 
@@ -74,9 +75,10 @@ class SummaryMemoryService:
         return self._build_summary_payload_with_rules(messages)
 
     def _build_summary_payload_with_llm(self, messages: List[Dict[str, str]]) -> Dict:
-        api_key = (getattr(settings, "AI_CS_LLM_API_KEY", "") or "").strip()
-        base_url = (getattr(settings, "AI_CS_LLM_BASE_URL", "") or "").strip().rstrip("/")
-        model = (getattr(settings, "AI_CS_LLM_MODEL", "") or "").strip()
+        runtime = get_runtime_llm_config("assistant")
+        api_key = str(runtime.get("api_key") or "").strip()
+        base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
+        model = str(runtime.get("model") or "").strip()
         if not api_key or not base_url or not model:
             return {}
 

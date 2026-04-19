@@ -232,12 +232,36 @@
       <section v-if="activeModule === 'assistant_model'" class="panel-card">
         <h4 class="placeholder-title">助手模型设置</h4>
         <p class="placeholder-sub">用于 AI章鱼助手回答、会话摘要与相关提示词优化。</p>
+        <div class="model-preview-grid">
+          <div class="model-preview-card">
+            <span class="preview-label">当前 API地址</span>
+            <strong>{{ assistantModelPreview.base_url }}</strong>
+          </div>
+          <div class="model-preview-card">
+            <span class="preview-label">当前 模型名称</span>
+            <strong>{{ assistantModelPreview.model }}</strong>
+          </div>
+          <div class="model-preview-card">
+            <span class="preview-label">当前 API Key</span>
+            <strong>{{ assistantModelPreview.api_key }}</strong>
+          </div>
+        </div>
         <el-form label-width="130px" class="mt-3">
           <el-form-item label="API地址">
             <el-input v-model="assistantModelForm.base_url" placeholder="https://api.deepseek.com/v1" />
           </el-form-item>
           <el-form-item label="API Key">
-            <el-input v-model="assistantModelForm.api_key" type="password" show-password placeholder="请输入助手模型 API Key" />
+            <el-input
+              v-model="assistantModelForm.api_key"
+              :type="assistantApiKeyVisible ? 'text' : 'password'"
+              placeholder="请输入助手模型 API Key"
+            >
+              <template #suffix>
+                <button class="eye-toggle-btn" type="button" @click="assistantApiKeyVisible = !assistantApiKeyVisible">
+                  <el-icon><component :is="assistantApiKeyVisible ? Hide : View" /></el-icon>
+                </button>
+              </template>
+            </el-input>
           </el-form-item>
           <el-form-item label="模型名称">
             <el-input v-model="assistantModelForm.model" placeholder="例如 deepseek-reasoner" />
@@ -251,12 +275,36 @@
       <section v-if="activeModule === 'manga_model'" class="panel-card">
         <h4 class="placeholder-title">漫剧模型设置</h4>
         <p class="placeholder-sub">用于 AI漫剧文档/文本解析与分镜创作输出，也可在前台切换到此模型。</p>
+        <div class="model-preview-grid">
+          <div class="model-preview-card">
+            <span class="preview-label">当前 API地址</span>
+            <strong>{{ mangaModelPreview.base_url }}</strong>
+          </div>
+          <div class="model-preview-card">
+            <span class="preview-label">当前 模型名称</span>
+            <strong>{{ mangaModelPreview.model }}</strong>
+          </div>
+          <div class="model-preview-card">
+            <span class="preview-label">当前 API Key</span>
+            <strong>{{ mangaModelPreview.api_key }}</strong>
+          </div>
+        </div>
         <el-form label-width="130px" class="mt-3">
           <el-form-item label="API地址">
             <el-input v-model="mangaModelForm.base_url" placeholder="默认可复用助手模型 API 地址" />
           </el-form-item>
           <el-form-item label="API Key">
-            <el-input v-model="mangaModelForm.api_key" type="password" show-password placeholder="默认可复用助手模型 API Key" />
+            <el-input
+              v-model="mangaModelForm.api_key"
+              :type="mangaApiKeyVisible ? 'text' : 'password'"
+              placeholder="默认可复用助手模型 API Key"
+            >
+              <template #suffix>
+                <button class="eye-toggle-btn" type="button" @click="mangaApiKeyVisible = !mangaApiKeyVisible">
+                  <el-icon><component :is="mangaApiKeyVisible ? Hide : View" /></el-icon>
+                </button>
+              </template>
+            </el-input>
           </el-form-item>
           <el-form-item label="模型名称">
             <el-input v-model="mangaModelForm.model" placeholder="例如 deepseek-reasoner" />
@@ -464,6 +512,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Hide, View } from '@element-plus/icons-vue'
 import JSZip from 'jszip'
 import { uploadToCos } from '../api/storage'
 import {
@@ -535,12 +584,14 @@ const assistantModelForm = reactive({
   api_key: '',
   model: '',
 })
+const assistantApiKeyVisible = ref(false)
 const mangaModelForm = reactive({
   base_url: '',
   api_key: '',
   model: '',
   storyboard_prompt: '',
 })
+const mangaApiKeyVisible = ref(false)
 const savingAiSettings = ref(false)
 const savingModelConfig = ref(false)
 const knowledgeDocs = ref([])
@@ -606,6 +657,30 @@ const toggleHumanMenu = () => {
 const toggleToolMenu = () => {
   toolMenuOpen.value = !toolMenuOpen.value
 }
+
+const maskApiKey = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return '未配置'
+  if (text.length <= 8) return `${text.slice(0, 2)}***${text.slice(-1)}`
+  return `${text.slice(0, 4)}***${text.slice(-4)}`
+}
+
+const displayConfigText = (value, fallback = '未配置') => {
+  const text = String(value || '').trim()
+  return text || fallback
+}
+
+const assistantModelPreview = computed(() => ({
+  base_url: displayConfigText(assistantModelForm.base_url),
+  model: displayConfigText(assistantModelForm.model, 'deepseek-reasoner'),
+  api_key: maskApiKey(assistantModelForm.api_key),
+}))
+
+const mangaModelPreview = computed(() => ({
+  base_url: displayConfigText(mangaModelForm.base_url, displayConfigText(assistantModelForm.base_url)),
+  model: displayConfigText(mangaModelForm.model, displayConfigText(assistantModelForm.model, 'deepseek-reasoner')),
+  api_key: maskApiKey(mangaModelForm.api_key || assistantModelForm.api_key),
+}))
 
 const formatSize = (bytes) => {
   const num = Number(bytes || 0)
@@ -1508,6 +1583,50 @@ onBeforeUnmount(() => {
 .pager-wrap { margin-top: 14px; display: flex; justify-content: flex-end; }
 .placeholder-title { margin: 0; }
 .placeholder-sub { margin-top: 8px; color: #b2c4e8; }
+.model-preview-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.model-preview-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(123, 190, 255, 0.26);
+  background: linear-gradient(145deg, rgba(17, 37, 86, 0.76), rgba(18, 26, 63, 0.82));
+  box-shadow: inset 0 0 0 1px rgba(164, 217, 255, 0.08);
+}
+.model-preview-card strong {
+  display: block;
+  margin-top: 8px;
+  color: #f3f8ff;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+.preview-label {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #8fb4e8;
+}
+.eye-toggle-btn {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: #8fd3ff;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+.eye-toggle-btn:hover {
+  background: rgba(95, 191, 255, 0.14);
+  color: #d7f3ff;
+}
 .memory-subtitle {
   margin: 0 0 12px;
   color: #e6f2ff;
@@ -1598,5 +1717,6 @@ onBeforeUnmount(() => {
   .admin-sidebar { border-right: 0; border-bottom: 1px solid rgba(142, 201, 255, 0.28); }
   .avatar-row { grid-template-columns: 1fr; }
   .kb-upload-row { grid-template-columns: 1fr; }
+  .model-preview-grid { grid-template-columns: 1fr; }
 }
 </style>

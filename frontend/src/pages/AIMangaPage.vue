@@ -10,7 +10,7 @@
       </div>
 
       <button class="nav-btn" type="button" @click="$router.push('/home')">返回工作台</button>
-      <button class="nav-btn active" type="button">AI漫剧创作</button>
+      <button class="nav-btn active" type="button" @click="$router.push('/ai-manga')">AI漫剧创作</button>
       <button class="nav-btn" type="button" @click="$router.push('/ai-customer')">AI章鱼助手</button>
 
       <div class="sidebar-panel">

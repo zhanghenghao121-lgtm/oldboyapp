@@ -9,8 +9,8 @@
         <p>智能服务工作区</p>
       </div>
 
-      <button class="side-btn active" type="button" @click="$router.push('/ai-customer')">AI章鱼助手</button>
-      <button class="side-btn" type="button" @click="$router.push('/ai-manga')">AI漫剧</button>
+      <button class="side-btn" type="button" @click="goFeature('/ai-customer')">AI章鱼助手</button>
+      <button class="side-btn" type="button" @click="goFeature('/ai-manga')">AI漫剧</button>
     </aside>
 
     <main class="main-panel">
@@ -187,6 +187,11 @@ const openPointsDialog = async () => {
   } finally {
     pointsLoading.value = false
   }
+}
+
+const goFeature = (path) => {
+  if (!path) return
+  router.push(path)
 }
 
 const onUserAction = async (command) => {

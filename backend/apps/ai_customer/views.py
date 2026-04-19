@@ -1,25 +1,20 @@
 import json
 import logging
 import requests
-import uuid
-from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.http import StreamingHttpResponse
-from django.db import transaction
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.accounts.models import PointsUsageLog
 from apps.ai_customer.models import (
     AICustomerSetting,
     ChatMessage,
     HumanHandoverTicket,
     HumanReplyClearState,
-    ResumeAssistantTask,
 )
 from apps.ai_customer.memory_services import (
     activate_session,
@@ -34,21 +29,14 @@ from apps.ai_customer.memory_services import (
 )
 from apps.ai_customer.services import (
     build_system_prompt,
-    search_context,
-    has_reliable_context,
-    web_search,
-    stream_llm_answer,
-    has_image_generation_intent,
-    optimize_image_prompt,
     generate_image_with_ark,
+    has_image_generation_intent,
+    has_reliable_context,
+    optimize_image_prompt,
+    search_context,
+    stream_llm_answer,
+    web_search,
 )
-from apps.ai_customer.resume_services import (
-    ResumeAssistantError,
-    build_resume_download_url,
-    run_resume_assistant,
-    resume_points_cost,
-)
-from apps.ai_customer.resume_tasks import dispatch_resume_task
 from apps.ai_memory.models import AIConversationSummary, AIUserFact
 from apps.ai_memory.services import MemoryOrchestrator
 
@@ -72,61 +60,9 @@ def _require_member(request):
     return bool(getattr(request.user, "is_member", False))
 
 
-def _consume_user_points(user_id: int, required_points: Decimal, usage_type: str, description: str):
-    with transaction.atomic():
-        user = User.objects.select_for_update().get(id=user_id)
-        balance = Decimal(user.points or 0)
-        if balance < required_points:
-            return None, f"积分不足（当前 {balance:.2f}，需 {required_points:.2f}）"
-        user.points = balance - required_points
-        user.save(update_fields=["points"])
-        PointsUsageLog.objects.create(
-            user=user,
-            usage_type=usage_type,
-            amount=required_points,
-            balance_after=user.points,
-            description=description[:255],
-        )
-        return Decimal(user.points), None
-
-
-def _refund_user_points(user_id: int, points: Decimal, description: str):
-    with transaction.atomic():
-        user = User.objects.select_for_update().get(id=user_id)
-        user.points = Decimal(user.points or 0) + points
-        user.save(update_fields=["points"])
-        PointsUsageLog.objects.create(
-            user=user,
-            usage_type=PointsUsageLog.TYPE_REFUND,
-            amount=-points,
-            balance_after=user.points,
-            description=description[:255],
-        )
-
-
 def _sse_error(message: str, status: int = 400):
     body = "data: " + json.dumps({"type": "error", "message": message}, ensure_ascii=False) + "\n\n"
     return StreamingHttpResponse(body, status=status, content_type="text/event-stream")
-
-
-def _serialize_resume_task(task: ResumeAssistantTask):
-    pdf_url = build_resume_download_url(task.pdf_url or "")
-    return {
-        "task_id": task.id,
-        "request_id": task.request_id,
-        "status": task.status,
-        "progress": int(task.progress or 0),
-        "cost_points": float(task.cost_points or 0),
-        "result": {
-            "pdf_url": pdf_url,
-            "ocr_text": task.ocr_text or "",
-            "skill_points": task.skill_points or [],
-            "resume_text": task.resume_text or "",
-        },
-        "error": task.error_message or "",
-        "created_at": task.created_at,
-        "updated_at": task.updated_at,
-    }
 
 
 def _notify_feishu_if_needed(setting: AICustomerSetting, ticket: HumanHandoverTicket):
@@ -314,107 +250,6 @@ def memory_facts(request):
             ]
         }
     )
-
-
-@csrf_exempt
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def resume_assistant_task_create(request):
-    if not _require_member(request):
-        return _member_required_response()
-    payload = request.data or {}
-    job_title = str(payload.get("job_title", "")).strip()
-    image_urls = payload.get("image_urls") or []
-    rois = payload.get("rois") or []
-    request_id = str(payload.get("request_id", "")).strip() or uuid.uuid4().hex
-
-    if not job_title:
-        return bad("请输入职位名称")
-    if not isinstance(image_urls, list) or not image_urls:
-        return bad("请上传职位要求截图")
-    if len(image_urls) > 6:
-        return bad("职位要求截图最多6张")
-    if len(job_title) > 120:
-        return bad("职位名称不能超过120字")
-
-    old = ResumeAssistantTask.objects.filter(user=request.user, request_id=request_id).first()
-    if old:
-        return ok(_serialize_resume_task(old))
-
-    task = ResumeAssistantTask.objects.create(
-        user=request.user,
-        request_id=request_id,
-        job_title=job_title,
-        image_urls=image_urls,
-        rois=rois if isinstance(rois, list) else [],
-        status=ResumeAssistantTask.STATUS_CREATED,
-        progress=0,
-        cost_points=resume_points_cost(),
-    )
-    dispatch_resume_task(task.id)
-    return ok(_serialize_resume_task(task))
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def resume_assistant_task_detail(request, task_id: int):
-    if not _require_member(request):
-        return _member_required_response()
-    task = ResumeAssistantTask.objects.filter(id=task_id, user=request.user).first()
-    if not task:
-        return bad("任务不存在", 404)
-    data = _serialize_resume_task(task)
-    data["remaining_points"] = float(request.user.points or 0)
-    return ok(data)
-
-
-@csrf_exempt
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def resume_assistant_generate(request):
-    if not _require_member(request):
-        return _member_required_response()
-    payload = request.data or {}
-    job_title = str(payload.get("job_title", "")).strip()
-    image_urls = payload.get("image_urls") or []
-    if not job_title:
-        return bad("请输入职位名称")
-    if not isinstance(image_urls, list) or not image_urls:
-        return bad("请上传职位要求截图")
-
-    cost_points = resume_points_cost()
-    remaining_points, err = _consume_user_points(
-        request.user.id,
-        cost_points,
-        PointsUsageLog.TYPE_RESUME_ASSISTANT,
-        f"简历助手消耗，职位：{job_title}",
-    )
-    if err:
-        return bad(err, 402)
-
-    try:
-        setting = AICustomerSetting.singleton()
-        result = run_resume_assistant(
-            user=request.user,
-            setting=setting,
-            job_title=job_title,
-            image_urls=image_urls,
-            rois=payload.get("rois") or [],
-        )
-        return ok(
-            {
-                **result,
-                "cost_points": float(cost_points),
-                "remaining_points": float(remaining_points),
-            }
-        )
-    except ResumeAssistantError as exc:
-        _refund_user_points(request.user.id, cost_points, "简历助手生成失败自动退款")
-        return bad(f"简历助手失败：{exc}", exc.status)
-    except Exception:
-        logger.exception("resume assistant fatal error")
-        _refund_user_points(request.user.id, cost_points, "简历助手生成失败自动退款")
-        return bad("简历助手失败：服务暂时不可用，请稍后重试", 500)
 
 
 @csrf_exempt

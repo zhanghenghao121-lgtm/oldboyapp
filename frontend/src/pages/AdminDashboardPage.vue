@@ -16,7 +16,6 @@
       <div v-if="aiMenuOpen" class="submenu-wrap">
         <button class="submenu-btn" :class="{ active: activeModule === 'ai_knowledge' }" @click="activeModule = 'ai_knowledge'">AI知识库</button>
         <button class="submenu-btn" :class="{ active: activeModule === 'ai_customer' }" @click="activeModule = 'ai_customer'">AI客服</button>
-        <button class="submenu-btn" :class="{ active: activeModule === 'ai_resume' }" @click="activeModule = 'ai_resume'">简历助手</button>
         <button class="submenu-btn" :class="{ active: activeModule === 'ai_memory' }" @click="activeModule = 'ai_memory'">记忆管理</button>
       </div>
 
@@ -218,24 +217,6 @@
         <div class="row-actions ai-actions">
           <el-button class="main-btn" type="primary" :loading="savingAiSettings" @click="saveAiCsSettings">保存AI客服配置</el-button>
           <el-button plain @click="openFeishuIntegration">集成飞书</el-button>
-        </div>
-      </section>
-
-      <section v-if="activeModule === 'ai_resume'" class="panel-card">
-        <h4 class="placeholder-title">简历助手配置</h4>
-        <p class="placeholder-sub">配置网站前端简历助手使用的模型系统提示词。</p>
-        <el-form label-width="130px" class="mt-3">
-          <el-form-item label="系统提示词">
-            <el-input
-              v-model="aiCsForm.resume_system_prompt"
-              type="textarea"
-              :rows="9"
-              placeholder="请输入简历助手系统提示词，模型会基于该提示词生成简历结构。"
-            />
-          </el-form-item>
-        </el-form>
-        <div class="row-actions ai-actions">
-          <el-button class="main-btn" type="primary" :loading="savingAiSettings" @click="saveAiCsSettings">保存简历助手配置</el-button>
         </div>
       </section>
 
@@ -465,7 +446,6 @@ const moduleTitle = computed(() => {
   if (activeModule.value === 'tool_file_split') return '大文件切片'
   if (activeModule.value === 'ai_knowledge') return 'AI知识库'
   if (activeModule.value === 'ai_customer') return 'AI客服'
-  if (activeModule.value === 'ai_resume') return '简历助手'
   if (activeModule.value === 'ai_memory') return '记忆管理'
   return '人工客服'
 })
@@ -488,7 +468,6 @@ const aiCsForm = reactive({
   enabled: true,
   tone_style: '',
   base_prompt: '',
-  resume_system_prompt: '',
   no_answer_text: '',
   feishu_bot_config_url: '',
   feishu_webhook_url: '',

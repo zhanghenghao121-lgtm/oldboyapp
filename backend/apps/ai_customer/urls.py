@@ -9,9 +9,6 @@ from apps.ai_customer.views import (
     memory_facts,
     memory_summary,
     clear_human_replies,
-    resume_assistant_generate,
-    resume_assistant_task_create,
-    resume_assistant_task_detail,
 )
 from apps.ai_customer.admin_views import (
     ai_cs_docs,
@@ -39,9 +36,6 @@ urlpatterns = [
     path("ai-customer/human-replies/clear", clear_human_replies),
     path("ai-customer/memory/summary", memory_summary),
     path("ai-customer/memory/facts", memory_facts),
-    path("ai-customer/resume-assistant/generate", resume_assistant_generate),
-    path("ai-customer/resume-assistant/tasks", resume_assistant_task_create),
-    path("ai-customer/resume-assistant/tasks/<int:task_id>", resume_assistant_task_detail),
     path("ai-customer/chat/stream", chat_stream),
 
     path("console/ai-cs/settings", ai_cs_settings),

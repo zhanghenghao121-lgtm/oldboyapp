@@ -179,7 +179,6 @@ def ai_cs_settings(request):
                 "enabled": setting.enabled,
                 "tone_style": setting.tone_style,
                 "base_prompt": setting.base_prompt,
-                "resume_system_prompt": setting.resume_system_prompt,
                 "no_answer_text": setting.no_answer_text,
                 "feishu_bot_config_url": setting.feishu_bot_config_url,
                 "feishu_webhook_url": setting.feishu_webhook_url,
@@ -190,9 +189,6 @@ def ai_cs_settings(request):
     setting.enabled = _to_bool(payload.get("enabled"), setting.enabled)
     setting.tone_style = str(payload.get("tone_style", setting.tone_style)).strip() or setting.tone_style
     setting.base_prompt = str(payload.get("base_prompt", setting.base_prompt)).strip() or setting.base_prompt
-    setting.resume_system_prompt = (
-        str(payload.get("resume_system_prompt", setting.resume_system_prompt)).strip() or setting.resume_system_prompt
-    )
     setting.no_answer_text = str(payload.get("no_answer_text", setting.no_answer_text)).strip() or setting.no_answer_text
     setting.feishu_bot_config_url = str(payload.get("feishu_bot_config_url", setting.feishu_bot_config_url)).strip()
     setting.feishu_webhook_url = str(payload.get("feishu_webhook_url", setting.feishu_webhook_url)).strip()

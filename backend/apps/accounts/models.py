@@ -11,10 +11,8 @@ class User(AbstractUser):
 
 
 class PointsUsageLog(models.Model):
-    TYPE_RESUME_ASSISTANT = "resume_assistant"
     TYPE_REFUND = "refund"
     TYPE_CHOICES = (
-        (TYPE_RESUME_ASSISTANT, "简历助手消耗"),
         (TYPE_REFUND, "失败退款"),
     )
 

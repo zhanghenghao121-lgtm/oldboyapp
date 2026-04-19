@@ -137,7 +137,6 @@ const doLogout = async () => {
 }
 
 const usageTypeText = (usageType) => {
-  if (usageType === 'resume_assistant') return '简历助手消耗'
   if (usageType === 'refund') return '失败退款'
   return '积分变动'
 }

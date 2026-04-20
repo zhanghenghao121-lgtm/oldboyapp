@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="/root/.openclaw/workspace/oldboyapp"
 DEPLOY_DIR="$PROJECT_DIR/deploy"
+COMPOSE_ENV=(DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0)
 
 cd "$DEPLOY_DIR"
 if [[ ! -f env.prod ]]; then
@@ -10,13 +11,34 @@ if [[ ! -f env.prod ]]; then
   exit 2
 fi
 
+pull_with_retry() {
+  local image="$1"
+  local ok=0
+  for i in {1..5}; do
+    if docker pull "$image"; then
+      ok=1
+      break
+    fi
+    echo "docker pull $image retry ${i}/5 failed, waiting..."
+    sleep 8
+  done
+  if [[ "$ok" -ne 1 ]]; then
+    echo "docker pull failed for $image, continue and try local cache/build" >&2
+  fi
+}
+
+# Warm critical base images to reduce failures from flaky registry metadata lookups.
+pull_with_retry "python:3.12-slim"
+pull_with_retry "node:20-alpine"
+pull_with_retry "nginx:1.27-alpine"
+
 # Deploy core services first to keep CI stable even when optional OCR image cannot be pulled.
-docker compose --env-file env.prod up -d --build mariadb redis backend celery-worker frontend nginx
+env "${COMPOSE_ENV[@]}" docker compose --env-file env.prod up -d --build mariadb redis backend celery-worker frontend nginx
 
 # Optional OCR service:
 # Start only when image already exists locally to avoid Docker Hub timeout blocking deploy.
 if docker image inspect andrlange/paddleocr:2.8.0 >/dev/null 2>&1; then
-  docker compose --env-file env.prod --profile ocr up -d ocr || true
+  env "${COMPOSE_ENV[@]}" docker compose --env-file env.prod --profile ocr up -d ocr || true
 else
   echo "OCR image not found locally, skip ocr startup"
 fi

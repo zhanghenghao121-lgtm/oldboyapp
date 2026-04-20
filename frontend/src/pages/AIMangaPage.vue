@@ -9,9 +9,8 @@
         <p>把文档与文本压成可直接复制的漫画分镜稿。</p>
       </div>
 
-      <button class="nav-btn" type="button" @click="$router.push('/home')">返回工作台</button>
-      <button class="nav-btn active" type="button" @click="$router.push('/ai-manga')">AI漫剧创作</button>
       <button class="nav-btn" type="button" @click="$router.push('/ai-customer')">AI章鱼助手</button>
+      <button class="nav-btn active" type="button" @click="$router.push('/ai-manga')">AI漫剧创作</button>
 
       <div class="sidebar-panel">
         <p class="panel-title">使用方式</p>
@@ -188,7 +187,7 @@ onMounted(async () => {
     await loadConfig()
   } catch (e) {
     ElMessage.error(String(e || '获取漫剧配置失败'))
-    router.push('/home')
+    router.push('/ai-customer')
   }
 })
 </script>

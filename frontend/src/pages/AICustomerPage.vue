@@ -7,12 +7,13 @@
           <p>全知全能的君王</p>
         </div>
         <div class="head-actions">
+          <el-button class="neon-btn active-switch-btn" @click="$router.push('/ai-customer')">AI章鱼助手</el-button>
+          <el-button class="neon-btn" @click="$router.push('/ai-manga')">AI漫剧</el-button>
           <el-button class="neon-btn" @click="openHistoryDialog">历史记录</el-button>
           <el-button class="neon-btn reply-btn" @click="openRepliesDialog">
             人工回复
             <span v-if="unreadReplyCount > 0" class="reply-count">{{ unreadReplyCount }}</span>
           </el-button>
-          <el-button class="neon-btn" @click="$router.push('/home')">返回首页</el-button>
         </div>
       </header>
 
@@ -218,7 +219,7 @@ const loadHistory = async () => {
   const res = await getAiCustomerHistory({ window_days: 3 })
   if (!res.data.enabled) {
     ElMessage.warning('AI章鱼助手当前未开放')
-    router.push('/home')
+    router.push('/ai-manga')
     return
   }
   activeSessionId.value = res.data.active_session_id || null
@@ -248,12 +249,12 @@ const enforceMemberAccess = async () => {
 
   try {
     await ElMessageBox.alert('成为会员才可以使用AI章鱼助手', '会员限制', {
-      confirmButtonText: '返回首页',
+      confirmButtonText: '去充值',
       customClass: 'anime-neon-message-box',
       type: 'warning',
     })
   } finally {
-    router.replace('/home')
+    router.replace('/recharge')
   }
   return false
 }
@@ -531,6 +532,11 @@ watch(seenReplyStorageKey, () => {
 }
 .neon-btn:hover {
   filter: brightness(1.05);
+}
+.active-switch-btn {
+  border-color: rgba(176, 233, 255, 0.9);
+  background: linear-gradient(130deg, rgba(72, 193, 255, 0.92), rgba(80, 104, 255, 0.88));
+  color: #fff;
 }
 .chat-window {
   margin-top: 14px;

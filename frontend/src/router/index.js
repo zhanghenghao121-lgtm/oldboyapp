@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import LoginPage from '../pages/LoginPage.vue'
 import RegisterPage from '../pages/RegisterPage.vue'
 import ForgotPage from '../pages/ForgotPage.vue'
-import HomePage from '../pages/HomePage.vue'
 import ProfilePage from '../pages/ProfilePage.vue'
 import ChangePasswordPage from '../pages/ChangePasswordPage.vue'
 import RechargePage from '../pages/RechargePage.vue'
@@ -16,11 +15,11 @@ import { consoleMe } from '../api/console'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/login' },
+    { path: '/', redirect: '/ai-customer' },
     { path: '/login', component: LoginPage },
     { path: '/register', component: RegisterPage },
     { path: '/forgot', component: ForgotPage },
-    { path: '/home', component: HomePage, meta: { requiresAuth: true } },
+    { path: '/home', redirect: '/ai-customer' },
     { path: '/profile', component: ProfilePage, meta: { requiresAuth: true } },
     { path: '/change-password', component: ChangePasswordPage, meta: { requiresAuth: true } },
     { path: '/recharge', component: RechargePage, meta: { requiresAuth: true } },

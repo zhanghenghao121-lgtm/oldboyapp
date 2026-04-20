@@ -157,7 +157,6 @@ const aiAvatar = '/octopus-avatar.svg'
 const userAvatarFailed = ref(false)
 const fallbackAvatar = '/octopus-avatar.svg'
 const userAvatarSrc = computed(() => (userAvatarFailed.value ? fallbackAvatar : (userAvatar.value || fallbackAvatar)))
-const membershipChecked = ref(false)
 const repliesDialogVisible = ref(false)
 const humanReplies = ref([])
 const clearingReplies = ref(false)
@@ -237,31 +236,13 @@ const loadHistorySessions = async () => {
   }
 }
 
-const enforceMemberAccess = async () => {
+const loadMe = async () => {
   const res = await me()
   const user = res.data.user || {}
   userAvatar.value = user.avatar_url || '/octopus-avatar.svg'
   userAvatarFailed.value = false
   userId.value = String(user.id || '')
   loadSeenReplies()
-  membershipChecked.value = true
-  if (user.is_member) return true
-
-  try {
-    await ElMessageBox.alert('成为会员才可以使用AI章鱼助手', '会员限制', {
-      confirmButtonText: '去充值',
-      customClass: 'anime-neon-message-box',
-      type: 'warning',
-    })
-  } finally {
-    router.replace('/recharge')
-  }
-  return false
-}
-
-const loadMe = async () => {
-  if (membershipChecked.value) return
-  await enforceMemberAccess()
 }
 
 const loadHumanReplies = async () => {
@@ -474,8 +455,7 @@ const send = async () => {
 
 onMounted(async () => {
   try {
-    const allowed = await enforceMemberAccess()
-    if (!allowed) return
+    await loadMe()
     await Promise.all([loadHistory(), loadHumanReplies()])
   } catch {
     router.push('/login')

@@ -72,14 +72,6 @@ def _parse_window_days(raw, default=3, minimum=1, maximum=7):
     return max(min(value, maximum), minimum)
 
 
-def _member_required_response():
-    return bad("成为会员才可以使用AI章鱼助手", 403)
-
-
-def _require_member(request):
-    return bool(getattr(request.user, "is_member", False))
-
-
 def _serialize_model_option(option_id: str, label: str, runtime: dict):
     return {
         "id": option_id,
@@ -118,8 +110,6 @@ def _notify_feishu_if_needed(setting: AICustomerSetting, ticket: HumanHandoverTi
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def chat_history(request):
-    if not _require_member(request):
-        return _member_required_response()
     prune_expired_chat_records(request.user)
     session_id = request.query_params.get("session_id")
     window_days = _parse_window_days(request.query_params.get("window_days"), default=3)
@@ -160,8 +150,6 @@ def chat_history(request):
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def chat_sessions(request):
-    if not _require_member(request):
-        return _member_required_response()
     prune_expired_chat_records(request.user)
     if request.method == "GET":
         return ok({"active_session_id": get_or_create_active_session(request.user).id, "items": list_sessions(request.user, days=7)})
@@ -186,8 +174,6 @@ def chat_sessions(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def chat_session_activate(request, session_id: int):
-    if not _require_member(request):
-        return _member_required_response()
     row = activate_session(request.user, session_id)
     if not row:
         return bad("会话不存在", 404)
@@ -197,8 +183,6 @@ def chat_session_activate(request, session_id: int):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def human_replies(request):
-    if not _require_member(request):
-        return _member_required_response()
     qs = HumanHandoverTicket.objects.filter(user=request.user).exclude(admin_reply="")
     clear_state = HumanReplyClearState.objects.filter(user=request.user).only("cleared_at").first()
     if clear_state and clear_state.cleared_at:
@@ -224,8 +208,6 @@ def human_replies(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def clear_human_replies(request):
-    if not _require_member(request):
-        return _member_required_response()
     HumanReplyClearState.objects.update_or_create(
         user=request.user,
         defaults={"cleared_at": timezone.now()},
@@ -270,8 +252,6 @@ def ai_manga_storyboard(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def memory_summary(request):
-    if not _require_member(request):
-        return _member_required_response()
     session = get_or_create_active_session(request.user)
     orchestrator = MemoryOrchestrator()
     ai_session = orchestrator.ensure_ai_session(request.user, session)
@@ -302,8 +282,6 @@ def memory_summary(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def memory_facts(request):
-    if not _require_member(request):
-        return _member_required_response()
     rows = AIUserFact.objects.filter(user=request.user, status=AIUserFact.STATUS_ACTIVE).order_by("-updated_at", "-id")[:50]
     return ok(
         {
@@ -328,8 +306,6 @@ def chat_stream(request):
     try:
         if not request.user.is_authenticated:
             return _sse_error("请先登录", 401)
-        if not getattr(request.user, "is_member", False):
-            return _sse_error("成为会员才可以使用AI章鱼助手", 403)
         prune_expired_chat_records(request.user)
 
         if request.method != "POST":

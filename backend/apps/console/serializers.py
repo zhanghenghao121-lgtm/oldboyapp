@@ -33,7 +33,6 @@ class ConsoleUserSerializer(serializers.ModelSerializer):
             "avatar_url",
             "signature",
             "points",
-            "is_member",
             "is_active",
             "date_joined",
             "last_login",
@@ -52,7 +51,6 @@ class ConsoleUserUpdateSerializer(serializers.Serializer):
         required=False,
         coerce_to_string=False,
     )
-    is_member = serializers.BooleanField(required=False)
     is_active = serializers.BooleanField(required=False)
 
     def validate_username(self, value):

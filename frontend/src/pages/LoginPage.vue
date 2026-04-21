@@ -220,7 +220,7 @@ const submit = async () => {
   try {
     await login({ ...form, captcha_ticket: captchaTicket.value })
     ElMessage.success('登录成功')
-    router.push('/ai-customer')
+    router.push('/ai-manga')
   } catch (e) {
     const msg = String(e || '')
     if (msg.includes('结界验证')) {

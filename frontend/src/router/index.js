@@ -15,11 +15,11 @@ import { consoleMe } from '../api/console'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/ai-customer' },
+    { path: '/', redirect: '/ai-manga' },
     { path: '/login', component: LoginPage },
     { path: '/register', component: RegisterPage },
     { path: '/forgot', component: ForgotPage },
-    { path: '/home', redirect: '/ai-customer' },
+    { path: '/home', redirect: '/ai-manga' },
     { path: '/profile', component: ProfilePage, meta: { requiresAuth: true } },
     { path: '/change-password', component: ChangePasswordPage, meta: { requiresAuth: true } },
     { path: '/recharge', component: RechargePage, meta: { requiresAuth: true } },

@@ -1,33 +1,35 @@
 <template>
   <div class="manga-shell">
-    <aside class="manga-sidebar">
+    <header class="manga-topbar">
       <div class="paper-glow paper-glow-a"></div>
       <div class="paper-glow paper-glow-b"></div>
-      <div class="sidebar-head">
+      <div class="topbar-brand">
         <span class="sidebar-tag">Storyboard Lab</span>
-        <h2>AI漫剧</h2>
-        <p>把文档与文本压成可直接复制的漫画分镜稿。</p>
+        <div>
+          <h2>AI漫剧</h2>
+          <p>把文档与文本压成可直接复制的漫画分镜稿。</p>
+        </div>
       </div>
-
-      <button class="nav-btn" type="button" @click="$router.push('/ai-customer')">AI章鱼助手</button>
-      <button class="nav-btn active" type="button" @click="$router.push('/ai-manga')">AI漫剧创作</button>
-
-      <div class="sidebar-panel">
-        <p class="panel-title">使用方式</p>
-        <ol class="sidebar-steps">
-          <li>上传 PDF 或 Word 文档，或直接输入剧情文本。</li>
-          <li>右上角选择模型，默认使用助手模型。</li>
-          <li>点击“识别剧本”，系统会按分镜提示词自动输出。</li>
-        </ol>
-      </div>
-    </aside>
+      <nav class="topbar-nav">
+        <button class="nav-btn active" type="button" @click="$router.push('/ai-manga')">AI漫剧创作</button>
+        <button class="nav-btn" type="button" @click="$router.push('/ai-customer')">AI章鱼助手</button>
+      </nav>
+    </header>
 
     <main class="manga-main">
       <div class="manga-hero">
-        <div>
+        <div class="hero-copy">
           <p class="hero-kicker">NEON PAPER CUT</p>
           <h1>AI漫剧创作台</h1>
           <p class="hero-sub">面向剧本、小说片段、策划案与分集大纲的漫画分镜整理器。</p>
+        </div>
+        <div class="hero-guide">
+          <p class="panel-title">使用方式</p>
+          <ol class="sidebar-steps">
+            <li>上传 PDF 或 Word 文档，或直接输入剧情文本。</li>
+            <li>右上角选择模型，默认使用助手模型。</li>
+            <li>点击“识别剧本”，系统会按分镜提示词自动输出。</li>
+          </ol>
         </div>
       </div>
 
@@ -195,19 +197,21 @@ onMounted(async () => {
 <style scoped>
 .manga-shell {
   min-height: 100vh;
-  display: grid;
-  grid-template-columns: 280px 1fr;
   background:
     radial-gradient(900px 420px at 18% -4%, rgba(255, 166, 64, 0.14), transparent 65%),
     radial-gradient(780px 380px at 100% 0%, rgba(65, 208, 255, 0.12), transparent 62%),
     linear-gradient(135deg, #120f18, #1d1623 48%, #0f1117);
   color: #f7f2ea;
 }
-.manga-sidebar {
+.manga-topbar {
   position: relative;
   overflow: hidden;
-  padding: 24px 18px;
-  border-right: 1px solid rgba(255, 209, 153, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 26px;
+  border-bottom: 1px solid rgba(255, 209, 153, 0.18);
   background:
     linear-gradient(180deg, rgba(34, 24, 30, 0.96), rgba(18, 16, 24, 0.98)),
     repeating-linear-gradient(
@@ -235,12 +239,15 @@ onMounted(async () => {
   width: 160px;
   height: 160px;
   background: rgba(68, 209, 255, 0.15);
-  bottom: -40px;
-  right: -30px;
+  top: -34px;
+  right: 12%;
 }
-.sidebar-head {
+.topbar-brand {
   position: relative;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 18px;
 }
 .sidebar-tag {
   display: inline-flex;
@@ -251,27 +258,35 @@ onMounted(async () => {
   color: #ffddaf;
   border: 1px solid rgba(255, 190, 112, 0.28);
   background: rgba(255, 164, 67, 0.08);
+  white-space: nowrap;
 }
-.sidebar-head h2 {
-  margin: 16px 0 6px;
+.topbar-brand h2 {
+  margin: 0 0 6px;
   font-size: 34px;
   line-height: 1;
   font-family: Georgia, 'Times New Roman', serif;
 }
-.sidebar-head p {
-  margin: 0 0 20px;
+.topbar-brand p {
+  margin: 0;
   color: #cebfae;
   line-height: 1.6;
 }
+.topbar-nav {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .nav-btn {
-  width: 100%;
-  margin-bottom: 10px;
+  min-width: 148px;
   border-radius: 14px;
   border: 1px solid rgba(255, 212, 154, 0.15);
   background: rgba(255, 255, 255, 0.03);
   color: #f2e8dc;
-  text-align: left;
-  padding: 12px 14px;
+  text-align: center;
+  padding: 12px 18px;
 }
 .nav-btn.active {
   background: linear-gradient(135deg, rgba(255, 162, 72, 0.88), rgba(255, 118, 64, 0.92));
@@ -279,12 +294,14 @@ onMounted(async () => {
   border-color: transparent;
   box-shadow: 0 14px 32px rgba(255, 120, 50, 0.16);
 }
-.sidebar-panel {
-  margin-top: 22px;
+.hero-guide {
+  max-width: 380px;
+  min-width: 280px;
   padding: 16px;
   border-radius: 18px;
   border: 1px solid rgba(255, 218, 176, 0.14);
   background: rgba(255, 250, 243, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 250, 243, 0.02);
 }
 .panel-title {
   margin: 0 0 10px;
@@ -313,6 +330,9 @@ onMounted(async () => {
     linear-gradient(140deg, rgba(255, 248, 238, 0.06), rgba(255, 255, 255, 0.02)),
     radial-gradient(circle at top right, rgba(255, 177, 90, 0.12), transparent 28%);
   box-shadow: 0 16px 40px rgba(5, 6, 12, 0.28);
+}
+.hero-copy {
+  max-width: 760px;
 }
 .hero-kicker {
   margin: 0 0 8px;
@@ -479,17 +499,28 @@ onMounted(async () => {
 }
 
 @media (max-width: 1080px) {
-  .manga-shell {
-    grid-template-columns: 1fr;
-  }
   .studio-grid {
     grid-template-columns: 1fr;
   }
-  .hero-tools,
+  .manga-topbar,
   .manga-hero,
   .card-head {
     flex-direction: column;
     align-items: stretch;
+  }
+  .topbar-brand {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .topbar-nav {
+    width: 100%;
+  }
+  .nav-btn {
+    flex: 1 1 180px;
+  }
+  .hero-guide {
+    max-width: none;
+    min-width: 0;
   }
   .model-select {
     width: 100%;

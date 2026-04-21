@@ -168,6 +168,22 @@
                 <span>点击右上角“生成图片”，系统会用当前提示词出一张对应的分镜图。</span>
               </div>
 
+              <div v-if="referenceGallery(item).length" class="reference-gallery">
+                <div class="reference-gallery-head">
+                  <span>参考图缩略图库</span>
+                  <small>已关联 {{ referenceGallery(item).length }} 张参考图</small>
+                </div>
+                <div class="reference-gallery-list">
+                  <div v-for="asset in referenceGallery(item)" :key="`${item.id}-${asset.category}-${asset.name}`" class="reference-card">
+                    <img :src="asset.url" :alt="asset.name" class="reference-card-image" />
+                    <div class="reference-card-meta">
+                      <span class="reference-card-tag">{{ asset.category }}</span>
+                      <strong>{{ asset.name }}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <p v-if="item.error" class="image-error">{{ item.error }}</p>
             </div>
           </div>
@@ -312,6 +328,15 @@ const currentDraftSignature = computed(() =>
 const referenceInputId = (sectionId, category, name) =>
   `manga-ref-${sectionId}-${category}-${String(name || '').replace(/[^\w\u4e00-\u9fff-]+/g, '-')}`
 
+const referenceGallery = (item) => {
+  if (!item) return []
+  return [
+    ...(item.characters || []).map((entity) => ({ category: '人物', name: entity.name, url: entity.url || '' })),
+    ...(item.scenes || []).map((entity) => ({ category: '场景', name: entity.name, url: entity.url || '' })),
+    ...(item.items || []).map((entity) => ({ category: '物品', name: entity.name, url: entity.url || '' })),
+  ].filter((asset) => asset.name && asset.url)
+}
+
 const pickReferenceFile = (sectionId, category, name) => {
   const el = document.getElementById(referenceInputId(sectionId, category, name))
   if (el) el.click()
@@ -438,6 +463,7 @@ const generateAllImages = async () => {
   if (!sections.value.length || generatingAll.value) return
   generatingAll.value = true
   try {
+    await prepareSections()
     for (const item of sections.value) {
       await generateOneImage(item)
     }
@@ -808,6 +834,60 @@ onBeforeRouteLeave(async (to) => {
   margin: 12px 0 0;
   color: #ff958d;
   white-space: pre-wrap;
+}
+.reference-gallery {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 220, 184, 0.1);
+  background: rgba(255, 248, 238, 0.03);
+}
+.reference-gallery-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: #ffe6c7;
+}
+.reference-gallery-head small {
+  color: #cdbba8;
+}
+.reference-gallery-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 10px;
+}
+.reference-card {
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 220, 184, 0.12);
+  background: rgba(12, 13, 20, 0.66);
+}
+.reference-card-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+.reference-card-meta {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  color: #f7f2ea;
+}
+.reference-card-meta strong {
+  font-size: 13px;
+  word-break: break-word;
+}
+.reference-card-tag {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #1c130d;
+  background: linear-gradient(135deg, #ffd6a6, #ffb97c);
 }
 .empty-wrap {
   margin-top: 24px;

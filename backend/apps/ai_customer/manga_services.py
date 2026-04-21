@@ -31,6 +31,40 @@ STORYBOARD_SPLIT_PATTERN = re.compile(
     re.MULTILINE,
 )
 STORYBOARD_MEANINGFUL_PATTERN = re.compile(r"[0-9A-Za-z\u4e00-\u9fff]")
+ENTITY_SPLIT_PATTERN = re.compile(r"[，,、/；;｜|]+")
+CHARACTER_ACTION_PATTERN = re.compile(
+    r"([A-Za-z][A-Za-z0-9_-]{1,20}|[\u4e00-\u9fff]{2,8})(?=站在|坐在|看向|望向|拿着|抱着|背着|举着|走进|冲向|穿过|微笑|皱眉|低头|抬头|流泪|登场|出现|对视|说话|奔跑|回头|凝视)"
+)
+ITEM_ACTION_PATTERN = re.compile(
+    r"(?:手持|拿着|握着|抱着|背着|举着|佩戴|端着|撑着)([A-Za-z0-9\u4e00-\u9fff]{1,12})"
+)
+SCENE_PATTERN = re.compile(
+    r"([A-Za-z0-9\u4e00-\u9fff]{2,16}(?:教室|校园|天台|卧室|客厅|厨房|街道|街头|巷子|咖啡馆|餐厅|办公室|会议室|医院|病房|实验室|森林|山谷|海边|沙滩|车站|地铁站|机场|舞台|房间|走廊|阳台|庭院|古堡|宫殿|寺庙|仓库|工厂|酒吧|超市|商场|公园|操场|雪地|沙漠|河岸|湖边))"
+)
+ENTITY_STOPWORDS = {
+    "人物",
+    "角色",
+    "主角",
+    "配角",
+    "场景",
+    "环境",
+    "背景",
+    "物品",
+    "道具",
+    "镜头",
+    "画面",
+    "内容",
+    "景别",
+    "台词",
+    "旁白",
+    "提示词",
+    "动作",
+    "表情",
+    "第1镜",
+    "第2镜",
+    "第3镜",
+    "第4镜",
+}
 
 
 def _normalize_text(text: str) -> str:
@@ -171,6 +205,75 @@ def _unique_entity_list(values) -> list[str]:
     return items[:8]
 
 
+def _clean_entity_text(value: str) -> str:
+    text = _normalize_text(value)
+    text = re.sub(r"^(人物|角色|主角|配角|场景|环境|背景|物品|道具|关键物品|画面内容|人物动作/表情|人物动作|表情|镜头|景别|台词|旁白|提示词)[:：]?", "", text)
+    text = re.sub(r"^[\-*•\d.\s]+", "", text)
+    text = re.sub(r"[（(].*?[）)]", "", text)
+    return text.strip(" \n\t，,、；;。.:：")
+
+
+def _split_entities(value: str) -> list[str]:
+    cleaned = _clean_entity_text(value)
+    if not cleaned:
+        return []
+    parts = [part.strip() for part in ENTITY_SPLIT_PATTERN.split(cleaned) if part.strip()]
+    if not parts:
+        parts = [cleaned]
+    return [part[:20] for part in parts if part and part not in ENTITY_STOPWORDS]
+
+
+def _extract_labeled_values(text: str, labels: list[str]) -> list[str]:
+    results = []
+    for line in _normalize_text(text).splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        for label in labels:
+            if stripped.startswith(f"{label}:") or stripped.startswith(f"{label}："):
+                results.extend(_split_entities(stripped.split(":", 1)[-1] if ":" in stripped else stripped.split("：", 1)[-1]))
+                break
+    return _unique_entity_list(results)
+
+
+def _extract_character_candidates(text: str) -> list[str]:
+    labeled = _extract_labeled_values(text, ["人物", "角色", "主角", "配角", "出场人物"])
+    regex_hits = [match.group(1) for match in CHARACTER_ACTION_PATTERN.finditer(_normalize_text(text))]
+    return _unique_entity_list([*labeled, *regex_hits])
+
+
+def _extract_scene_candidates(text: str) -> list[str]:
+    labeled = _extract_labeled_values(text, ["场景", "地点", "环境", "背景", "时空", "时间地点"])
+    regex_hits = [match.group(1) for match in SCENE_PATTERN.finditer(_normalize_text(text))]
+    return _unique_entity_list([*labeled, *regex_hits])
+
+
+def _extract_item_candidates(text: str) -> list[str]:
+    labeled = _extract_labeled_values(text, ["物品", "道具", "关键物品", "手持物", "出现物品"])
+    regex_hits = [match.group(1) for match in ITEM_ACTION_PATTERN.finditer(_normalize_text(text))]
+    return _unique_entity_list([*labeled, *regex_hits])
+
+
+def _extract_entities_with_fallback(raw_prompt: str, optimized_prompt: str, data: dict) -> dict:
+    characters = _unique_entity_list(data.get("characters") or [])
+    scenes = _unique_entity_list(data.get("scenes") or [])
+    items = _unique_entity_list(data.get("items") or [])
+
+    source_text = "\n".join(part for part in [raw_prompt, optimized_prompt] if _normalize_text(part))
+    if len(characters) < 1:
+        characters = _extract_character_candidates(source_text)
+    if len(scenes) < 1:
+        scenes = _extract_scene_candidates(source_text)
+    if len(items) < 1:
+        items = _extract_item_candidates(source_text)
+
+    return {
+        "characters": characters,
+        "scenes": scenes,
+        "items": items,
+    }
+
+
 def _call_llm_json(runtime: dict, *, system_prompt: str, user_prompt: str) -> dict:
     api_key = str(runtime.get("api_key") or "").strip()
     base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
@@ -217,6 +320,7 @@ def prepare_storyboard_image_sections(sections: list[dict]) -> list[dict]:
         "JSON 结构必须是："
         '{"optimized_prompt":"", "characters":[""], "scenes":[""], "items":[""]}'
         "其中：characters 提取人物，scenes 提取场景，items 提取关键物品。"
+        "请尽量为每个字段提取 1 到 3 个最关键实体；只有在原文确实没有时才返回空数组。"
     )
 
     prepared = []
@@ -235,6 +339,7 @@ def prepare_storyboard_image_sections(sections: list[dict]) -> list[dict]:
             data = {}
 
         optimized_prompt = _normalize_text(data.get("optimized_prompt") or raw_prompt)
+        extracted = _extract_entities_with_fallback(raw_prompt, optimized_prompt, data)
         prepared.append(
             {
                 "id": (section or {}).get("id") or len(prepared) + 1,
@@ -242,9 +347,9 @@ def prepare_storyboard_image_sections(sections: list[dict]) -> list[dict]:
                 "title": title,
                 "raw_prompt": raw_prompt,
                 "prompt": optimized_prompt,
-                "characters": _unique_entity_list(data.get("characters") or []),
-                "scenes": _unique_entity_list(data.get("scenes") or []),
-                "items": _unique_entity_list(data.get("items") or []),
+                "characters": extracted["characters"],
+                "scenes": extracted["scenes"],
+                "items": extracted["items"],
             }
         )
     return prepared

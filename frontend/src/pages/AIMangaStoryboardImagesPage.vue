@@ -22,6 +22,22 @@
           <p class="hero-sub">固定使用 `doubao-seedream-5-0-260128`。你可以先改每段提示词，再单独生成对应分镜图。</p>
         </div>
         <div class="hero-actions">
+          <div class="style-picker">
+            <span class="style-label">画面风格</span>
+            <div class="style-options">
+              <button
+                v-for="option in styleOptions"
+                :key="option"
+                type="button"
+                class="style-option"
+                :class="{ active: selectedStyle === option }"
+                @click="selectStyle(option)"
+              >
+                {{ option }}
+              </button>
+            </div>
+            <p class="style-tip">生成与复制时会自动拼接：{{ selectedStyle }} + 分镜提示词 + {{ selectedStyle }}</p>
+          </div>
           <el-button class="ghost-btn" @click="$router.push('/ai-manga')">返回分镜稿</el-button>
           <el-button class="main-btn" type="primary" :disabled="!sections.length" :loading="generatingAll" @click="generateAllImages">
             批量生成全部
@@ -156,9 +172,11 @@
                   <el-button plain size="small" :loading="item.generating" @click="generateOneImage(item)">
                     {{ item.imageUrl ? '重生成' : '生成图片' }}
                   </el-button>
-                  <el-button plain size="small" :disabled="!item.imageUrl" @click="copyPrompt(item.prompt)">复制提示词</el-button>
+                  <el-button plain size="small" :disabled="!item.imageUrl" @click="copyStyledPrompt(item)">复制提示词</el-button>
                 </div>
               </div>
+
+              <p class="styled-prompt-preview">生图风格词：{{ selectedStyle }} / 实际生图提示词将自动拼接该风格。</p>
 
               <div v-if="item.imageUrl" class="image-frame">
                 <img :src="item.imageUrl" :alt="item.title || `分镜${item.index}`" />
@@ -213,6 +231,8 @@ const activeSectionId = ref(null)
 const generatingAll = ref(false)
 const imageModelName = 'doubao-seedream-5-0-260128'
 const lastSavedSignature = ref('')
+const styleOptions = ['二维动漫', '3D动漫', '写实真人']
+const selectedStyle = ref(styleOptions[0])
 
 const normalizeEntityGroup = (values) => {
   return (Array.isArray(values) ? values : [])
@@ -279,6 +299,7 @@ const loadStoryboardPayload = () => {
   }
   try {
     hydrateSections(payload.sections, payload.storyboard)
+    selectedStyle.value = styleOptions.includes(payload.style) ? payload.style : styleOptions[0]
     lastSavedSignature.value = currentDraftSignature.value
   } catch {
     ElMessage.error('分镜稿缓存已损坏，请重新生成')
@@ -290,6 +311,7 @@ const persistPayload = () => {
   setActiveStoryboardPayload({
     storyboard: sections.value.map((item) => item.prompt).join('\n\n'),
     sections: sections.value,
+    style: selectedStyle.value,
     updatedAt: Date.now(),
   })
 }
@@ -308,22 +330,39 @@ const currentDraftPayload = computed(() => ({
     imageUrl: item.imageUrl || '',
     preparedAt: item.preparedAt || 0,
   })),
+  style: selectedStyle.value,
   updatedAt: Date.now(),
 }))
 
 const currentDraftSignature = computed(() =>
   JSON.stringify(
-    currentDraftPayload.value.sections.map((item) => ({
-      id: item.id,
-      title: item.title,
-      prompt: String(item.prompt || '').trim(),
-      characters: (item.characters || []).map((entity) => ({ name: entity.name, url: entity.url || '' })),
-      scenes: (item.scenes || []).map((entity) => ({ name: entity.name, url: entity.url || '' })),
-      items: (item.items || []).map((entity) => ({ name: entity.name, url: entity.url || '' })),
-      imageUrl: item.imageUrl || '',
-    }))
+    {
+      style: selectedStyle.value,
+      sections: currentDraftPayload.value.sections.map((item) => ({
+        id: item.id,
+        title: item.title,
+        prompt: String(item.prompt || '').trim(),
+        characters: (item.characters || []).map((entity) => ({ name: entity.name, url: entity.url || '' })),
+        scenes: (item.scenes || []).map((entity) => ({ name: entity.name, url: entity.url || '' })),
+        items: (item.items || []).map((entity) => ({ name: entity.name, url: entity.url || '' })),
+        imageUrl: item.imageUrl || '',
+      })),
+    }
   )
 )
+
+const selectStyle = (style) => {
+  selectedStyle.value = style
+  persistPayload()
+}
+
+const buildStyledPrompt = (prompt) => {
+  const basePrompt = String(prompt || '').trim()
+  const style = String(selectedStyle.value || '').trim()
+  if (!basePrompt) return ''
+  if (!style) return basePrompt
+  return `${style}，${basePrompt}，${style}`
+}
 
 const referenceInputId = (sectionId, category, name) =>
   `manga-ref-${sectionId}-${category}-${String(name || '').replace(/[^\w\u4e00-\u9fff-]+/g, '-')}`
@@ -427,9 +466,13 @@ const copyPrompt = async (text) => {
   }
 }
 
+const copyStyledPrompt = async (item) => {
+  await copyPrompt(buildStyledPrompt(item?.prompt || ''))
+}
+
 const generateOneImage = async (item) => {
   if (!item || item.generating) return
-  const prompt = String(item.prompt || '').trim()
+  const prompt = buildStyledPrompt(item.prompt)
   if (!prompt) {
     ElMessage.warning('请先填写这一段分镜提示词')
     return
@@ -618,9 +661,45 @@ onBeforeRouteLeave(async (to) => {
 }
 .hero-actions {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   flex-wrap: wrap;
+}
+.style-picker {
+  min-width: 320px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 220, 184, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+}
+.style-label {
+  display: inline-flex;
+  margin-bottom: 10px;
+  color: #ffcb87;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+.style-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.style-option {
+  border: 1px solid rgba(255, 212, 154, 0.16);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #f3e7d8;
+  background: rgba(255, 255, 255, 0.03);
+}
+.style-option.active {
+  color: #1c130d;
+  border-color: transparent;
+  background: linear-gradient(135deg, #ffd6a6, #ffb97c);
+}
+.style-tip {
+  margin: 10px 0 0;
+  color: #cdbba8;
+  font-size: 12px;
 }
 .ghost-btn {
   border-color: rgba(255, 205, 138, 0.24);
@@ -793,6 +872,11 @@ onBeforeRouteLeave(async (to) => {
 }
 .image-sub {
   margin: 0;
+  color: #cdbba8;
+  font-size: 12px;
+}
+.styled-prompt-preview {
+  margin: 0 0 12px;
   color: #cdbba8;
   font-size: 12px;
 }

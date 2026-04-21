@@ -28,6 +28,7 @@ STORYBOARD_SPLIT_PATTERN = re.compile(
     r"(?=^(?:第\s*[0-9零一二三四五六七八九十百千]+\s*[镜幕格]|分镜\s*[0-9零一二三四五六七八九十百千]+))",
     re.MULTILINE,
 )
+STORYBOARD_MEANINGFUL_PATTERN = re.compile(r"[0-9A-Za-z\u4e00-\u9fff]")
 
 
 def _normalize_text(text: str) -> str:
@@ -113,14 +114,20 @@ def split_storyboard_sections(storyboard: str) -> list[dict]:
 
     sections = []
     for idx, part in enumerate(parts, start=1):
+        normalized_part = _normalize_text(part)
+        if not STORYBOARD_MEANINGFUL_PATTERN.search(normalized_part):
+            continue
         first_line = next((line.strip() for line in part.splitlines() if line.strip()), "")
+        if not STORYBOARD_MEANINGFUL_PATTERN.search(first_line):
+            content_lines = [line.strip() for line in normalized_part.splitlines() if STORYBOARD_MEANINGFUL_PATTERN.search(line)]
+            first_line = content_lines[0] if content_lines else ""
         title = first_line[:40] if first_line else f"分镜{idx}"
         sections.append(
             {
-                "id": idx,
-                "index": idx,
+                "id": len(sections) + 1,
+                "index": len(sections) + 1,
                 "title": title,
-                "prompt": part,
+                "prompt": normalized_part,
             }
         )
     return sections

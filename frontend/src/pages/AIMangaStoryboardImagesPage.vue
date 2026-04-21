@@ -109,17 +109,19 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { computed, onMounted, ref } from 'vue'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { generateAiMangaStoryboardImage } from '../api/aiManga'
+import { getActiveStoryboardPayload, saveAiMangaDraft, setActiveStoryboardPayload } from '../utils/aiMangaDrafts'
 
 const router = useRouter()
 const sections = ref([])
 const activeSectionId = ref(null)
 const generatingAll = ref(false)
 const imageModelName = 'doubao-seedream-5-0-260128'
+const lastSavedSignature = ref('')
 
 const hydrateSections = (rawSections, rawStoryboard = '') => {
   const normalized = Array.isArray(rawSections) ? rawSections : []
@@ -152,15 +154,15 @@ const hydrateSections = (rawSections, rawStoryboard = '') => {
 }
 
 const loadStoryboardPayload = () => {
-  const raw = sessionStorage.getItem('ai_manga_storyboard_payload')
-  if (!raw) {
+  const payload = getActiveStoryboardPayload()
+  if (!payload) {
     ElMessage.warning('请先在 AI漫剧创作页生成分镜稿')
     router.replace('/ai-manga')
     return
   }
   try {
-    const payload = JSON.parse(raw)
     hydrateSections(payload.sections, payload.storyboard)
+    lastSavedSignature.value = currentDraftSignature.value
   } catch {
     ElMessage.error('分镜稿缓存已损坏，请重新生成')
     router.replace('/ai-manga')
@@ -168,15 +170,35 @@ const loadStoryboardPayload = () => {
 }
 
 const persistPayload = () => {
-  sessionStorage.setItem(
-    'ai_manga_storyboard_payload',
-    JSON.stringify({
+  setActiveStoryboardPayload({
       storyboard: sections.value.map((item) => item.prompt).join('\n\n'),
       sections: sections.value,
       updatedAt: Date.now(),
     })
-  )
 }
+
+const currentDraftPayload = computed(() => ({
+  storyboard: sections.value.map((item) => String(item.prompt || '').trim()).filter(Boolean).join('\n\n'),
+  sections: sections.value.map((item) => ({
+    id: item.id,
+    index: item.index,
+    title: item.title,
+    prompt: item.prompt,
+    imageUrl: item.imageUrl || '',
+  })),
+  updatedAt: Date.now(),
+}))
+
+const currentDraftSignature = computed(() =>
+  JSON.stringify(
+    currentDraftPayload.value.sections.map((item) => ({
+      id: item.id,
+      title: item.title,
+      prompt: String(item.prompt || '').trim(),
+      imageUrl: item.imageUrl || '',
+    }))
+  )
+)
 
 const copyPrompt = async (text) => {
   try {
@@ -225,7 +247,52 @@ const generateAllImages = async () => {
   }
 }
 
+const defaultDraftName = () => {
+  const head = sections.value.find((item) => String(item.prompt || '').trim())?.title || '分镜图草稿'
+  const now = new Date()
+  const stamp = `${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  return `${head} ${stamp}`
+}
+
+const saveDraftFlow = async () => {
+  const { value } = await ElMessageBox.prompt('请输入草稿名称，保存后可从 AI漫剧 的“草稿记录”再次打开。', '保存草稿', {
+    confirmButtonText: '保存',
+    cancelButtonText: '取消',
+    inputValue: defaultDraftName(),
+    inputPlaceholder: '例如：第1话 分镜图草稿',
+  })
+  const draft = saveAiMangaDraft({
+    name: value,
+    payload: currentDraftPayload.value,
+  })
+  lastSavedSignature.value = currentDraftSignature.value
+  persistPayload()
+  ElMessage.success(`草稿已保存：${draft.name}`)
+}
+
+const maybeSaveDraftBeforeLeave = async () => {
+  if (!sections.value.length || currentDraftSignature.value === lastSavedSignature.value) return true
+  try {
+    await ElMessageBox.confirm('返回分镜稿前，是否保存当前分镜图草稿？', '保存草稿', {
+      confirmButtonText: '保存并返回',
+      cancelButtonText: '直接返回',
+      distinguishCancelAndClose: true,
+      type: 'warning',
+    })
+    await saveDraftFlow()
+    return true
+  } catch (e) {
+    if (e === 'cancel') return true
+    return false
+  }
+}
+
 onMounted(loadStoryboardPayload)
+
+onBeforeRouteLeave(async (to) => {
+  if (to.path !== '/ai-manga') return true
+  return await maybeSaveDraftBeforeLeave()
+})
 </script>
 
 <style scoped>

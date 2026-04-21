@@ -50,6 +50,7 @@
                 />
               </el-select>
               <el-button plain class="prompt-btn" @click="promptDialogVisible = true">分镜提示词</el-button>
+              <el-button plain class="prompt-btn" @click="openDraftsDialog">草稿记录</el-button>
               <input ref="fileInputRef" type="file" class="file-hidden" accept=".pdf,.doc,.docx" @change="handleFileChange" />
               <el-button class="outline-btn" @click="pickFile">上传文档</el-button>
               <span v-if="selectedFileName" class="file-chip">{{ selectedFileName }}</span>
@@ -105,15 +106,32 @@
         <el-button type="primary" @click="promptDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="draftsDialogVisible" title="草稿记录" width="760px">
+      <div v-if="!drafts.length" class="draft-empty">还没有保存过分镜图草稿。</div>
+      <div v-else class="draft-list">
+        <div v-for="draft in drafts" :key="draft.id" class="draft-item">
+          <div>
+            <p class="draft-name">{{ draft.name }}</p>
+            <p class="draft-meta">更新时间 {{ formatDraftTime(draft.updatedAt) }} · {{ draft.shotCount || 0 }} 段</p>
+          </div>
+          <div class="draft-actions">
+            <el-button plain @click="openDraft(draft)">打开草稿</el-button>
+            <el-button plain type="danger" @click="deleteDraft(draft)">删除</el-button>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { getAiMangaConfig, generateAiMangaStoryboard } from '../api/aiManga'
+import { listAiMangaDrafts, removeAiMangaDraft, setActiveStoryboardPayload } from '../utils/aiMangaDrafts'
 
 const router = useRouter()
 const fileInputRef = ref(null)
@@ -124,9 +142,11 @@ const generating = ref(false)
 const storyboardText = ref('')
 const storyboardSections = ref([])
 const promptDialogVisible = ref(false)
+const draftsDialogVisible = ref(false)
 const storyboardPrompt = ref('')
 const selectedModelPreset = ref('assistant')
 const modelOptions = ref([])
+const drafts = ref([])
 
 const currentModelLabel = computed(() => {
   const matched = modelOptions.value.find((item) => item.id === selectedModelPreset.value)
@@ -198,13 +218,55 @@ const goStoryboardImages = () => {
     modelLabel: currentModelLabel.value,
     updatedAt: Date.now(),
   }
-  sessionStorage.setItem('ai_manga_storyboard_payload', JSON.stringify(payload))
+  setActiveStoryboardPayload(payload)
   router.push('/ai-manga/storyboard-images')
+}
+
+const loadDrafts = () => {
+  drafts.value = listAiMangaDrafts()
+}
+
+const openDraftsDialog = () => {
+  loadDrafts()
+  draftsDialogVisible.value = true
+}
+
+const openDraft = (draft) => {
+  if (!draft?.payload) return
+  setActiveStoryboardPayload(draft.payload)
+  draftsDialogVisible.value = false
+  router.push('/ai-manga/storyboard-images')
+}
+
+const deleteDraft = async (draft) => {
+  if (!draft?.id) return
+  try {
+    await ElMessageBox.confirm(`确认删除草稿「${draft.name || '未命名草稿'}」吗？`, '删除草稿', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  removeAiMangaDraft(draft.id)
+  loadDrafts()
+  ElMessage.success('草稿已删除')
+}
+
+const formatDraftTime = (value) => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(
+    date.getHours()
+  ).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
 onMounted(async () => {
   try {
     await loadConfig()
+    loadDrafts()
   } catch (e) {
     ElMessage.error(String(e || '获取漫剧配置失败'))
     router.push('/ai-customer')
@@ -515,6 +577,44 @@ onMounted(async () => {
   border-radius: 18px;
   background: rgba(20, 18, 26, 0.96);
 }
+.draft-empty {
+  padding: 28px 0;
+  text-align: center;
+  color: #d4c7b7;
+}
+.draft-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 62vh;
+  overflow: auto;
+}
+.draft-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 220, 184, 0.12);
+  background: rgba(18, 17, 24, 0.68);
+}
+.draft-name {
+  margin: 0 0 8px;
+  color: #fff1dc;
+  font-size: 18px;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+.draft-meta {
+  margin: 0;
+  color: #cdbba8;
+  font-size: 12px;
+}
+.draft-actions {
+  display: inline-flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
 @media (max-width: 1080px) {
   .studio-grid {
@@ -535,6 +635,10 @@ onMounted(async () => {
   }
   .nav-btn {
     flex: 1 1 180px;
+  }
+  .draft-item {
+    flex-direction: column;
+    align-items: stretch;
   }
   .hero-guide {
     max-width: none;

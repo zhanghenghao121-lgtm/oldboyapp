@@ -79,6 +79,7 @@
             </div>
             <div class="result-actions">
               <span class="model-badge">{{ currentModelLabel }}</span>
+              <el-button plain :disabled="!storyboardText" @click="goStoryboardImages">分镜图生成</el-button>
               <el-button plain :disabled="!storyboardText" @click="copyStoryboard">复制内容</el-button>
             </div>
           </div>
@@ -121,6 +122,7 @@ const selectedFileName = ref('')
 const inputText = ref('')
 const generating = ref(false)
 const storyboardText = ref('')
+const storyboardSections = ref([])
 const promptDialogVisible = ref(false)
 const storyboardPrompt = ref('')
 const selectedModelPreset = ref('assistant')
@@ -164,6 +166,7 @@ const submitStoryboard = async () => {
   try {
     const res = await generateAiMangaStoryboard(formData)
     storyboardText.value = res.data.storyboard || ''
+    storyboardSections.value = res.data.sections || []
     ElMessage.success('剧本识别完成，可直接复制分镜结果')
   } catch (e) {
     ElMessage.error(String(e || '剧本识别失败'))
@@ -183,6 +186,21 @@ const copyText = async (text, successText) => {
 
 const copyStoryboard = () => copyText(storyboardText.value, '分镜结果已复制')
 const copyPrompt = () => copyText(storyboardPrompt.value, '提示词已复制')
+
+const goStoryboardImages = () => {
+  if (!storyboardText.value.trim()) {
+    ElMessage.warning('请先生成分镜稿')
+    return
+  }
+  const payload = {
+    storyboard: storyboardText.value,
+    sections: storyboardSections.value || [],
+    modelLabel: currentModelLabel.value,
+    updatedAt: Date.now(),
+  }
+  sessionStorage.setItem('ai_manga_storyboard_payload', JSON.stringify(payload))
+  router.push('/ai-manga/storyboard-images')
+}
 
 onMounted(async () => {
   try {

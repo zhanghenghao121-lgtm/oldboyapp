@@ -7,6 +7,7 @@ import ChangePasswordPage from '../pages/ChangePasswordPage.vue'
 import RechargePage from '../pages/RechargePage.vue'
 import AICustomerPage from '../pages/AICustomerPage.vue'
 import AIMangaPage from '../pages/AIMangaPage.vue'
+import AIMangaStoryboardImagesPage from '../pages/AIMangaStoryboardImagesPage.vue'
 import AdminLoginPage from '../pages/AdminLoginPage.vue'
 import AdminDashboardPage from '../pages/AdminDashboardPage.vue'
 import { me } from '../api/auth'
@@ -25,6 +26,7 @@ const router = createRouter({
     { path: '/recharge', component: RechargePage, meta: { requiresAuth: true } },
     { path: '/ai-customer', component: AICustomerPage, meta: { requiresAuth: true } },
     { path: '/ai-manga', component: AIMangaPage, meta: { requiresAuth: true } },
+    { path: '/ai-manga/storyboard-images', component: AIMangaStoryboardImagesPage, meta: { requiresAuth: true } },
     { path: '/admin/login', component: AdminLoginPage },
     { path: '/admin/dashboard', component: AdminDashboardPage, meta: { requiresConsoleAuth: true } },
   ],

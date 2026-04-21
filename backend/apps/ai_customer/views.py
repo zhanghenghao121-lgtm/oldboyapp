@@ -32,6 +32,7 @@ from apps.ai_customer.memory_services import (
 from apps.ai_customer.manga_services import (
     MangaScriptError,
     extract_story_source_text,
+    generate_manga_storyboard_image,
     generate_manga_storyboard,
 )
 from apps.ai_customer.runtime_config import (
@@ -245,6 +246,24 @@ def ai_manga_storyboard(request):
         source_text = extract_story_source_text(file_obj=file_obj, text=text)
         result = generate_manga_storyboard(source_text, model_preset=model_preset)
         return ok(result)
+    except MangaScriptError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def ai_manga_storyboard_image(request):
+    prompt = str(request.data.get("prompt", "")).strip()
+    section_id = request.data.get("section_id")
+    try:
+        result = generate_manga_storyboard_image(prompt)
+        return ok(
+            {
+                **result,
+                "section_id": section_id,
+            }
+        )
     except MangaScriptError as exc:
         return bad(str(exc), exc.status)
 

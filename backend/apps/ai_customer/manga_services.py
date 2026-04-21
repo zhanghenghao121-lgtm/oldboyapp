@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import zipfile
 from xml.etree import ElementTree
 
@@ -21,6 +22,12 @@ class MangaScriptError(Exception):
     def __init__(self, message: str, status: int = 400):
         super().__init__(message)
         self.status = status
+
+
+STORYBOARD_SPLIT_PATTERN = re.compile(
+    r"(?=^(?:第\s*[0-9零一二三四五六七八九十百千]+\s*[镜幕格]|分镜\s*[0-9零一二三四五六七八九十百千]+))",
+    re.MULTILINE,
+)
 
 
 def _normalize_text(text: str) -> str:
@@ -94,6 +101,31 @@ def extract_story_source_text(file_obj=None, text: str = "") -> str:
     return merged
 
 
+def split_storyboard_sections(storyboard: str) -> list[dict]:
+    text = _normalize_text(storyboard)
+    if not text:
+        return []
+
+    parts = [item.strip() for item in STORYBOARD_SPLIT_PATTERN.split(text) if item.strip()]
+    if len(parts) <= 1:
+        blocks = [item.strip() for item in re.split(r"\n{2,}", text) if item.strip()]
+        parts = blocks if len(blocks) > 1 else [text]
+
+    sections = []
+    for idx, part in enumerate(parts, start=1):
+        first_line = next((line.strip() for line in part.splitlines() if line.strip()), "")
+        title = first_line[:40] if first_line else f"分镜{idx}"
+        sections.append(
+            {
+                "id": idx,
+                "index": idx,
+                "title": title,
+                "prompt": part,
+            }
+        )
+    return sections
+
+
 def generate_manga_storyboard(source_text: str, model_preset: str = "assistant") -> dict:
     runtime = get_runtime_llm_config(model_preset)
     api_key = str(runtime.get("api_key") or "").strip()
@@ -140,8 +172,69 @@ def generate_manga_storyboard(source_text: str, model_preset: str = "assistant")
         raise MangaScriptError("漫剧模型未返回有效内容", 502)
     return {
         "storyboard": content,
+        "sections": split_storyboard_sections(content),
         "source_text": source_text,
         "model": model,
         "base_url": base_url,
         "model_preset": str(model_preset or "assistant").strip().lower() or "assistant",
+    }
+
+
+def generate_manga_storyboard_image(prompt: str) -> dict:
+    api_key = str(getattr(settings, "ARK_API_KEY", "") or "").strip()
+    base_url = str(getattr(settings, "ARK_IMAGE_BASE_URL", "") or "").strip().rstrip("/")
+    if not api_key:
+        raise MangaScriptError("ARK_API_KEY 未配置，暂时无法生成分镜图", 500)
+    if not base_url:
+        raise MangaScriptError("ARK_IMAGE_BASE_URL 未配置，暂时无法生成分镜图", 500)
+
+    text = _normalize_text(prompt)
+    if not text:
+        raise MangaScriptError("分镜提示词不能为空")
+
+    payload = {
+        "model": "doubao-seedream-5-0-260128",
+        "prompt": text[:4000],
+        "sequential_image_generation": "disabled",
+        "response_format": "url",
+        "size": "2K",
+        "stream": False,
+        "watermark": True,
+    }
+    try:
+        resp = requests.post(
+            f"{base_url}/images/generations",
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=max(int(getattr(settings, "ARK_IMAGE_TIMEOUT", 90)), 30),
+        )
+    except Exception as exc:
+        raise MangaScriptError(f"分镜图请求失败：{exc}", 502)
+
+    if resp.status_code >= 400:
+        try:
+            body = resp.json()
+        except Exception:
+            body = {"message": (resp.text or "").strip()[:300]}
+        message = ""
+        if isinstance(body, dict):
+            if isinstance(body.get("error"), dict):
+                message = str(body["error"].get("message") or body["error"].get("type") or "")
+            if not message:
+                message = str(body.get("message") or body.get("detail") or body.get("msg") or "")
+        raise MangaScriptError(message or f"分镜图服务错误({resp.status_code})", 502)
+
+    try:
+        body = resp.json()
+    except Exception as exc:
+        raise MangaScriptError(f"分镜图返回非 JSON：{exc}", 502)
+    items = body.get("data") or []
+    first = items[0] if isinstance(items, list) and items else {}
+    image_url = str((first or {}).get("url") or "").strip()
+    if not image_url:
+        raise MangaScriptError("分镜图结果缺少图片地址", 502)
+    return {
+        "image_url": image_url,
+        "model": "doubao-seedream-5-0-260128",
+        "prompt": text,
     }

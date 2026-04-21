@@ -45,19 +45,93 @@
                 <button class="shot-anchor" type="button" @click="activeSectionId = item.id">
                   {{ item.title || `分镜${item.index}` }}
                 </button>
-                <el-button plain size="small" :loading="item.generating" @click="generateOneImage(item)">
-                  {{ item.imageUrl ? '重新生成' : '生成' }}
-                </el-button>
+                <div class="prompt-card-actions">
+                  <el-button plain size="small" :loading="item.preparing" @click="prepareOneSection(item)">重新优化</el-button>
+                  <el-button plain size="small" :loading="item.generating" @click="generateOneImage(item)">
+                    {{ item.imageUrl ? '重新生成' : '生成' }}
+                  </el-button>
+                </div>
               </div>
+              <p v-if="item.preparing" class="prep-tip">正在用 DeepSeek 优化这段分镜提示词并提取人物/场景/物品...</p>
               <el-input
                 v-model="item.prompt"
                 type="textarea"
                 resize="none"
                 :rows="8"
                 class="prompt-editor"
-                placeholder="可继续微调这一段分镜提示词"
+                placeholder="这里显示优化后的首帧图片提示词，也可以继续手动微调。"
                 @focus="activeSectionId = item.id"
               />
+              <div class="entity-groups">
+                <div class="entity-group">
+                  <p class="entity-title">人物</p>
+                  <div v-if="item.characters.length" class="entity-list">
+                    <div v-for="entity in item.characters" :key="`character-${item.id}-${entity.name}`" class="entity-chip">
+                      <div class="entity-meta">
+                        <span>{{ entity.name }}</span>
+                        <img v-if="entity.url" :src="entity.url" :alt="entity.name" class="entity-thumb" />
+                      </div>
+                      <input
+                        :id="referenceInputId(item.id, 'characters', entity.name)"
+                        type="file"
+                        accept="image/*"
+                        class="file-hidden"
+                        @change="handleReferenceUpload($event, item, 'characters', entity)"
+                      />
+                      <el-button plain size="small" :loading="entity.uploading" @click="pickReferenceFile(item.id, 'characters', entity.name)">
+                        {{ entity.url ? '重传参考图' : '上传参考图' }}
+                      </el-button>
+                    </div>
+                  </div>
+                  <p v-else class="entity-empty">未提取到明确人物</p>
+                </div>
+
+                <div class="entity-group">
+                  <p class="entity-title">场景</p>
+                  <div v-if="item.scenes.length" class="entity-list">
+                    <div v-for="entity in item.scenes" :key="`scene-${item.id}-${entity.name}`" class="entity-chip">
+                      <div class="entity-meta">
+                        <span>{{ entity.name }}</span>
+                        <img v-if="entity.url" :src="entity.url" :alt="entity.name" class="entity-thumb" />
+                      </div>
+                      <input
+                        :id="referenceInputId(item.id, 'scenes', entity.name)"
+                        type="file"
+                        accept="image/*"
+                        class="file-hidden"
+                        @change="handleReferenceUpload($event, item, 'scenes', entity)"
+                      />
+                      <el-button plain size="small" :loading="entity.uploading" @click="pickReferenceFile(item.id, 'scenes', entity.name)">
+                        {{ entity.url ? '重传参考图' : '上传参考图' }}
+                      </el-button>
+                    </div>
+                  </div>
+                  <p v-else class="entity-empty">未提取到明确场景</p>
+                </div>
+
+                <div class="entity-group">
+                  <p class="entity-title">物品</p>
+                  <div v-if="item.items.length" class="entity-list">
+                    <div v-for="entity in item.items" :key="`item-${item.id}-${entity.name}`" class="entity-chip">
+                      <div class="entity-meta">
+                        <span>{{ entity.name }}</span>
+                        <img v-if="entity.url" :src="entity.url" :alt="entity.name" class="entity-thumb" />
+                      </div>
+                      <input
+                        :id="referenceInputId(item.id, 'items', entity.name)"
+                        type="file"
+                        accept="image/*"
+                        class="file-hidden"
+                        @change="handleReferenceUpload($event, item, 'items', entity)"
+                      />
+                      <el-button plain size="small" :loading="entity.uploading" @click="pickReferenceFile(item.id, 'items', entity.name)">
+                        {{ entity.url ? '重传参考图' : '上传参考图' }}
+                      </el-button>
+                    </div>
+                  </div>
+                  <p v-else class="entity-empty">未提取到关键物品</p>
+                </div>
+              </div>
             </div>
           </div>
         </article>
@@ -113,7 +187,8 @@ import { computed, onMounted, ref } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { generateAiMangaStoryboardImage } from '../api/aiManga'
+import { prepareAiMangaStoryboardSections, generateAiMangaStoryboardImage } from '../api/aiManga'
+import { uploadToCos } from '../api/storage'
 import { getActiveStoryboardPayload, saveAiMangaDraft, setActiveStoryboardPayload } from '../utils/aiMangaDrafts'
 
 const router = useRouter()
@@ -123,6 +198,20 @@ const generatingAll = ref(false)
 const imageModelName = 'doubao-seedream-5-0-260128'
 const lastSavedSignature = ref('')
 
+const normalizeEntityGroup = (values) => {
+  return (Array.isArray(values) ? values : [])
+    .map((item) => {
+      if (typeof item === 'string') return { name: item, url: '', fileName: '', uploading: false }
+      return {
+        name: String(item?.name || '').trim(),
+        url: String(item?.url || '').trim(),
+        fileName: String(item?.fileName || '').trim(),
+        uploading: false,
+      }
+    })
+    .filter((item) => item.name)
+}
+
 const hydrateSections = (rawSections, rawStoryboard = '') => {
   const normalized = Array.isArray(rawSections) ? rawSections : []
   if (normalized.length) {
@@ -130,8 +219,14 @@ const hydrateSections = (rawSections, rawStoryboard = '') => {
       id: item.id || idx + 1,
       index: item.index || idx + 1,
       title: item.title || `分镜${idx + 1}`,
+      rawPrompt: item.rawPrompt || item.prompt || '',
       prompt: item.prompt || '',
+      characters: normalizeEntityGroup(item.characters),
+      scenes: normalizeEntityGroup(item.scenes),
+      items: normalizeEntityGroup(item.items),
       imageUrl: item.imageUrl || '',
+      preparing: false,
+      preparedAt: item.preparedAt || 0,
       generating: false,
       error: '',
     }))
@@ -141,8 +236,14 @@ const hydrateSections = (rawSections, rawStoryboard = '') => {
         id: 1,
         index: 1,
         title: '分镜1',
+        rawPrompt: String(rawStoryboard || '').trim(),
         prompt: String(rawStoryboard || '').trim(),
+        characters: [],
+        scenes: [],
+        items: [],
         imageUrl: '',
+        preparing: false,
+        preparedAt: 0,
         generating: false,
         error: '',
       },
@@ -171,10 +272,10 @@ const loadStoryboardPayload = () => {
 
 const persistPayload = () => {
   setActiveStoryboardPayload({
-      storyboard: sections.value.map((item) => item.prompt).join('\n\n'),
-      sections: sections.value,
-      updatedAt: Date.now(),
-    })
+    storyboard: sections.value.map((item) => item.prompt).join('\n\n'),
+    sections: sections.value,
+    updatedAt: Date.now(),
+  })
 }
 
 const currentDraftPayload = computed(() => ({
@@ -183,8 +284,13 @@ const currentDraftPayload = computed(() => ({
     id: item.id,
     index: item.index,
     title: item.title,
+    rawPrompt: item.rawPrompt,
     prompt: item.prompt,
+    characters: item.characters,
+    scenes: item.scenes,
+    items: item.items,
     imageUrl: item.imageUrl || '',
+    preparedAt: item.preparedAt || 0,
   })),
   updatedAt: Date.now(),
 }))
@@ -195,10 +301,97 @@ const currentDraftSignature = computed(() =>
       id: item.id,
       title: item.title,
       prompt: String(item.prompt || '').trim(),
+      characters: (item.characters || []).map((entity) => ({ name: entity.name, url: entity.url || '' })),
+      scenes: (item.scenes || []).map((entity) => ({ name: entity.name, url: entity.url || '' })),
+      items: (item.items || []).map((entity) => ({ name: entity.name, url: entity.url || '' })),
       imageUrl: item.imageUrl || '',
     }))
   )
 )
+
+const referenceInputId = (sectionId, category, name) =>
+  `manga-ref-${sectionId}-${category}-${String(name || '').replace(/[^\w\u4e00-\u9fff-]+/g, '-')}`
+
+const pickReferenceFile = (sectionId, category, name) => {
+  const el = document.getElementById(referenceInputId(sectionId, category, name))
+  if (el) el.click()
+}
+
+const handleReferenceUpload = async (event, section, category, entity) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || !entity) return
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请上传图片文件')
+    return
+  }
+  entity.uploading = true
+  try {
+    const res = await uploadToCos(file, 'ai-manga-reference', { timeout: 90 * 1000 })
+    entity.url = res?.data?.url || res?.url || ''
+    entity.fileName = file.name
+    persistPayload()
+    ElMessage.success(`${entity.name} 参考图已上传`)
+  } catch (e) {
+    ElMessage.error(String(e || '参考图上传失败'))
+  } finally {
+    entity.uploading = false
+  }
+}
+
+const mergePreparedSection = (target, prepared) => {
+  const mergeEntities = (existing, next) => {
+    const existingMap = new Map((existing || []).map((item) => [item.name, item]))
+    return normalizeEntityGroup(next).map((item) => {
+      const old = existingMap.get(item.name)
+      return old ? { ...item, url: old.url || '', fileName: old.fileName || '', uploading: false } : item
+    })
+  }
+  target.rawPrompt = prepared.raw_prompt || target.rawPrompt
+  target.prompt = prepared.prompt || target.prompt
+  target.characters = mergeEntities(target.characters, prepared.characters)
+  target.scenes = mergeEntities(target.scenes, prepared.scenes)
+  target.items = mergeEntities(target.items, prepared.items)
+  target.preparedAt = Date.now()
+}
+
+const prepareSections = async (sectionIds = []) => {
+  const targets = sectionIds.length ? sections.value.filter((item) => sectionIds.includes(item.id)) : sections.value
+  const requestSections = targets
+    .map((item) => ({
+      id: item.id,
+      index: item.index,
+      title: item.title,
+      prompt: String(item.rawPrompt || item.prompt || '').trim(),
+    }))
+    .filter((item) => item.prompt)
+  if (!requestSections.length) return
+
+  targets.forEach((item) => {
+    item.preparing = true
+    item.error = ''
+  })
+  try {
+    const res = await prepareAiMangaStoryboardSections({ sections: requestSections })
+    const preparedSections = res.data.sections || []
+    for (const prepared of preparedSections) {
+      const target = sections.value.find((item) => item.id === prepared.id)
+      if (target) mergePreparedSection(target, prepared)
+    }
+    persistPayload()
+  } catch (e) {
+    ElMessage.error(String(e || '分镜提示词优化失败'))
+  } finally {
+    targets.forEach((item) => {
+      item.preparing = false
+    })
+  }
+}
+
+const prepareOneSection = async (item) => {
+  if (!item || item.preparing) return
+  await prepareSections([item.id])
+}
 
 const copyPrompt = async (text) => {
   try {
@@ -223,8 +416,14 @@ const generateOneImage = async (item) => {
     const res = await generateAiMangaStoryboardImage({
       section_id: item.id,
       prompt,
+      reference_assets: [
+        ...(item.characters || []).map((entity) => ({ category: '人物', label: entity.name, url: entity.url || '' })),
+        ...(item.scenes || []).map((entity) => ({ category: '场景', label: entity.name, url: entity.url || '' })),
+        ...(item.items || []).map((entity) => ({ category: '物品', label: entity.name, url: entity.url || '' })),
+      ],
     })
     item.imageUrl = res.data.image_url || ''
+    item.prompt = res.data.prompt || item.prompt
     persistPayload()
     ElMessage.success(`${item.title || '分镜'} 图片生成完成`)
   } catch (e) {
@@ -288,6 +487,13 @@ const maybeSaveDraftBeforeLeave = async () => {
 }
 
 onMounted(loadStoryboardPayload)
+
+onMounted(async () => {
+  const needPrepareIds = sections.value.filter((item) => !item.preparedAt).map((item) => item.id)
+  if (needPrepareIds.length) {
+    await prepareSections(needPrepareIds)
+  }
+})
 
 onBeforeRouteLeave(async (to) => {
   if (to.path !== '/ai-manga') return true
@@ -469,6 +675,11 @@ onBeforeRouteLeave(async (to) => {
   gap: 12px;
   margin-bottom: 12px;
 }
+.prompt-card-actions {
+  display: inline-flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .shot-anchor {
   border: 0;
   padding: 0;
@@ -478,6 +689,11 @@ onBeforeRouteLeave(async (to) => {
   font-family: Georgia, 'Times New Roman', serif;
   cursor: pointer;
 }
+.prep-tip {
+  margin: 0 0 12px;
+  color: #ffcb87;
+  font-size: 12px;
+}
 .prompt-editor :deep(.el-textarea__inner) {
   border-radius: 18px;
   min-height: 180px !important;
@@ -486,6 +702,62 @@ onBeforeRouteLeave(async (to) => {
     repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.02) 0, rgba(255, 255, 255, 0.02) 1px, transparent 1px, transparent 26px);
   border: 1px solid rgba(255, 220, 184, 0.12);
   color: #f7f2ea;
+}
+.entity-groups {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+.entity-group {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 220, 184, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+.entity-title {
+  margin: 0 0 10px;
+  color: #ffe3bc;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+.entity-list {
+  display: grid;
+  gap: 10px;
+}
+.entity-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(13, 14, 20, 0.56);
+  border: 1px solid rgba(255, 220, 184, 0.08);
+}
+.entity-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: #f6efe7;
+}
+.entity-meta span {
+  word-break: break-all;
+}
+.entity-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 220, 184, 0.12);
+}
+.entity-empty {
+  margin: 0;
+  color: #b8aba0;
+  font-size: 13px;
+}
+.file-hidden {
+  display: none;
 }
 .image-title {
   margin: 0 0 6px;
@@ -558,6 +830,12 @@ onBeforeRouteLeave(async (to) => {
   }
   .boards-grid {
     grid-template-columns: 1fr;
+  }
+  .entity-chip,
+  .prompt-card-head,
+  .image-card-head {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

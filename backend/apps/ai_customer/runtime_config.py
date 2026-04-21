@@ -16,6 +16,8 @@ DEFAULT_MANGA_STORYBOARD_PROMPT = (
     "\n6. 保持中文输出，格式整洁，适合直接复制到后续创作流程。"
 )
 
+DEFAULT_MANGA_IMAGE_PROMPT = "每段分镜提示词优化为图片描述作为首帧。"
+
 
 def _read_config_value(key: str, default: str = "") -> str:
     try:
@@ -66,4 +68,11 @@ def get_manga_storyboard_prompt():
     return _read_config_value(
         SiteConfig.KEY_AI_MANGA_STORYBOARD_PROMPT,
         DEFAULT_MANGA_STORYBOARD_PROMPT,
+    )
+
+
+def get_manga_image_prompt():
+    return _read_config_value(
+        SiteConfig.KEY_AI_MANGA_IMAGE_PROMPT,
+        DEFAULT_MANGA_IMAGE_PROMPT,
     )

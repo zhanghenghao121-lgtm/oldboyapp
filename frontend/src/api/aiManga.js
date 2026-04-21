@@ -8,6 +8,11 @@ export const generateAiMangaStoryboard = (formData) =>
     timeout: 180000,
   })
 
+export const prepareAiMangaStoryboardSections = (payload) =>
+  http.post('/ai-manga/storyboard-prepare', payload, {
+    timeout: 180000,
+  })
+
 export const generateAiMangaStoryboardImage = (payload) =>
   http.post('/ai-manga/storyboard-image', payload, {
     timeout: 180000,

@@ -8,6 +8,8 @@ import requests
 from django.conf import settings
 
 from apps.ai_customer.runtime_config import (
+    get_assistant_llm_config,
+    get_manga_image_prompt,
     get_manga_storyboard_prompt,
     get_runtime_llm_config,
 )
@@ -133,6 +135,121 @@ def split_storyboard_sections(storyboard: str) -> list[dict]:
     return sections
 
 
+def _extract_json_object(text: str) -> dict:
+    raw = str(text or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+        raw = raw.strip()
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if not match:
+        return {}
+    try:
+        data = json.loads(match.group(0))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _unique_entity_list(values) -> list[str]:
+    seen = set()
+    items = []
+    for value in values or []:
+        text = _normalize_text(value)
+        if not text or not STORYBOARD_MEANINGFUL_PATTERN.search(text):
+            continue
+        if text in seen:
+            continue
+        seen.add(text)
+        items.append(text[:40])
+    return items[:8]
+
+
+def _call_llm_json(runtime: dict, *, system_prompt: str, user_prompt: str) -> dict:
+    api_key = str(runtime.get("api_key") or "").strip()
+    base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
+    model = str(runtime.get("model") or "").strip()
+    if not api_key or not base_url or not model:
+        raise MangaScriptError("用于优化分镜图提示词的模型配置不完整，请先在后台补全", 500)
+
+    payload = {
+        "model": model,
+        "stream": False,
+        "temperature": 0.3,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    try:
+        resp = requests.post(
+            f"{base_url}/chat/completions",
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=max(int(getattr(settings, "AI_MANGA_TIMEOUT", 180)), 30),
+        )
+    except Exception as exc:
+        raise MangaScriptError(f"分镜图提示词优化请求失败：{exc}", 502)
+    if resp.status_code >= 400:
+        raise MangaScriptError(f"分镜图提示词优化服务错误({resp.status_code})", 502)
+    try:
+        body = resp.json()
+    except Exception as exc:
+        raise MangaScriptError(f"分镜图提示词优化返回非 JSON：{exc}", 502)
+    content = str((((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "")).strip()
+    if not content:
+        raise MangaScriptError("分镜图提示词优化未返回有效内容", 502)
+    return _extract_json_object(content)
+
+
+def prepare_storyboard_image_sections(sections: list[dict]) -> list[dict]:
+    runtime = get_assistant_llm_config()
+    system_prompt = (
+        "你是漫画分镜首帧图片提示词优化助手。"
+        f"请严格按照以下系统要求优化每段分镜提示词：{get_manga_image_prompt()}\n"
+        "你必须输出 JSON，不要输出 markdown，不要解释。"
+        "JSON 结构必须是："
+        '{"optimized_prompt":"", "characters":[""], "scenes":[""], "items":[""]}'
+        "其中：characters 提取人物，scenes 提取场景，items 提取关键物品。"
+    )
+
+    prepared = []
+    for idx, section in enumerate(sections or [], start=1):
+        raw_prompt = _normalize_text((section or {}).get("prompt") or "")
+        if not raw_prompt or not STORYBOARD_MEANINGFUL_PATTERN.search(raw_prompt):
+            continue
+        title = str((section or {}).get("title") or f"分镜{idx}").strip() or f"分镜{idx}"
+        try:
+            data = _call_llm_json(
+                runtime,
+                system_prompt=system_prompt,
+                user_prompt=f"请处理以下分镜内容，并返回指定 JSON。\n分镜标题：{title}\n分镜内容：\n{raw_prompt[:5000]}",
+            )
+        except MangaScriptError:
+            data = {}
+
+        optimized_prompt = _normalize_text(data.get("optimized_prompt") or raw_prompt)
+        prepared.append(
+            {
+                "id": (section or {}).get("id") or len(prepared) + 1,
+                "index": (section or {}).get("index") or len(prepared) + 1,
+                "title": title,
+                "raw_prompt": raw_prompt,
+                "prompt": optimized_prompt,
+                "characters": _unique_entity_list(data.get("characters") or []),
+                "scenes": _unique_entity_list(data.get("scenes") or []),
+                "items": _unique_entity_list(data.get("items") or []),
+            }
+        )
+    return prepared
+
+
 def generate_manga_storyboard(source_text: str, model_preset: str = "assistant") -> dict:
     runtime = get_runtime_llm_config(model_preset)
     api_key = str(runtime.get("api_key") or "").strip()
@@ -187,7 +304,52 @@ def generate_manga_storyboard(source_text: str, model_preset: str = "assistant")
     }
 
 
-def generate_manga_storyboard_image(prompt: str) -> dict:
+def _build_reference_asset_note(reference_assets) -> str:
+    if not isinstance(reference_assets, list):
+        return ""
+    lines = []
+    for item in reference_assets:
+        if not isinstance(item, dict):
+            continue
+        category = _normalize_text(item.get("category") or "")
+        label = _normalize_text(item.get("label") or "")
+        url = _normalize_text(item.get("url") or "")
+        if not category or not label:
+            continue
+        line = f"{category}:{label}"
+        if url:
+            line += f"（参考图：{url}）"
+        lines.append(line)
+    if not lines:
+        return ""
+    return "参考素材：\n" + "\n".join(f"- {line}" for line in lines)
+
+
+def optimize_storyboard_image_prompt(prompt: str, reference_assets=None) -> str:
+    runtime = get_assistant_llm_config()
+    system_prompt = (
+        "你是漫画分镜首帧图片提示词优化助手。"
+        f"请严格按照以下系统要求优化提示词：{get_manga_image_prompt()}\n"
+        "请只输出最终可直接用于图片生成的中文提示词，不要解释，不要 markdown。"
+    )
+    reference_note = _build_reference_asset_note(reference_assets)
+    data = _call_llm_json(
+        runtime,
+        system_prompt=system_prompt + '若无法输出 JSON，请至少把 optimized_prompt 字段补全。',
+        user_prompt=(
+            "请把下面这段分镜提示词优化为更适合首帧图片生成的描述，并返回 JSON。\n"
+            '{"optimized_prompt":"", "characters":[""], "scenes":[""], "items":[""]}\n'
+            f"分镜提示词：\n{_normalize_text(prompt)[:5000]}\n"
+            f"{reference_note}\n"
+        ).strip(),
+    )
+    optimized_prompt = _normalize_text(data.get("optimized_prompt") or prompt)
+    if reference_note:
+        optimized_prompt = f"{optimized_prompt}\n{reference_note}"
+    return optimized_prompt
+
+
+def generate_manga_storyboard_image(prompt: str, reference_assets=None) -> dict:
     api_key = str(getattr(settings, "ARK_API_KEY", "") or "").strip()
     base_url = str(getattr(settings, "ARK_IMAGE_BASE_URL", "") or "").strip().rstrip("/")
     if not api_key:
@@ -198,10 +360,14 @@ def generate_manga_storyboard_image(prompt: str) -> dict:
     text = _normalize_text(prompt)
     if not text:
         raise MangaScriptError("分镜提示词不能为空")
+    try:
+        optimized_prompt = optimize_storyboard_image_prompt(text, reference_assets=reference_assets)
+    except MangaScriptError:
+        optimized_prompt = text
 
     payload = {
         "model": "doubao-seedream-5-0-260128",
-        "prompt": text[:4000],
+        "prompt": optimized_prompt[:4000],
         "sequential_image_generation": "disabled",
         "response_format": "url",
         "size": "2K",
@@ -243,5 +409,5 @@ def generate_manga_storyboard_image(prompt: str) -> dict:
     return {
         "image_url": image_url,
         "model": "doubao-seedream-5-0-260128",
-        "prompt": text,
+        "prompt": optimized_prompt,
     }

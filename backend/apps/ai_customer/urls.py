@@ -2,6 +2,7 @@ from django.urls import path
 
 from apps.ai_customer.views import (
     ai_manga_config,
+    ai_manga_storyboard_prepare,
     ai_manga_storyboard,
     ai_manga_storyboard_image,
     chat_history,
@@ -34,6 +35,7 @@ from apps.ai_customer.admin_views import (
 urlpatterns = [
     path("ai-manga/config", ai_manga_config),
     path("ai-manga/storyboard", ai_manga_storyboard),
+    path("ai-manga/storyboard-prepare", ai_manga_storyboard_prepare),
     path("ai-manga/storyboard-image", ai_manga_storyboard_image),
     path("ai-customer/history", chat_history),
     path("ai-customer/sessions", chat_sessions),

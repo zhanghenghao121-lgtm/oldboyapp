@@ -34,9 +34,11 @@ from apps.ai_customer.manga_services import (
     extract_story_source_text,
     generate_manga_storyboard_image,
     generate_manga_storyboard,
+    prepare_storyboard_image_sections,
 )
 from apps.ai_customer.runtime_config import (
     get_assistant_llm_config,
+    get_manga_image_prompt,
     get_manga_llm_config,
     get_manga_storyboard_prompt,
 )
@@ -225,6 +227,7 @@ def ai_manga_config(request):
         {
             "default_model_preset": "assistant",
             "storyboard_prompt": get_manga_storyboard_prompt(),
+            "image_prompt": get_manga_image_prompt(),
             "model_options": [
                 _serialize_model_option("assistant", "助手模型", assistant),
                 _serialize_model_option("manga", "漫剧模型", manga),
@@ -253,11 +256,26 @@ def ai_manga_storyboard(request):
 @csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def ai_manga_storyboard_prepare(request):
+    sections = request.data.get("sections") or []
+    if not isinstance(sections, list):
+        return bad("分镜段落格式错误")
+    try:
+        prepared = prepare_storyboard_image_sections(sections)
+        return ok({"sections": prepared})
+    except MangaScriptError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def ai_manga_storyboard_image(request):
     prompt = str(request.data.get("prompt", "")).strip()
     section_id = request.data.get("section_id")
+    reference_assets = request.data.get("reference_assets") or []
     try:
-        result = generate_manga_storyboard_image(prompt)
+        result = generate_manga_storyboard_image(prompt, reference_assets=reference_assets)
         return ok(
             {
                 **result,

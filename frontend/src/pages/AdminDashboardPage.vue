@@ -312,6 +312,14 @@
               placeholder="请输入 AI漫剧默认分镜提示词"
             />
           </el-form-item>
+          <el-form-item label="分镜图提示词">
+            <el-input
+              v-model="mangaModelForm.image_prompt"
+              type="textarea"
+              :rows="6"
+              placeholder="留空时默认：每段分镜提示词优化为图片描述作为首帧。"
+            />
+          </el-form-item>
         </el-form>
         <div class="row-actions ai-actions">
           <el-button class="main-btn" type="primary" :loading="savingModelConfig" @click="saveMangaModelConfig">保存漫剧模型配置</el-button>
@@ -582,6 +590,7 @@ const mangaModelForm = reactive({
   api_key: '',
   model: '',
   storyboard_prompt: '',
+  image_prompt: '',
 })
 const mangaApiKeyVisible = ref(false)
 const savingAiSettings = ref(false)
@@ -831,6 +840,7 @@ const loadConfigs = async () => {
   mangaModelForm.api_key = map.ai_manga_api_key || ''
   mangaModelForm.model = map.ai_manga_model || ''
   mangaModelForm.storyboard_prompt = map.ai_manga_storyboard_prompt || ''
+  mangaModelForm.image_prompt = map.ai_manga_image_prompt || ''
 }
 
 const saveAssistantModelConfig = async () => {
@@ -854,6 +864,7 @@ const saveMangaModelConfig = async () => {
     await updateConsoleConfig('ai_manga_api_key', { value: (mangaModelForm.api_key || '').trim() })
     await updateConsoleConfig('ai_manga_model', { value: (mangaModelForm.model || '').trim() })
     await updateConsoleConfig('ai_manga_storyboard_prompt', { value: (mangaModelForm.storyboard_prompt || '').trim() })
+    await updateConsoleConfig('ai_manga_image_prompt', { value: (mangaModelForm.image_prompt || '').trim() })
     ElMessage.success('漫剧模型配置已保存')
   } catch (e) {
     ElMessage.error(e)

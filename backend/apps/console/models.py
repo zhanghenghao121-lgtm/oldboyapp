@@ -41,6 +41,7 @@ class SiteConfig(models.Model):
     KEY_AI_MANGA_API_KEY = "ai_manga_api_key"
     KEY_AI_MANGA_MODEL = "ai_manga_model"
     KEY_AI_MANGA_STORYBOARD_PROMPT = "ai_manga_storyboard_prompt"
+    KEY_AI_MANGA_IMAGE_PROMPT = "ai_manga_image_prompt"
     KEY_CHOICES = [
         (KEY_DEFAULT_AVATAR, "默认头像URL"),
         (KEY_RECHARGE_WECHAT, "充值页微信号"),
@@ -52,6 +53,7 @@ class SiteConfig(models.Model):
         (KEY_AI_MANGA_API_KEY, "漫剧模型API Key"),
         (KEY_AI_MANGA_MODEL, "漫剧模型名称"),
         (KEY_AI_MANGA_STORYBOARD_PROMPT, "AI漫剧分镜提示词"),
+        (KEY_AI_MANGA_IMAGE_PROMPT, "AI漫剧分镜图提示词"),
     ]
 
     key = models.CharField(max_length=64, choices=KEY_CHOICES, unique=True)

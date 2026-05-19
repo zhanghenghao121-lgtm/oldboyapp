@@ -211,7 +211,9 @@
             <span>{{ activeCamera.name }}</span>
           </div>
           <div class="form-stack">
-            <el-button plain class="wide-btn camera-select-btn" @click="selectCamera">选中主镜头并拖动</el-button>
+            <el-button plain class="wide-btn camera-select-btn" @click="selectCamera">
+              {{ cameraDragArmed ? '点击画布空白处拖动主镜头' : '选中主镜头并拖动' }}
+            </el-button>
             <div class="field-grid">
               <label>位置 X<el-input-number v-model="activeCamera.position.x" :step="0.1" @change="syncSceneToThree" /></label>
               <label>位置 Y<el-input-number v-model="activeCamera.position.y" :step="0.1" @change="syncSceneToThree" /></label>
@@ -271,6 +273,7 @@ const transformMode = ref('translate')
 const selectedKind = ref('')
 const selectedId = ref('')
 const selectedJointName = ref('')
+const cameraDragArmed = ref(false)
 const imageUploadCharacterId = ref('')
 const jsonDialogVisible = ref(false)
 const sceneJsonText = ref('')
@@ -468,6 +471,7 @@ const patchScene = (nextScene) => {
   selectedKind.value = ''
   selectedId.value = ''
   selectedJointName.value = ''
+  cameraDragArmed.value = false
   syncSceneToThree()
 }
 
@@ -664,6 +668,7 @@ const syncSceneToThree = () => {
 }
 
 const selectObject = (id) => {
+  cameraDragArmed.value = false
   selectedKind.value = 'object'
   selectedId.value = id
   selectedJointName.value = ''
@@ -671,6 +676,7 @@ const selectObject = (id) => {
 }
 
 const selectCharacter = (id) => {
+  cameraDragArmed.value = false
   selectedKind.value = 'character'
   selectedId.value = id
   selectedJointName.value = ''
@@ -678,6 +684,7 @@ const selectCharacter = (id) => {
 }
 
 const selectJoint = (id, joint) => {
+  cameraDragArmed.value = false
   selectedKind.value = 'joint'
   selectedId.value = id
   selectedJointName.value = joint
@@ -690,7 +697,9 @@ const selectCamera = () => {
   selectedKind.value = 'camera'
   selectedId.value = activeCamera.value.id
   selectedJointName.value = ''
+  cameraDragArmed.value = true
   attachSelectedControl()
+  ElMessage.info('主镜头已选中：在画布空白处拖动可移动镜头，点击物体会切换选择')
 }
 
 const setTransformMode = (mode) => {
@@ -709,6 +718,7 @@ const removeObject = (id) => {
   if (selectedKind.value === 'object' && selectedId.value === id) {
     selectedKind.value = ''
     selectedId.value = ''
+    cameraDragArmed.value = false
   }
   syncSceneToThree()
 }
@@ -728,6 +738,7 @@ const removeCharacter = (id) => {
     selectedKind.value = ''
     selectedId.value = ''
     selectedJointName.value = ''
+    cameraDragArmed.value = false
   }
   syncSceneToThree()
 }
@@ -765,6 +776,7 @@ const deleteSelected = () => {
   selectedKind.value = ''
   selectedId.value = ''
   selectedJointName.value = ''
+  cameraDragArmed.value = false
   syncSceneToThree()
 }
 
@@ -1112,6 +1124,7 @@ const applyDirectDrag = (worldPoint, event) => {
 
 const endDirectDrag = () => {
   if (!dragState.active) return
+  if (dragState.kind === 'camera') cameraDragArmed.value = false
   dragState.active = false
   dragState.kind = ''
   dragState.id = ''
@@ -1121,14 +1134,12 @@ const endDirectDrag = () => {
 
 const handlePointerDown = (event) => {
   updatePointerRay(event)
-  if ((selectedKind.value === 'joint' || selectedKind.value === 'camera') && beginSelectedDragFromPointer(event)) {
-    event.preventDefault()
-    return
-  }
   const hits = raycaster.intersectObjects(dynamicRoot.children, true)
   const hit = hits.find((item) => item.object.userData?.kind)
   if (!hit) {
-    if (beginSelectedDragFromPointer(event)) event.preventDefault()
+    if (cameraDragArmed.value && selectedKind.value === 'camera' && beginSelectedDragFromPointer(event)) {
+      event.preventDefault()
+    }
     return
   }
   const data = hit.object.userData

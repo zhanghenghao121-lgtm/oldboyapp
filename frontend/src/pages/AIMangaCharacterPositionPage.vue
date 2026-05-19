@@ -36,6 +36,30 @@
           <input ref="topViewInputRef" class="file-hidden" type="file" accept="image/*" @change="handleTopViewUpload" />
           <el-button class="wide-btn" plain @click="topViewInputRef?.click()">上传俯视全景图</el-button>
           <p v-if="topViewName" class="file-note">{{ topViewName }}</p>
+          <div v-if="parsedSceneCandidate" class="parsed-actions">
+            <p>已解析出可替换空间</p>
+            <div class="button-grid compact">
+              <el-button type="primary" class="solid-btn" @click="applyParsedScene">替换为图片空间</el-button>
+              <el-button plain class="ghost-btn" @click="openParsedSceneDialog">查看解析 JSON</el-button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-head">
+            <p>空间副本</p>
+            <span>{{ sceneCopies.length }} 个</span>
+          </div>
+          <el-button class="wide-btn" type="primary" @click="saveSceneCopy">保存空间为副本</el-button>
+          <div class="copy-list">
+            <div v-for="copy in sceneCopies" :key="copy.id" class="list-row">
+              <button type="button" class="row-main" @click="loadSceneCopy(copy.id)">
+                {{ copy.name }}
+                <span class="row-meta">{{ formatCopyTime(copy.updatedAt) }}</span>
+              </button>
+              <button type="button" class="mini-action danger" @click="removeSceneCopy(copy.id)">删除</button>
+            </div>
+          </div>
         </section>
 
         <section class="panel-section">
@@ -103,6 +127,7 @@
             <button type="button" class="tool-btn" @click="duplicateSelected">复制</button>
             <button type="button" class="tool-btn danger" @click="deleteSelected">删除</button>
             <button type="button" class="tool-btn" @click="saveSceneLocal">保存</button>
+            <button type="button" class="tool-btn" @click="saveSceneCopy">保存副本</button>
             <button type="button" class="tool-btn" @click="loadSceneLocal">加载</button>
             <button type="button" class="tool-btn" @click="exportSceneJson">导出 JSON</button>
             <button type="button" class="tool-btn primary" @click="generatePreview">生成镜头画面</button>
@@ -216,6 +241,14 @@
         <el-button type="primary" @click="copySceneJson">复制 JSON</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="parsedSceneDialogVisible" title="俯视图解析空间" width="760px">
+      <el-input v-model="parsedSceneText" type="textarea" :rows="18" resize="none" />
+      <template #footer>
+        <el-button @click="parsedSceneDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="applyParsedScene">替换当前空间</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -226,6 +259,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
 const STORAGE_KEY = 'ai_manga_character_position_scene'
+const SCENE_COPIES_KEY = 'ai_manga_character_position_scene_copies'
 
 const canvasWrapRef = ref(null)
 const topViewInputRef = ref(null)
@@ -240,6 +274,10 @@ const selectedJointName = ref('')
 const imageUploadCharacterId = ref('')
 const jsonDialogVisible = ref(false)
 const sceneJsonText = ref('')
+const parsedSceneDialogVisible = ref(false)
+const parsedSceneText = ref('')
+const parsedSceneCandidate = ref(null)
+const sceneCopies = ref([])
 
 const assetTemplates = [
   { type: 'table', label: '桌子', color: '#8b5a2b', size: { width: 2.6, height: 0.75, depth: 1.1 } },
@@ -406,6 +444,24 @@ const dragState = {
 }
 
 const copyPlain = (value) => JSON.parse(JSON.stringify(value))
+
+const readSceneCopies = () => {
+  try {
+    const items = JSON.parse(localStorage.getItem(SCENE_COPIES_KEY) || '[]')
+    return Array.isArray(items) ? items : []
+  } catch {
+    return []
+  }
+}
+
+const writeSceneCopies = (items) => {
+  localStorage.setItem(SCENE_COPIES_KEY, JSON.stringify(items))
+  sceneCopies.value = items
+}
+
+const refreshSceneCopies = () => {
+  sceneCopies.value = readSceneCopies()
+}
 
 const patchScene = (nextScene) => {
   Object.assign(sceneState, copyPlain(nextScene))
@@ -723,9 +779,65 @@ const handleTopViewUpload = (event) => {
   event.target.value = ''
   if (!file) return
   topViewName.value = file.name
-  sceneState.scene.sourceImageUrl = URL.createObjectURL(file)
-  generateSceneFromText()
-  ElMessage.success('俯视图已载入为地面参考')
+  const sourceImageUrl = URL.createObjectURL(file)
+  parsedSceneCandidate.value = buildSceneFromTopView(file, sourceImageUrl)
+  parsedSceneText.value = JSON.stringify(parsedSceneCandidate.value, null, 2)
+  parsedSceneDialogVisible.value = true
+  ElMessage.success('AI 已解析俯视图，可确认替换当前空间')
+}
+
+const buildSceneFromTopView = (file, sourceImageUrl) => {
+  const name = file.name.replace(/\.[^.]+$/, '')
+  const prompt = `${scenePrompt.value || ''} ${name}`.toLowerCase()
+  const next = createInitialScene()
+  next.scene.name = `${name || '上传图片'}空间`
+  next.scene.sourceImageUrl = sourceImageUrl
+  next.scene.width = prompt.includes('大厅') || prompt.includes('hall') ? 12 : prompt.includes('卧室') ? 6 : 10
+  next.scene.depth = prompt.includes('大厅') || prompt.includes('hall') ? 9 : prompt.includes('卧室') ? 5 : 8
+  next.objects = [
+    makeObject('wall', { id: 'parsed_wall_back', name: '识别后墙', position: { x: 0, y: 1.3, z: next.scene.depth / 2 - 0.08 }, size: { width: next.scene.width, height: 2.6, depth: 0.16 } }),
+    makeObject('wall', { id: 'parsed_wall_left', name: '识别左墙', position: { x: -next.scene.width / 2 + 0.08, y: 1.3, z: 0 }, rotation: { y: 90 }, size: { width: next.scene.depth, height: 2.6, depth: 0.16 } }),
+    makeObject('wall', { id: 'parsed_wall_right', name: '识别右墙', position: { x: next.scene.width / 2 - 0.08, y: 1.3, z: 0 }, rotation: { y: 90 }, size: { width: next.scene.depth, height: 2.6, depth: 0.16 } }),
+    makeObject('door', { id: 'parsed_door_001', name: '识别入口', position: { x: 0, y: 1.05, z: -next.scene.depth / 2 + 0.08 } }),
+  ]
+  if (prompt.includes('客厅') || prompt.includes('沙发') || prompt.includes('living')) {
+    next.objects.push(makeObject('sofa', { id: 'parsed_sofa_001', name: '识别沙发', position: { x: -2.2, y: 0, z: 1.2 }, rotation: { y: 18 } }))
+    next.objects.push(makeObject('table', { id: 'parsed_table_001', name: '识别茶几', position: { x: 0, y: 0, z: 0.4 }, size: { width: 1.5, height: 0.45, depth: 0.8 } }))
+    next.objects.push(makeObject('cabinet', { id: 'parsed_cabinet_001', name: '识别电视柜', position: { x: 2.8, y: 0, z: 1.4 } }))
+  } else {
+    next.objects.push(makeObject('table', { id: 'parsed_table_001', name: '识别主桌', position: { x: 0, y: 0, z: 0 }, size: { width: 2.8, height: 0.75, depth: 1.1 } }))
+    for (let index = 0; index < 3; index += 1) {
+      const z = -0.9 + index * 0.9
+      next.objects.push(makeObject('chair', { id: `parsed_chair_l_${index}`, name: `识别左椅 ${index + 1}`, position: { x: -2, y: 0, z }, rotation: { y: 90 } }))
+      next.objects.push(makeObject('chair', { id: `parsed_chair_r_${index}`, name: `识别右椅 ${index + 1}`, position: { x: 2, y: 0, z }, rotation: { y: -90 } }))
+    }
+  }
+  if (prompt.includes('床') || prompt.includes('卧室') || prompt.includes('bedroom')) {
+    next.objects.push(makeObject('sofa', { id: 'parsed_bed_001', name: '识别床位', position: { x: -1.4, y: 0, z: 1.1 }, size: { width: 2.1, height: 0.55, depth: 1.6 }, material: { color: '#7e8da6' } }))
+  }
+  next.cameras[0].position = { x: 3.5, y: 1.7, z: next.scene.depth / 2 + 1.2 }
+  next.cameras[0].target = { x: 0, y: 1.1, z: 0 }
+  return next
+}
+
+const applyParsedScene = () => {
+  if (!parsedSceneCandidate.value && parsedSceneText.value.trim()) {
+    try {
+      parsedSceneCandidate.value = JSON.parse(parsedSceneText.value)
+    } catch {
+      ElMessage.error('解析 JSON 格式错误')
+      return
+    }
+  }
+  if (!parsedSceneCandidate.value) return
+  patchScene(parsedSceneCandidate.value)
+  parsedSceneDialogVisible.value = false
+  ElMessage.success('已替换为上传图片解析空间')
+}
+
+const openParsedSceneDialog = () => {
+  parsedSceneText.value = JSON.stringify(parsedSceneCandidate.value || sceneSnapshot(), null, 2)
+  parsedSceneDialogVisible.value = true
 }
 
 const handleCharacterImageUpload = (event) => {
@@ -801,6 +913,38 @@ const sceneSnapshot = () => ({
 const saveSceneLocal = () => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sceneSnapshot()))
   ElMessage.success('场景已保存')
+}
+
+const saveSceneCopy = () => {
+  const now = Date.now()
+  const copies = readSceneCopies()
+  const snapshot = sceneSnapshot()
+  const copy = {
+    id: `copy_${now}_${Math.floor(Math.random() * 1000)}`,
+    name: `${snapshot.scene?.name || '未命名空间'} 副本`,
+    updatedAt: now,
+    sceneJson: snapshot,
+  }
+  writeSceneCopies([copy, ...copies].slice(0, 20))
+  ElMessage.success('空间副本已保存')
+}
+
+const loadSceneCopy = (id) => {
+  const copy = readSceneCopies().find((item) => item.id === id)
+  if (!copy?.sceneJson) return
+  patchScene(copy.sceneJson)
+  ElMessage.success('已加载空间副本')
+}
+
+const removeSceneCopy = (id) => {
+  writeSceneCopies(readSceneCopies().filter((item) => item.id !== id))
+  ElMessage.success('空间副本已删除')
+}
+
+const formatCopyTime = (value) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
 const loadSceneLocal = () => {
@@ -1070,6 +1214,7 @@ const initThree = () => {
 }
 
 onMounted(() => {
+  refreshSceneCopies()
   nextTick(initThree)
 })
 
@@ -1214,8 +1359,23 @@ onBeforeUnmount(() => {
 .button-grid {
   margin-top: 10px;
 }
+.button-grid.compact {
+  margin-top: 8px;
+}
 .button-grid > * {
   flex: 1 1 120px;
+}
+.parsed-actions {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(116, 199, 255, 0.18);
+  background: rgba(116, 199, 255, 0.06);
+}
+.parsed-actions p {
+  margin: 0;
+  color: #d9f3ff;
+  font-size: 12px;
 }
 .wide-btn {
   width: 100%;
@@ -1259,6 +1419,14 @@ onBeforeUnmount(() => {
 .object-list {
   margin-top: 12px;
   max-height: 220px;
+  overflow: auto;
+}
+.copy-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 180px;
   overflow: auto;
 }
 .list-row {

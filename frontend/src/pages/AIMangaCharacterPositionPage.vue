@@ -73,6 +73,21 @@
               {{ asset.label }}
             </button>
           </div>
+          <div class="custom-object-box">
+            <el-input v-model="newObjectName" placeholder="自定义物品名称，例如花瓶、电脑、武器" />
+            <input ref="customObjectImageInputRef" class="file-hidden" type="file" accept="image/*" @change="handleCustomObjectImageUpload" />
+            <div class="button-grid compact">
+              <el-button plain class="ghost-btn" @click="customObjectImageInputRef?.click()">
+                {{ customObjectImageUrl ? '更换物品图片' : '上传物品图片' }}
+              </el-button>
+              <el-button type="primary" class="solid-btn" @click="addCustomObject">添加自定义物品</el-button>
+            </div>
+            <div v-if="customObjectImageUrl" class="object-image-preview">
+              <img :src="customObjectImageUrl" alt="自定义物品图片" />
+              <span>已选择物品图片</span>
+            </div>
+          </div>
+          <input ref="objectImageInputRef" class="file-hidden" type="file" accept="image/*" @change="handleObjectImageUpload" />
           <div class="object-list">
             <div
               v-for="object in sceneState.objects"
@@ -83,6 +98,9 @@
               <button type="button" class="row-main" @click="selectObject(object.id)">
                 <span class="asset-swatch" :style="{ background: object.material.color }"></span>
                 {{ object.name }}
+              </button>
+              <button type="button" class="mini-action" @click="openObjectImagePicker(object.id)">
+                {{ object.material.imageUrl ? '换图' : '上传图片' }}
               </button>
               <button type="button" class="mini-action danger" @click="removeObject(object.id)">删除</button>
             </div>
@@ -173,6 +191,13 @@
               <label>缩放 Z<el-input-number v-model="selectedObject.scale.z" :min="0.1" :step="0.1" @change="syncSceneToThree" /></label>
             </div>
             <label class="color-field">颜色<input v-model="selectedObject.material.color" type="color" @input="syncSceneToThree" /></label>
+            <el-button plain class="wide-btn" @click="openObjectImagePicker(selectedObject.id)">
+              {{ selectedObject.material.imageUrl ? '更换物品图片' : '上传物品图片' }}
+            </el-button>
+            <div v-if="selectedObject.material.imageUrl" class="object-image-preview">
+              <img :src="selectedObject.material.imageUrl" :alt="selectedObject.name" />
+              <span>已绑定物品图片</span>
+            </div>
           </div>
 
           <div v-else-if="selectedCharacter" class="form-stack">
@@ -266,6 +291,8 @@ const SCENE_COPIES_KEY = 'ai_manga_character_position_scene_copies'
 const canvasWrapRef = ref(null)
 const topViewInputRef = ref(null)
 const characterImageInputRef = ref(null)
+const objectImageInputRef = ref(null)
+const customObjectImageInputRef = ref(null)
 const scenePrompt = ref('生成一个古风议事厅，中间有一张长桌，左右各四把椅子，后方有屏风。')
 const topViewName = ref('')
 const previewImageUrl = ref('')
@@ -274,7 +301,11 @@ const selectedKind = ref('')
 const selectedId = ref('')
 const selectedJointName = ref('')
 const cameraDragArmed = ref(false)
+const jointDragArmed = ref(false)
 const imageUploadCharacterId = ref('')
+const imageUploadObjectId = ref('')
+const newObjectName = ref('')
+const customObjectImageUrl = ref('')
 const jsonDialogVisible = ref(false)
 const sceneJsonText = ref('')
 const parsedSceneDialogVisible = ref(false)
@@ -356,7 +387,7 @@ const makeObject = (type, overrides = {}) => {
     rotation: { x: 0, y: overrides.rotation?.y ?? 0, z: 0 },
     scale: { x: overrides.scale?.x ?? 1, y: overrides.scale?.y ?? 1, z: overrides.scale?.z ?? 1 },
     size: { ...template.size, ...(overrides.size || {}) },
-    material: { color: overrides.material?.color || template.color },
+    material: { color: overrides.material?.color || template.color, imageUrl: overrides.material?.imageUrl || '' },
     locked: false,
     visible: true,
   }
@@ -394,8 +425,8 @@ const createInitialScene = () => ({
     {
       id: 'camera_001',
       name: '主镜头',
-      position: { x: 3.2, y: 1.7, z: 4.2 },
-      target: { x: 0, y: 1.1, z: 0 },
+      position: { x: 0, y: 1.7, z: 0 },
+      target: { x: 0, y: 1.2, z: -2.6 },
       fov: 45,
       aspect: '16:9',
       shotType: '中景',
@@ -428,6 +459,7 @@ let dynamicRoot
 let floorTexture
 let animationId
 let cameraMarker
+const textureLoader = new THREE.TextureLoader()
 const objectMap = new Map()
 const characterMap = new Map()
 const jointMap = new Map()
@@ -472,11 +504,23 @@ const patchScene = (nextScene) => {
   selectedId.value = ''
   selectedJointName.value = ''
   cameraDragArmed.value = false
+  jointDragArmed.value = false
   syncSceneToThree()
 }
 
-const makeBox = (width, height, depth, color, position = { x: 0, y: 0, z: 0 }) => {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), new THREE.MeshStandardMaterial({ color, roughness: 0.72 }))
+const makeMaterial = (color, imageUrl = '') => {
+  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.72 })
+  if (imageUrl) {
+    const texture = textureLoader.load(imageUrl)
+    texture.colorSpace = THREE.SRGBColorSpace
+    material.map = texture
+    material.color.set('#ffffff')
+  }
+  return material
+}
+
+const makeBox = (width, height, depth, color, position = { x: 0, y: 0, z: 0 }, imageUrl = '') => {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), makeMaterial(color, imageUrl))
   mesh.position.set(position.x, position.y, position.z)
   mesh.castShadow = true
   mesh.receiveShadow = true
@@ -489,24 +533,25 @@ const createObjectGroup = (item) => {
   group.userData = { kind: 'object', id: item.id }
   const { width, height, depth } = item.size
   const color = item.material.color
+  const imageUrl = item.material.imageUrl || ''
   if (item.type === 'chair') {
-    group.add(makeBox(width, height * 0.12, depth, color, { x: 0, y: height * 0.45, z: 0 }))
-    group.add(makeBox(width, height * 0.58, depth * 0.12, color, { x: 0, y: height * 0.72, z: depth * 0.44 }))
+    group.add(makeBox(width, height * 0.12, depth, color, { x: 0, y: height * 0.45, z: 0 }, imageUrl))
+    group.add(makeBox(width, height * 0.58, depth * 0.12, color, { x: 0, y: height * 0.72, z: depth * 0.44 }, imageUrl))
     group.add(makeBox(width * 0.12, height * 0.45, depth * 0.12, color, { x: -width * 0.35, y: height * 0.22, z: -depth * 0.35 }))
     group.add(makeBox(width * 0.12, height * 0.45, depth * 0.12, color, { x: width * 0.35, y: height * 0.22, z: -depth * 0.35 }))
   } else if (item.type === 'sofa') {
-    group.add(makeBox(width, height * 0.42, depth, color, { x: 0, y: height * 0.22, z: 0 }))
-    group.add(makeBox(width, height * 0.72, depth * 0.14, color, { x: 0, y: height * 0.48, z: depth * 0.42 }))
-    group.add(makeBox(width * 0.08, height * 0.38, depth, color, { x: -width * 0.54, y: height * 0.3, z: 0 }))
-    group.add(makeBox(width * 0.08, height * 0.38, depth, color, { x: width * 0.54, y: height * 0.3, z: 0 }))
+    group.add(makeBox(width, height * 0.42, depth, color, { x: 0, y: height * 0.22, z: 0 }, imageUrl))
+    group.add(makeBox(width, height * 0.72, depth * 0.14, color, { x: 0, y: height * 0.48, z: depth * 0.42 }, imageUrl))
+    group.add(makeBox(width * 0.08, height * 0.38, depth, color, { x: -width * 0.54, y: height * 0.3, z: 0 }, imageUrl))
+    group.add(makeBox(width * 0.08, height * 0.38, depth, color, { x: width * 0.54, y: height * 0.3, z: 0 }, imageUrl))
   } else if (item.type === 'table') {
-    group.add(makeBox(width, height * 0.12, depth, color, { x: 0, y: height * 0.9, z: 0 }))
+    group.add(makeBox(width, height * 0.12, depth, color, { x: 0, y: height * 0.9, z: 0 }, imageUrl))
     group.add(makeBox(width * 0.06, height * 0.85, depth * 0.06, color, { x: -width * 0.42, y: height * 0.42, z: -depth * 0.38 }))
     group.add(makeBox(width * 0.06, height * 0.85, depth * 0.06, color, { x: width * 0.42, y: height * 0.42, z: -depth * 0.38 }))
     group.add(makeBox(width * 0.06, height * 0.85, depth * 0.06, color, { x: -width * 0.42, y: height * 0.42, z: depth * 0.38 }))
     group.add(makeBox(width * 0.06, height * 0.85, depth * 0.06, color, { x: width * 0.42, y: height * 0.42, z: depth * 0.38 }))
   } else {
-    group.add(makeBox(width, height, depth, color, { x: 0, y: height / 2, z: 0 }))
+    group.add(makeBox(width, height, depth, color, { x: 0, y: height / 2, z: 0 }, imageUrl))
   }
   group.position.set(item.position.x, item.position.y, item.position.z)
   group.rotation.set(THREE.MathUtils.degToRad(item.rotation.x), THREE.MathUtils.degToRad(item.rotation.y), THREE.MathUtils.degToRad(item.rotation.z))
@@ -669,6 +714,7 @@ const syncSceneToThree = () => {
 
 const selectObject = (id) => {
   cameraDragArmed.value = false
+  jointDragArmed.value = false
   selectedKind.value = 'object'
   selectedId.value = id
   selectedJointName.value = ''
@@ -677,6 +723,7 @@ const selectObject = (id) => {
 
 const selectCharacter = (id) => {
   cameraDragArmed.value = false
+  jointDragArmed.value = false
   selectedKind.value = 'character'
   selectedId.value = id
   selectedJointName.value = ''
@@ -685,6 +732,7 @@ const selectCharacter = (id) => {
 
 const selectJoint = (id, joint) => {
   cameraDragArmed.value = false
+  jointDragArmed.value = true
   selectedKind.value = 'joint'
   selectedId.value = id
   selectedJointName.value = joint
@@ -694,6 +742,7 @@ const selectJoint = (id, joint) => {
 }
 
 const selectCamera = () => {
+  jointDragArmed.value = false
   selectedKind.value = 'camera'
   selectedId.value = activeCamera.value.id
   selectedJointName.value = ''
@@ -711,6 +760,26 @@ const addObject = (type) => {
   syncSceneToThree()
 }
 
+const addCustomObject = () => {
+  const name = newObjectName.value.trim()
+  if (!name) {
+    ElMessage.warning('请先输入物品名称')
+    return
+  }
+  const object = makeObject('custom', {
+    name,
+    position: { x: 0, y: 0, z: 0.8 },
+    size: { width: 1, height: 1, depth: 1 },
+    material: { color: '#9a8cff', imageUrl: customObjectImageUrl.value },
+  })
+  sceneState.objects.push(object)
+  newObjectName.value = ''
+  customObjectImageUrl.value = ''
+  syncSceneToThree()
+  nextTick(() => selectObject(object.id))
+  ElMessage.success('自定义物品已添加')
+}
+
 const removeObject = (id) => {
   const index = sceneState.objects.findIndex((item) => item.id === id)
   if (index < 0) return
@@ -719,6 +788,7 @@ const removeObject = (id) => {
     selectedKind.value = ''
     selectedId.value = ''
     cameraDragArmed.value = false
+    jointDragArmed.value = false
   }
   syncSceneToThree()
 }
@@ -739,6 +809,7 @@ const removeCharacter = (id) => {
     selectedId.value = ''
     selectedJointName.value = ''
     cameraDragArmed.value = false
+    jointDragArmed.value = false
   }
   syncSceneToThree()
 }
@@ -777,6 +848,7 @@ const deleteSelected = () => {
   selectedId.value = ''
   selectedJointName.value = ''
   cameraDragArmed.value = false
+  jointDragArmed.value = false
   syncSceneToThree()
 }
 
@@ -827,8 +899,8 @@ const buildSceneFromTopView = (file, sourceImageUrl) => {
   if (prompt.includes('床') || prompt.includes('卧室') || prompt.includes('bedroom')) {
     next.objects.push(makeObject('sofa', { id: 'parsed_bed_001', name: '识别床位', position: { x: -1.4, y: 0, z: 1.1 }, size: { width: 2.1, height: 0.55, depth: 1.6 }, material: { color: '#7e8da6' } }))
   }
-  next.cameras[0].position = { x: 3.5, y: 1.7, z: next.scene.depth / 2 + 1.2 }
-  next.cameras[0].target = { x: 0, y: 1.1, z: 0 }
+  next.cameras[0].position = { x: 0, y: 1.7, z: 0 }
+  next.cameras[0].target = { x: 0, y: 1.2, z: -Math.max(2.4, next.scene.depth / 3) }
   return next
 }
 
@@ -862,6 +934,32 @@ const handleCharacterImageUpload = (event) => {
   selectCharacter(character.id)
   imageUploadCharacterId.value = ''
   ElMessage.success('人物参考图已绑定')
+}
+
+const handleCustomObjectImageUpload = (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  customObjectImageUrl.value = URL.createObjectURL(file)
+  ElMessage.success('物品图片已选择')
+}
+
+const handleObjectImageUpload = (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  const object = sceneState.objects.find((item) => item.id === imageUploadObjectId.value)
+  if (!file || !object) return
+  object.material.imageUrl = URL.createObjectURL(file)
+  selectObject(object.id)
+  imageUploadObjectId.value = ''
+  syncSceneToThree()
+  ElMessage.success('物品图片已绑定')
+}
+
+const openObjectImagePicker = (id) => {
+  imageUploadObjectId.value = id
+  selectObject(id)
+  objectImageInputRef.value?.click()
 }
 
 const openCharacterImagePicker = (id) => {
@@ -1074,7 +1172,7 @@ const applyDirectDrag = (worldPoint, event) => {
   const dx = ((event?.clientX ?? dragState.startClientX) - dragState.startClientX) / Math.max(rect.width, 1)
   const dy = ((event?.clientY ?? dragState.startClientY) - dragState.startClientY) / Math.max(rect.height, 1)
   const screenWorld = dragState.startPosition.clone()
-  screenWorld.x += dx * sceneState.scene.width
+  screenWorld.x -= dx * sceneState.scene.width
   screenWorld.z += dy * sceneState.scene.depth
   if (dragState.kind === 'object') {
     const object = sceneState.objects.find((item) => item.id === dragState.id)
@@ -1125,6 +1223,7 @@ const applyDirectDrag = (worldPoint, event) => {
 const endDirectDrag = () => {
   if (!dragState.active) return
   if (dragState.kind === 'camera') cameraDragArmed.value = false
+  if (dragState.kind === 'joint') jointDragArmed.value = false
   dragState.active = false
   dragState.kind = ''
   dragState.id = ''
@@ -1137,7 +1236,11 @@ const handlePointerDown = (event) => {
   const hits = raycaster.intersectObjects(dynamicRoot.children, true)
   const hit = hits.find((item) => item.object.userData?.kind)
   if (!hit) {
-    if (cameraDragArmed.value && selectedKind.value === 'camera' && beginSelectedDragFromPointer(event)) {
+    if (
+      ((selectedKind.value === 'object' || selectedKind.value === 'character') && beginSelectedDragFromPointer(event)) ||
+      (jointDragArmed.value && selectedKind.value === 'joint' && beginSelectedDragFromPointer(event)) ||
+      (cameraDragArmed.value && selectedKind.value === 'camera' && beginSelectedDragFromPointer(event))
+    ) {
       event.preventDefault()
     }
     return
@@ -1386,6 +1489,32 @@ onBeforeUnmount(() => {
 .parsed-actions p {
   margin: 0;
   color: #d9f3ff;
+  font-size: 12px;
+}
+.custom-object-box {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 212, 154, 0.12);
+  background: rgba(18, 17, 24, 0.52);
+}
+.object-image-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(18, 17, 24, 0.72);
+}
+.object-image-preview img {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.object-image-preview span {
+  color: #cdbba8;
   font-size: 12px;
 }
 .wide-btn {

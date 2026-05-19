@@ -49,6 +49,20 @@
               {{ asset.label }}
             </button>
           </div>
+          <div class="object-list">
+            <div
+              v-for="object in sceneState.objects"
+              :key="object.id"
+              class="list-row"
+              :class="{ active: selectedKind === 'object' && selectedId === object.id }"
+            >
+              <button type="button" class="row-main" @click="selectObject(object.id)">
+                <span class="asset-swatch" :style="{ background: object.material.color }"></span>
+                {{ object.name }}
+              </button>
+              <button type="button" class="mini-action danger" @click="removeObject(object.id)">删除</button>
+            </div>
+          </div>
         </section>
 
         <section class="panel-section">
@@ -57,18 +71,23 @@
             <span>{{ sceneState.characters.length }} 人</span>
           </div>
           <el-button class="wide-btn" type="primary" @click="addCharacter">加入线条人物</el-button>
+          <input ref="characterImageInputRef" class="file-hidden" type="file" accept="image/*" @change="handleCharacterImageUpload" />
           <div class="character-list">
-            <button
+            <div
               v-for="character in sceneState.characters"
               :key="character.id"
-              type="button"
               class="list-row"
               :class="{ active: selectedKind === 'character' && selectedId === character.id }"
-              @click="selectCharacter(character.id)"
             >
-              {{ character.name }}
-              <span>{{ character.height.toFixed(2) }}m</span>
-            </button>
+              <button type="button" class="row-main" @click="selectCharacter(character.id)">
+                {{ character.name }}
+                <span class="row-meta">{{ character.height.toFixed(2) }}m</span>
+              </button>
+              <button type="button" class="mini-action" @click="openCharacterImagePicker(character.id)">
+                {{ character.referenceImage ? '换图' : '上传形象' }}
+              </button>
+              <button type="button" class="mini-action danger" @click="removeCharacter(character.id)">删除</button>
+            </div>
           </div>
         </section>
       </aside>
@@ -90,7 +109,7 @@
           </div>
         </div>
 
-        <div ref="canvasWrapRef" class="canvas-wrap">
+        <div ref="canvasWrapRef" class="canvas-wrap" @pointerdown.capture="handlePointerDown" @mousedown.capture="handlePointerDown">
           <div class="camera-chip">主镜头 · {{ activeCamera.shotType }} · {{ activeCamera.aspect }}</div>
         </div>
 
@@ -138,13 +157,24 @@
               <label>位置 Z<el-input-number v-model="selectedCharacter.position.z" :step="0.1" @change="syncSceneToThree" /></label>
               <label>身高<el-input-number v-model="selectedCharacter.height" :min="0.8" :step="0.05" @change="resizeCharacterPose" /></label>
             </div>
-            <input ref="characterImageInputRef" class="file-hidden" type="file" accept="image/*" @change="handleCharacterImageUpload" />
             <el-button plain class="wide-btn" @click="characterImageInputRef?.click()">上传人物图片</el-button>
             <div v-if="selectedCharacter.referenceImage" class="reference-preview">
               <img :src="selectedCharacter.referenceImage" :alt="selectedCharacter.name" />
               <span>已绑定人物参考图</span>
             </div>
             <p v-if="selectedJointName" class="joint-note">当前关节：{{ jointLabels[selectedJointName] || selectedJointName }}</p>
+            <div class="joint-grid">
+              <button
+                v-for="(_, jointName) in selectedCharacter.pose"
+                :key="jointName"
+                type="button"
+                class="joint-btn"
+                :class="{ active: selectedKind === 'joint' && selectedJointName === jointName }"
+                @click="selectJoint(selectedCharacter.id, jointName)"
+              >
+                {{ jointLabels[jointName] || jointName }}
+              </button>
+            </div>
           </div>
 
           <div v-else class="empty-state">选择物体、人物或关节后编辑。</div>
@@ -156,6 +186,7 @@
             <span>{{ activeCamera.name }}</span>
           </div>
           <div class="form-stack">
+            <el-button plain class="wide-btn camera-select-btn" @click="selectCamera">选中主镜头并拖动</el-button>
             <div class="field-grid">
               <label>位置 X<el-input-number v-model="activeCamera.position.x" :step="0.1" @change="syncSceneToThree" /></label>
               <label>位置 Y<el-input-number v-model="activeCamera.position.y" :step="0.1" @change="syncSceneToThree" /></label>
@@ -193,7 +224,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { ElMessage } from 'element-plus'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 
 const STORAGE_KEY = 'ai_manga_character_position_scene'
 
@@ -207,6 +237,7 @@ const transformMode = ref('translate')
 const selectedKind = ref('')
 const selectedId = ref('')
 const selectedJointName = ref('')
+const imageUploadCharacterId = ref('')
 const jsonDialogVisible = ref(false)
 const sceneJsonText = ref('')
 
@@ -340,7 +371,8 @@ const sceneState = reactive(createInitialScene())
 const activeCamera = computed(() => sceneState.cameras.find((item) => item.active) || sceneState.cameras[0])
 const selectedObject = computed(() => (selectedKind.value === 'object' ? sceneState.objects.find((item) => item.id === selectedId.value) : null))
 const selectedCharacter = computed(() => (selectedKind.value === 'character' || selectedKind.value === 'joint' ? sceneState.characters.find((item) => item.id === selectedId.value) : null))
-const selectedTitle = computed(() => selectedObject.value?.name || selectedCharacter.value?.name || '未选择')
+const selectedCamera = computed(() => (selectedKind.value === 'camera' ? activeCamera.value : null))
+const selectedTitle = computed(() => selectedObject.value?.name || selectedCharacter.value?.name || selectedCamera.value?.name || '未选择')
 const cameraSummary = computed(() => {
   const camera = activeCamera.value
   return `位置 ${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)} / FOV ${camera.fov}`
@@ -350,17 +382,28 @@ let renderer
 let threeScene
 let editCamera
 let orbitControls
-let transformControls
 let resizeObserver
 let dynamicRoot
 let floorTexture
 let animationId
+let cameraMarker
 const objectMap = new Map()
 const characterMap = new Map()
 const jointMap = new Map()
 const lineMap = new Map()
 const raycaster = new THREE.Raycaster()
 const pointer = new THREE.Vector2()
+const dragState = {
+  active: false,
+  kind: '',
+  id: '',
+  joint: '',
+  plane: new THREE.Plane(),
+  offset: new THREE.Vector3(),
+  startClientX: 0,
+  startClientY: 0,
+  startPosition: new THREE.Vector3(),
+}
 
 const copyPlain = (value) => JSON.parse(JSON.stringify(value))
 
@@ -462,6 +505,9 @@ const createCameraMarker = () => {
   group.add(body, lens)
   group.position.set(camera.position.x, camera.position.y, camera.position.z)
   group.lookAt(camera.target.x, camera.target.y, camera.target.z)
+  group.traverse((child) => {
+    child.userData = { kind: 'camera', id: camera.id }
+  })
   return group
 }
 
@@ -505,20 +551,14 @@ const rebuildDynamicScene = () => {
     characterMap.set(item.id, group)
     dynamicRoot.add(group)
   })
-  dynamicRoot.add(createCameraMarker())
+  cameraMarker = createCameraMarker()
+  dynamicRoot.add(cameraMarker)
   threeScene.add(dynamicRoot)
   attachSelectedControl()
 }
 
 const attachSelectedControl = () => {
-  if (!transformControls) return
-  transformControls.detach()
-  if (selectedKind.value === 'object' && objectMap.has(selectedId.value)) transformControls.attach(objectMap.get(selectedId.value))
-  if (selectedKind.value === 'character' && characterMap.has(selectedId.value)) transformControls.attach(characterMap.get(selectedId.value))
-  if (selectedKind.value === 'joint') {
-    const joint = jointMap.get(`${selectedId.value}:${selectedJointName.value}`)
-    if (joint) transformControls.attach(joint)
-  }
+  return true
 }
 
 const syncFromTransform = () => {
@@ -554,6 +594,13 @@ const syncFromTransform = () => {
     }
     updateCharacterLines(character.id)
   }
+  if (selectedKind.value === 'camera') {
+    const camera = activeCamera.value
+    if (!camera || !cameraMarker) return
+    camera.position.x = Number(cameraMarker.position.x.toFixed(3))
+    camera.position.y = Number(cameraMarker.position.y.toFixed(3))
+    camera.position.z = Number(cameraMarker.position.z.toFixed(3))
+  }
 }
 
 const syncSceneToThree = () => {
@@ -583,13 +630,30 @@ const selectJoint = (id, joint) => {
   attachSelectedControl()
 }
 
+const selectCamera = () => {
+  selectedKind.value = 'camera'
+  selectedId.value = activeCamera.value.id
+  selectedJointName.value = ''
+  attachSelectedControl()
+}
+
 const setTransformMode = (mode) => {
   transformMode.value = mode
-  transformControls?.setMode(mode)
 }
 
 const addObject = (type) => {
   sceneState.objects.push(makeObject(type, { position: { x: 0, y: 0, z: 0.6 } }))
+  syncSceneToThree()
+}
+
+const removeObject = (id) => {
+  const index = sceneState.objects.findIndex((item) => item.id === id)
+  if (index < 0) return
+  sceneState.objects.splice(index, 1)
+  if (selectedKind.value === 'object' && selectedId.value === id) {
+    selectedKind.value = ''
+    selectedId.value = ''
+  }
   syncSceneToThree()
 }
 
@@ -598,6 +662,18 @@ const addCharacter = () => {
   sceneState.characters.push(character)
   syncSceneToThree()
   nextTick(() => selectCharacter(character.id))
+}
+
+const removeCharacter = (id) => {
+  const index = sceneState.characters.findIndex((item) => item.id === id)
+  if (index < 0) return
+  sceneState.characters.splice(index, 1)
+  if ((selectedKind.value === 'character' || selectedKind.value === 'joint') && selectedId.value === id) {
+    selectedKind.value = ''
+    selectedId.value = ''
+    selectedJointName.value = ''
+  }
+  syncSceneToThree()
 }
 
 const duplicateSelected = () => {
@@ -623,12 +699,12 @@ const duplicateSelected = () => {
 
 const deleteSelected = () => {
   if (selectedKind.value === 'object') {
-    const index = sceneState.objects.findIndex((item) => item.id === selectedId.value)
-    if (index >= 0) sceneState.objects.splice(index, 1)
+    removeObject(selectedId.value)
+    return
   }
   if (selectedKind.value === 'character' || selectedKind.value === 'joint') {
-    const index = sceneState.characters.findIndex((item) => item.id === selectedId.value)
-    if (index >= 0) sceneState.characters.splice(index, 1)
+    removeCharacter(selectedId.value)
+    return
   }
   selectedKind.value = ''
   selectedId.value = ''
@@ -655,9 +731,19 @@ const handleTopViewUpload = (event) => {
 const handleCharacterImageUpload = (event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
-  if (!file || !selectedCharacter.value) return
-  selectedCharacter.value.referenceImage = URL.createObjectURL(file)
+  const targetId = imageUploadCharacterId.value || selectedCharacter.value?.id
+  const character = sceneState.characters.find((item) => item.id === targetId)
+  if (!file || !character) return
+  character.referenceImage = URL.createObjectURL(file)
+  selectCharacter(character.id)
+  imageUploadCharacterId.value = ''
   ElMessage.success('人物参考图已绑定')
+}
+
+const openCharacterImagePicker = (id) => {
+  imageUploadCharacterId.value = id
+  selectCharacter(id)
+  characterImageInputRef.value?.click()
 }
 
 const generateSceneFromText = () => {
@@ -767,19 +853,174 @@ const generatePreview = () => {
   ElMessage.success('当前镜头画面已生成')
 }
 
-const handlePointerDown = (event) => {
+const updatePointerRay = (event) => {
   if (!renderer || !editCamera || !dynamicRoot) return
   const rect = renderer.domElement.getBoundingClientRect()
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
   raycaster.setFromCamera(pointer, editCamera)
+}
+
+const getDragObject = (kind, id, joint = '') => {
+  if (kind === 'object') return objectMap.get(id)
+  if (kind === 'character') return characterMap.get(id)
+  if (kind === 'joint') return jointMap.get(`${id}:${joint}`)
+  if (kind === 'camera') return cameraMarker
+  return null
+}
+
+const beginDirectDrag = (kind, id, joint, worldPoint, event) => {
+  if (transformMode.value !== 'translate') return
+  const target = getDragObject(kind, id, joint)
+  if (!target) return
+  const worldPosition = new THREE.Vector3()
+  target.getWorldPosition(worldPosition)
+  if (kind === 'joint') {
+    const normal = new THREE.Vector3()
+    editCamera.getWorldDirection(normal)
+    dragState.plane.setFromNormalAndCoplanarPoint(normal, worldPosition)
+  } else {
+    dragState.plane.set(new THREE.Vector3(0, 1, 0), -worldPosition.y)
+  }
+  dragState.active = true
+  dragState.kind = kind
+  dragState.id = id
+  dragState.joint = joint || ''
+  dragState.offset.copy(worldPoint).sub(worldPosition)
+  dragState.startClientX = event?.clientX ?? 0
+  dragState.startClientY = event?.clientY ?? 0
+  dragState.startPosition.copy(worldPosition)
+  if (orbitControls) orbitControls.enabled = false
+}
+
+const beginSelectedDragFromPointer = (event) => {
+  if (!selectedKind.value || transformMode.value !== 'translate') return false
+  const kind = selectedKind.value
+  const id = selectedId.value
+  const joint = selectedJointName.value
+  const target = getDragObject(kind, id, joint)
+  if (!target) return false
+  const worldPosition = new THREE.Vector3()
+  target.getWorldPosition(worldPosition)
+  const plane =
+    kind === 'joint'
+      ? new THREE.Plane().setFromNormalAndCoplanarPoint(editCamera.getWorldDirection(new THREE.Vector3()), worldPosition)
+      : new THREE.Plane(new THREE.Vector3(0, 1, 0), -worldPosition.y)
+  const worldPoint = new THREE.Vector3()
+  if (!raycaster.ray.intersectPlane(plane, worldPoint)) return false
+  beginDirectDrag(kind, id, joint, worldPoint, event)
+  return true
+}
+
+const applyDirectDrag = (worldPoint, event) => {
+  const targetWorld = worldPoint.clone().sub(dragState.offset)
+  const rect = renderer.domElement.getBoundingClientRect()
+  const dx = ((event?.clientX ?? dragState.startClientX) - dragState.startClientX) / Math.max(rect.width, 1)
+  const dy = ((event?.clientY ?? dragState.startClientY) - dragState.startClientY) / Math.max(rect.height, 1)
+  const screenWorld = dragState.startPosition.clone()
+  screenWorld.x += dx * sceneState.scene.width
+  screenWorld.z += dy * sceneState.scene.depth
+  if (dragState.kind === 'object') {
+    const object = sceneState.objects.find((item) => item.id === dragState.id)
+    const group = objectMap.get(dragState.id)
+    if (!object || !group) return
+    group.position.x = screenWorld.x
+    group.position.z = screenWorld.z
+    object.position.x = Number(screenWorld.x.toFixed(3))
+    object.position.z = Number(screenWorld.z.toFixed(3))
+  }
+  if (dragState.kind === 'character') {
+    const character = sceneState.characters.find((item) => item.id === dragState.id)
+    const group = characterMap.get(dragState.id)
+    if (!character || !group) return
+    group.position.x = screenWorld.x
+    group.position.z = screenWorld.z
+    character.position.x = Number(screenWorld.x.toFixed(3))
+    character.position.z = Number(screenWorld.z.toFixed(3))
+  }
+  if (dragState.kind === 'camera') {
+    const camera = activeCamera.value
+    if (!camera || !cameraMarker) return
+    cameraMarker.position.x = screenWorld.x
+    cameraMarker.position.z = screenWorld.z
+    cameraMarker.lookAt(camera.target.x, camera.target.y, camera.target.z)
+    camera.position.x = Number(screenWorld.x.toFixed(3))
+    camera.position.z = Number(screenWorld.z.toFixed(3))
+  }
+  if (dragState.kind === 'joint') {
+    const character = sceneState.characters.find((item) => item.id === dragState.id)
+    const group = characterMap.get(dragState.id)
+    const joint = jointMap.get(`${dragState.id}:${dragState.joint}`)
+    if (!character || !group || !joint) return
+    const targetJointWorld = dragState.startPosition.clone()
+    targetJointWorld.x += dx * 1.6
+    targetJointWorld.y -= dy * 1.6
+    const localPoint = group.worldToLocal(targetJointWorld)
+    joint.position.copy(localPoint)
+    character.pose[dragState.joint] = {
+      x: Number(localPoint.x.toFixed(3)),
+      y: Number(Math.max(0, localPoint.y).toFixed(3)),
+      z: Number(localPoint.z.toFixed(3)),
+    }
+    updateCharacterLines(character.id)
+  }
+}
+
+const endDirectDrag = () => {
+  if (!dragState.active) return
+  dragState.active = false
+  dragState.kind = ''
+  dragState.id = ''
+  dragState.joint = ''
+  if (orbitControls) orbitControls.enabled = true
+}
+
+const handlePointerDown = (event) => {
+  updatePointerRay(event)
+  if ((selectedKind.value === 'joint' || selectedKind.value === 'camera') && beginSelectedDragFromPointer(event)) {
+    event.preventDefault()
+    return
+  }
   const hits = raycaster.intersectObjects(dynamicRoot.children, true)
   const hit = hits.find((item) => item.object.userData?.kind)
-  if (!hit) return
+  if (!hit) {
+    if (beginSelectedDragFromPointer(event)) event.preventDefault()
+    return
+  }
   const data = hit.object.userData
-  if (data.kind === 'joint') selectJoint(data.id, data.joint)
-  if (data.kind === 'object') selectObject(data.id)
-  if (data.kind === 'character') selectCharacter(data.id)
+  if (data.kind === 'joint') {
+    selectJoint(data.id, data.joint)
+    beginDirectDrag('joint', data.id, data.joint, hit.point, event)
+    event.preventDefault()
+  }
+  if (data.kind === 'object') {
+    selectObject(data.id)
+    beginDirectDrag('object', data.id, '', hit.point, event)
+    event.preventDefault()
+  }
+  if (data.kind === 'character') {
+    selectCharacter(data.id)
+    beginDirectDrag('character', data.id, '', hit.point, event)
+    event.preventDefault()
+  }
+  if (data.kind === 'camera') {
+    selectCamera()
+    beginDirectDrag('camera', data.id, '', hit.point, event)
+    event.preventDefault()
+  }
+}
+
+const handlePointerMove = (event) => {
+  if (!dragState.active) return
+  event.preventDefault()
+  updatePointerRay(event)
+  const point = new THREE.Vector3()
+  if (!raycaster.ray.intersectPlane(dragState.plane, point)) return
+  applyDirectDrag(point, event)
+}
+
+const handlePointerUp = () => {
+  endDirectDrag()
 }
 
 const resizeRenderer = () => {
@@ -804,19 +1045,18 @@ const initThree = () => {
   orbitControls = new OrbitControls(editCamera, renderer.domElement)
   orbitControls.enableDamping = true
   orbitControls.target.set(0, 0.8, 0)
-  transformControls = new TransformControls(editCamera, renderer.domElement)
-  transformControls.addEventListener('dragging-changed', (event) => {
-    orbitControls.enabled = !event.value
-  })
-  transformControls.addEventListener('objectChange', syncFromTransform)
-  threeScene.add(transformControls)
   threeScene.add(new THREE.GridHelper(12, 24, '#5d5367', '#393241'))
   threeScene.add(new THREE.AmbientLight('#ffffff', 0.75))
   const light = new THREE.DirectionalLight('#ffffff', 1.15)
   light.position.set(4, 7, 5)
   light.castShadow = true
   threeScene.add(light)
-  renderer.domElement.addEventListener('pointerdown', handlePointerDown)
+  renderer.domElement.addEventListener('pointerdown', handlePointerDown, true)
+  renderer.domElement.addEventListener('mousedown', handlePointerDown, true)
+  window.addEventListener('pointermove', handlePointerMove, true)
+  window.addEventListener('pointerup', handlePointerUp, true)
+  window.addEventListener('mousemove', handlePointerMove, true)
+  window.addEventListener('mouseup', handlePointerUp, true)
   resizeObserver = new ResizeObserver(resizeRenderer)
   resizeObserver.observe(canvasWrapRef.value)
   resizeRenderer()
@@ -835,9 +1075,13 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (animationId) cancelAnimationFrame(animationId)
-  renderer?.domElement?.removeEventListener('pointerdown', handlePointerDown)
+  renderer?.domElement?.removeEventListener('pointerdown', handlePointerDown, true)
+  renderer?.domElement?.removeEventListener('mousedown', handlePointerDown, true)
+  window.removeEventListener('pointermove', handlePointerMove, true)
+  window.removeEventListener('pointerup', handlePointerUp, true)
+  window.removeEventListener('mousemove', handlePointerMove, true)
+  window.removeEventListener('mouseup', handlePointerUp, true)
   resizeObserver?.disconnect()
-  transformControls?.dispose()
   orbitControls?.dispose()
   renderer?.dispose()
   if (renderer?.domElement?.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement)
@@ -1005,11 +1249,17 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
+.object-list,
 .character-list,
 .form-stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.object-list {
+  margin-top: 12px;
+  max-height: 220px;
+  overflow: auto;
 }
 .list-row {
   display: flex;
@@ -1021,11 +1271,43 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255, 212, 154, 0.12);
   background: rgba(18, 17, 24, 0.72);
   color: #f7f2ea;
-  padding: 0 12px;
+  padding: 6px 8px;
 }
 .list-row.active {
   border-color: rgba(255, 162, 72, 0.9);
   color: #ffcb87;
+}
+.row-main {
+  min-width: 0;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 4px 2px;
+}
+.row-main .row-meta {
+  margin-left: auto;
+  color: #cdbba8;
+  font-size: 12px;
+}
+.mini-action {
+  flex: 0 0 auto;
+  min-height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 212, 154, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f7e0be;
+  font-size: 12px;
+  padding: 0 8px;
+}
+.mini-action.danger {
+  color: #ffb2a3;
+  border-color: rgba(255, 130, 100, 0.24);
 }
 .stage-toolbar {
   justify-content: space-between;
@@ -1128,6 +1410,25 @@ onBeforeUnmount(() => {
   height: 52px;
   border-radius: 10px;
   object-fit: cover;
+}
+.joint-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.joint-btn {
+  min-height: 32px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 212, 154, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f7e0be;
+  font-size: 12px;
+}
+.joint-btn.active,
+.camera-select-btn {
+  border-color: rgba(116, 199, 255, 0.42);
+  color: #d9f3ff;
+  background: rgba(116, 199, 255, 0.08);
 }
 .empty-state {
   min-height: 120px;

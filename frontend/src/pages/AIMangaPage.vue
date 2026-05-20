@@ -12,7 +12,6 @@
       </div>
       <nav class="topbar-nav">
         <button class="nav-btn active" type="button" @click="$router.push('/ai-manga')">AI漫剧创作</button>
-        <button class="nav-btn" type="button" @click="$router.push('/ai-manga/character-position')">人物站位</button>
         <button class="nav-btn" type="button" @click="$router.push('/ai-customer')">AI章鱼助手</button>
       </nav>
     </header>

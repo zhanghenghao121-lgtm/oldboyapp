@@ -9,7 +9,7 @@
         </div>
       </div>
       <nav class="boards-nav">
-        <button class="board-nav-btn" type="button" @click="$router.push('/ai-manga')">AI漫剧创作</button>
+        <button class="board-nav-btn" type="button" @click="$router.push('/ai-manga')">AI剧本创作</button>
         <button class="board-nav-btn" type="button" @click="$router.push('/ai-customer')">AI章鱼助手</button>
       </nav>
     </header>
@@ -293,7 +293,7 @@ const hydrateSections = (rawSections, rawStoryboard = '') => {
 const loadStoryboardPayload = () => {
   const payload = getActiveStoryboardPayload()
   if (!payload) {
-    ElMessage.warning('请先在 AI漫剧创作页生成分镜稿')
+    ElMessage.warning('请先在 AI剧本创作页生成分镜稿')
     router.replace('/ai-manga')
     return
   }
@@ -523,7 +523,7 @@ const defaultDraftName = () => {
 }
 
 const saveDraftFlow = async () => {
-  const { value } = await ElMessageBox.prompt('请输入草稿名称，保存后可从 AI漫剧 的“草稿记录”再次打开。', '保存草稿', {
+  const { value } = await ElMessageBox.prompt('请输入草稿名称，保存后可从 AI剧本创作 的“草稿记录”再次打开。', '保存草稿', {
     confirmButtonText: '保存',
     cancelButtonText: '取消',
     inputValue: defaultDraftName(),

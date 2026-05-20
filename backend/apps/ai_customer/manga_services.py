@@ -361,7 +361,7 @@ def generate_manga_storyboard(source_text: str, model_preset: str = "assistant")
     base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
     model = str(runtime.get("model") or "").strip()
     if not api_key or not base_url or not model:
-        raise MangaScriptError("漫剧模型配置不完整，请先在后台模型设置中补全", 500)
+        raise MangaScriptError("剧本模型配置不完整，请先在后台模型设置中补全", 500)
 
     payload = {
         "model": model,
@@ -372,7 +372,7 @@ def generate_manga_storyboard(source_text: str, model_preset: str = "assistant")
             {
                 "role": "user",
                 "content": (
-                    "请根据以下内容生成 AI 漫剧分镜稿。\n"
+                    "请根据以下内容生成 AI 剧本创作分镜稿。\n"
                     "如果原文已经包含分镜结构，请整理得更清晰。\n"
                     "原始内容如下：\n"
                     f"{source_text[:24000]}"
@@ -388,17 +388,17 @@ def generate_manga_storyboard(source_text: str, model_preset: str = "assistant")
             timeout=max(int(getattr(settings, "AI_MANGA_TIMEOUT", 180)), 30),
         )
     except Exception as exc:
-        raise MangaScriptError(f"漫剧模型请求失败：{exc}", 502)
+        raise MangaScriptError(f"剧本模型请求失败：{exc}", 502)
     if resp.status_code >= 400:
-        raise MangaScriptError(f"漫剧模型服务错误({resp.status_code})", 502)
+        raise MangaScriptError(f"剧本模型服务错误({resp.status_code})", 502)
     try:
         body = resp.json()
     except Exception as exc:
-        raise MangaScriptError(f"漫剧模型返回非 JSON：{exc}", 502)
+        raise MangaScriptError(f"剧本模型返回非 JSON：{exc}", 502)
 
     content = str((((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "")).strip()
     if not content:
-        raise MangaScriptError("漫剧模型未返回有效内容", 502)
+        raise MangaScriptError("剧本模型未返回有效内容", 502)
     return {
         "storyboard": content,
         "sections": split_storyboard_sections(content),

@@ -25,7 +25,7 @@
       </button>
       <div v-if="modelMenuOpen" class="submenu-wrap">
         <button class="submenu-btn" :class="{ active: activeModule === 'assistant_model' }" @click="activeModule = 'assistant_model'">助手模型设置</button>
-        <button class="submenu-btn" :class="{ active: activeModule === 'manga_model' }" @click="activeModule = 'manga_model'">漫剧模型设置</button>
+        <button class="submenu-btn" :class="{ active: activeModule === 'manga_model' }" @click="activeModule = 'manga_model'">剧本模型设置</button>
       </div>
 
       <button class="side-btn ai-side-btn" :class="{ active: humanMenuOpen || activeModule === 'human_service' }" @click="toggleHumanMenu">
@@ -268,8 +268,8 @@
       </section>
 
       <section v-if="activeModule === 'manga_model'" class="panel-card">
-        <h4 class="placeholder-title">漫剧模型设置</h4>
-        <p class="placeholder-sub">用于 AI漫剧文档/文本解析与分镜创作输出，也可在前台切换到此模型。</p>
+        <h4 class="placeholder-title">剧本模型设置</h4>
+        <p class="placeholder-sub">用于 AI剧本创作的文档/文本解析与分镜输出，也可在前台切换到此模型。</p>
         <div class="model-preview-grid">
           <div class="model-preview-card">
             <span class="preview-label">当前 API地址</span>
@@ -309,7 +309,7 @@
               v-model="mangaModelForm.storyboard_prompt"
               type="textarea"
               :rows="10"
-              placeholder="请输入 AI漫剧默认分镜提示词"
+              placeholder="请输入 AI剧本创作默认分镜提示词"
             />
           </el-form-item>
           <el-form-item label="分镜图提示词">
@@ -322,7 +322,7 @@
           </el-form-item>
         </el-form>
         <div class="row-actions ai-actions">
-          <el-button class="main-btn" type="primary" :loading="savingModelConfig" @click="saveMangaModelConfig">保存漫剧模型配置</el-button>
+          <el-button class="main-btn" type="primary" :loading="savingModelConfig" @click="saveMangaModelConfig">保存剧本模型配置</el-button>
         </div>
       </section>
 
@@ -552,7 +552,7 @@ const moduleTitle = computed(() => {
   if (activeModule.value === 'ai_knowledge') return 'AI知识库'
   if (activeModule.value === 'ai_customer') return 'AI客服'
   if (activeModule.value === 'assistant_model') return '助手模型设置'
-  if (activeModule.value === 'manga_model') return '漫剧模型设置'
+  if (activeModule.value === 'manga_model') return '剧本模型设置'
   if (activeModule.value === 'ai_memory') return '记忆管理'
   return '人工客服'
 })
@@ -865,7 +865,7 @@ const saveMangaModelConfig = async () => {
     await updateConsoleConfig('ai_manga_model', { value: (mangaModelForm.model || '').trim() })
     await updateConsoleConfig('ai_manga_storyboard_prompt', { value: (mangaModelForm.storyboard_prompt || '').trim() })
     await updateConsoleConfig('ai_manga_image_prompt', { value: (mangaModelForm.image_prompt || '').trim() })
-    ElMessage.success('漫剧模型配置已保存')
+    ElMessage.success('剧本模型配置已保存')
   } catch (e) {
     ElMessage.error(e)
   } finally {

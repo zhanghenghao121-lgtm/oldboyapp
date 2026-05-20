@@ -6,12 +6,12 @@
       <div class="topbar-brand">
         <span class="sidebar-tag">Storyboard Lab</span>
         <div>
-          <h2>AI漫剧</h2>
+          <h2>AI剧本创作</h2>
           <p>把文档与文本压成可直接复制的漫画分镜稿。</p>
         </div>
       </div>
       <nav class="topbar-nav">
-        <button class="nav-btn active" type="button" @click="$router.push('/ai-manga')">AI漫剧创作</button>
+        <button class="nav-btn active" type="button" @click="$router.push('/ai-manga')">AI剧本创作</button>
         <button class="nav-btn" type="button" @click="$router.push('/ai-customer')">AI章鱼助手</button>
       </nav>
     </header>
@@ -20,7 +20,7 @@
       <div class="manga-hero">
         <div class="hero-copy">
           <p class="hero-kicker">NEON PAPER CUT</p>
-          <h1>AI漫剧创作台</h1>
+          <h1>AI剧本创作台</h1>
           <p class="hero-sub">面向剧本、小说片段、策划案与分集大纲的漫画分镜整理器。</p>
         </div>
         <div class="hero-guide">
@@ -268,7 +268,7 @@ onMounted(async () => {
     await loadConfig()
     loadDrafts()
   } catch (e) {
-    ElMessage.error(String(e || '获取漫剧配置失败'))
+    ElMessage.error(String(e || '获取剧本创作配置失败'))
     router.push('/ai-customer')
   }
 })

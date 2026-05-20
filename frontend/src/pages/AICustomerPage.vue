@@ -8,7 +8,7 @@
         </div>
         <div class="head-actions">
           <el-button class="neon-btn active-switch-btn" @click="$router.push('/ai-customer')">AI章鱼助手</el-button>
-          <el-button class="neon-btn" @click="$router.push('/ai-manga')">AI漫剧</el-button>
+          <el-button class="neon-btn" @click="$router.push('/ai-manga')">AI剧本创作</el-button>
           <el-button class="neon-btn" @click="openHistoryDialog">历史记录</el-button>
           <el-button class="neon-btn reply-btn" @click="openRepliesDialog">
             人工回复

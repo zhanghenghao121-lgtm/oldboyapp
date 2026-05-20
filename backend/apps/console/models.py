@@ -49,11 +49,11 @@ class SiteConfig(models.Model):
         (KEY_AI_ASSISTANT_BASE_URL, "助手模型API地址"),
         (KEY_AI_ASSISTANT_API_KEY, "助手模型API Key"),
         (KEY_AI_ASSISTANT_MODEL, "助手模型名称"),
-        (KEY_AI_MANGA_BASE_URL, "漫剧模型API地址"),
-        (KEY_AI_MANGA_API_KEY, "漫剧模型API Key"),
-        (KEY_AI_MANGA_MODEL, "漫剧模型名称"),
-        (KEY_AI_MANGA_STORYBOARD_PROMPT, "AI漫剧分镜提示词"),
-        (KEY_AI_MANGA_IMAGE_PROMPT, "AI漫剧分镜图提示词"),
+        (KEY_AI_MANGA_BASE_URL, "剧本模型API地址"),
+        (KEY_AI_MANGA_API_KEY, "剧本模型API Key"),
+        (KEY_AI_MANGA_MODEL, "剧本模型名称"),
+        (KEY_AI_MANGA_STORYBOARD_PROMPT, "AI剧本创作分镜提示词"),
+        (KEY_AI_MANGA_IMAGE_PROMPT, "AI剧本创作分镜图提示词"),
     ]
 
     key = models.CharField(max_length=64, choices=KEY_CHOICES, unique=True)

@@ -230,7 +230,7 @@ def ai_manga_config(request):
             "image_prompt": get_manga_image_prompt(),
             "model_options": [
                 _serialize_model_option("assistant", "助手模型", assistant),
-                _serialize_model_option("manga", "漫剧模型", manga),
+                _serialize_model_option("manga", "剧本模型", manga),
             ],
         }
     )

@@ -10,7 +10,7 @@
       </div>
 
       <button class="side-btn" type="button" @click="goFeature('/ai-customer')">AI章鱼助手</button>
-      <button class="side-btn" type="button" @click="goFeature('/ai-manga')">AI漫剧</button>
+      <button class="side-btn" type="button" @click="goFeature('/ai-manga')">AI剧本创作</button>
     </aside>
 
     <main class="main-panel">
@@ -72,7 +72,7 @@
           </div>
         </div>
         <div class="panel-card manga-card">
-          <h4>AI漫剧 · 分镜创作间</h4>
+          <h4>AI剧本创作 · 分镜创作间</h4>
           <p>支持上传 PDF、Word 文档或粘贴剧情文本，自动整理为可复制的漫画分镜稿。</p>
           <div class="feature-grid manga-grid">
             <div class="feature-item">
@@ -93,7 +93,7 @@
             </div>
           </div>
           <div class="entry-row">
-            <el-button type="primary" class="main-btn warm-btn" @click="$router.push('/ai-manga')">进入 AI漫剧</el-button>
+            <el-button type="primary" class="main-btn warm-btn" @click="$router.push('/ai-manga')">进入 AI剧本创作</el-button>
           </div>
         </div>
       </section>

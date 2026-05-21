@@ -54,32 +54,68 @@
           <el-button plain @click="pickFile">上传文档</el-button>
           <span v-if="selectedFileName" class="file-chip">{{ selectedFileName }}</span>
           <span class="file-tip">支持 PDF / DOCX</span>
+          <el-button class="parse-action" plain :loading="parsingScenes" :disabled="!hasScriptSource" @click="parseScenes">
+            解析剧本
+          </el-button>
+        </div>
+
+        <div class="reference-panel" :class="{ muted: !sceneAssets.length }">
+          <div class="reference-head">
+            <strong>场景素材</strong>
+            <span>先解析剧本，再按识别出的场景上传正面和反面图片。单张不超过 10MB。</span>
+          </div>
+          <div v-if="!sceneAssets.length" class="scene-empty">
+            <span>上传或粘贴剧本后点击“解析剧本”，这里会列出剧本中出现的场景名称。</span>
+          </div>
+          <div v-else class="scene-list">
+            <article v-for="scene in sceneAssets" :key="scene.id" class="scene-card">
+              <div class="scene-title">
+                <span>{{ scene.index }}</span>
+                <strong>{{ scene.name }}</strong>
+              </div>
+              <div class="reference-grid">
+                <label class="reference-uploader">
+                  <input type="file" accept="image/*" @change="handleSceneImageChange(scene.id, 'frontFile', $event)" />
+                  <span>场景正面</span>
+                  <strong>{{ scene.frontFile?.name || '选择正面图' }}</strong>
+                  <button v-if="scene.frontFile" type="button" @click.prevent="clearSceneImage(scene.id, 'frontFile')">移除</button>
+                </label>
+                <label class="reference-uploader">
+                  <input type="file" accept="image/*" @change="handleSceneImageChange(scene.id, 'backFile', $event)" />
+                  <span>场景反面</span>
+                  <strong>{{ scene.backFile?.name || '选择反面图' }}</strong>
+                  <button v-if="scene.backFile" type="button" @click.prevent="clearSceneImage(scene.id, 'backFile')">移除</button>
+                </label>
+              </div>
+            </article>
+          </div>
         </div>
 
         <div class="reference-panel">
           <div class="reference-head">
-            <strong>场景参考图</strong>
-            <span>可选，单张不超过 10MB，帮助 AI 对齐场景方向与人物站位。</span>
+            <strong>人物站位</strong>
+            <span>可选上传站位图，并描述人物在场景中的位置关系。</span>
           </div>
-          <div class="reference-grid">
-            <label v-for="item in referenceImageOptions" :key="item.key" class="reference-uploader">
-              <input type="file" accept="image/*" @change="handleReferenceImageChange(item.key, $event)" />
-              <span>{{ item.label }}</span>
-              <strong>{{ referenceImages[item.key]?.name || '选择图片' }}</strong>
-              <button
-                v-if="referenceImages[item.key]"
-                type="button"
-                @click.prevent="clearReferenceImage(item.key)"
-              >
-                移除
-              </button>
+          <div class="position-layout">
+            <label class="reference-uploader position-upload">
+              <input type="file" accept="image/*" @change="handleCharacterImageChange" />
+              <span>人物站位图</span>
+              <strong>{{ characterPositionImage?.name || '选择图片' }}</strong>
+              <button v-if="characterPositionImage" type="button" @click.prevent="characterPositionImage = null">移除</button>
             </label>
+            <el-input
+              v-model="positionDescription"
+              type="textarea"
+              :rows="4"
+              resize="none"
+              placeholder="例如：男主站在画面左前方，女主在右后方靠窗，镜头轴线从门口朝室内。"
+            />
           </div>
         </div>
 
         <div class="action-row">
           <el-button plain :disabled="!hasStoryboardInput" @click="clearInput">清空</el-button>
-          <el-button class="primary-action" type="primary" :loading="generating" @click="submitStoryboard">识别剧本</el-button>
+          <el-button class="primary-action" type="primary" :loading="generating" @click="submitStoryboard">生成分镜词</el-button>
         </div>
       </section>
 
@@ -97,8 +133,8 @@
         </div>
 
         <div v-if="!groups.length && !generating" class="empty-state">
-          <strong>等待识别剧本</strong>
-          <span>输出会按段落分组展示，每组总时长不超过 15 秒。</span>
+          <strong>等待生成分镜词</strong>
+          <span>先解析场景并补充素材，最终输出会按段落分组展示。</span>
         </div>
 
         <div v-else class="group-list" v-loading="generating">
@@ -144,17 +180,16 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { getAiMangaConfig, generateAiMangaStoryboard } from '../api/aiManga'
+import { getAiMangaConfig, generateAiMangaStoryboard, parseAiMangaScenes } from '../api/aiManga'
 
 const fileInputRef = ref(null)
 const selectedFile = ref(null)
 const selectedFileName = ref('')
 const inputText = ref('')
-const referenceImages = reactive({
-  scene_front_image: null,
-  scene_back_image: null,
-  character_position_image: null,
-})
+const sceneAssets = ref([])
+const characterPositionImage = ref(null)
+const positionDescription = ref('')
+const parsingScenes = ref(false)
 const generating = ref(false)
 const groups = ref([])
 const storyboardText = ref('')
@@ -169,14 +204,9 @@ const styleOptions = ref([
 ])
 const collapsedGroups = reactive({})
 const maxReferenceImageSize = 10 * 1024 * 1024
-const referenceImageOptions = [
-  { key: 'scene_front_image', label: '场景正面' },
-  { key: 'scene_back_image', label: '场景反面' },
-  { key: 'character_position_image', label: '人物站位' },
-]
 
-const hasReferenceImages = computed(() => Object.values(referenceImages).some(Boolean))
-const hasStoryboardInput = computed(() => Boolean(inputText.value.trim() || selectedFile.value || hasReferenceImages.value))
+const hasScriptSource = computed(() => Boolean(inputText.value.trim() || selectedFile.value))
+const hasStoryboardInput = computed(() => Boolean(hasScriptSource.value || sceneAssets.value.length || characterPositionImage.value || positionDescription.value.trim()))
 
 const currentModelLabel = computed(() => {
   const matched = modelOptions.value.find((item) => item.id === selectedModelPreset.value)
@@ -199,23 +229,38 @@ const handleFileChange = (event) => {
   selectedFileName.value = file.name
 }
 
-const handleReferenceImageChange = (key, event) => {
-  const file = event.target.files?.[0]
-  event.target.value = ''
-  if (!file) return
+const validateReferenceImage = (file) => {
   if (!file.type.startsWith('image/')) {
     ElMessage.warning('请上传图片文件')
-    return
+    return false
   }
   if (file.size > maxReferenceImageSize) {
     ElMessage.warning('单张图片大小不能超过 10MB')
-    return
+    return false
   }
-  referenceImages[key] = file
+  return true
 }
 
-const clearReferenceImage = (key) => {
-  referenceImages[key] = null
+const handleSceneImageChange = (sceneId, key, event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!validateReferenceImage(file)) return
+  const scene = sceneAssets.value.find((item) => item.id === sceneId)
+  if (scene) scene[key] = file
+}
+
+const clearSceneImage = (sceneId, key) => {
+  const scene = sceneAssets.value.find((item) => item.id === sceneId)
+  if (scene) scene[key] = null
+}
+
+const handleCharacterImageChange = (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!validateReferenceImage(file)) return
+  characterPositionImage.value = file
 }
 
 const loadConfig = async () => {
@@ -229,7 +274,7 @@ const loadConfig = async () => {
 
 const submitStoryboard = async () => {
   if (!inputText.value.trim() && !selectedFile.value) {
-    ElMessage.warning('请输入文本或上传文档后再识别剧本')
+    ElMessage.warning('请输入文本或上传文档后再生成分镜词')
     return
   }
 
@@ -238,9 +283,20 @@ const submitStoryboard = async () => {
   formData.append('text', inputText.value)
   formData.append('model_preset', selectedModelPreset.value)
   formData.append('style', selectedStyle.value)
-  referenceImageOptions.forEach((item) => {
-    if (referenceImages[item.key]) formData.append(item.key, referenceImages[item.key])
+  const sceneContext = sceneAssets.value.map((scene, index) => {
+    const frontField = `scene_${index}_front_image`
+    const backField = `scene_${index}_back_image`
+    if (scene.frontFile) formData.append(frontField, scene.frontFile)
+    if (scene.backFile) formData.append(backField, scene.backFile)
+    return {
+      name: scene.name,
+      front_field: frontField,
+      back_field: backField,
+    }
   })
+  formData.append('scene_context', JSON.stringify(sceneContext))
+  if (characterPositionImage.value) formData.append('character_position_image', characterPositionImage.value)
+  formData.append('position_description', positionDescription.value)
 
   generating.value = true
   try {
@@ -248,11 +304,41 @@ const submitStoryboard = async () => {
     groups.value = res.data.groups || []
     storyboardText.value = res.data.storyboard || renderGroups(groups.value)
     Object.keys(collapsedGroups).forEach((key) => delete collapsedGroups[key])
-    ElMessage.success('剧本识别完成')
+    ElMessage.success('分镜词生成完成')
   } catch (e) {
-    ElMessage.error(String(e || '剧本识别失败'))
+    ElMessage.error(String(e || '分镜词生成失败'))
   } finally {
     generating.value = false
+  }
+}
+
+const parseScenes = async () => {
+  if (!hasScriptSource.value) {
+    ElMessage.warning('请先输入文本或上传剧本文档')
+    return
+  }
+
+  const formData = new FormData()
+  if (selectedFile.value) formData.append('file', selectedFile.value)
+  formData.append('text', inputText.value)
+  formData.append('model_preset', selectedModelPreset.value)
+
+  parsingScenes.value = true
+  try {
+    const res = await parseAiMangaScenes(formData)
+    if (res.data.source_text && !inputText.value.trim()) inputText.value = res.data.source_text
+    sceneAssets.value = (res.data.scenes || []).map((scene, index) => ({
+      id: `${Date.now()}-${index}`,
+      index: index + 1,
+      name: scene.name || `场景${index + 1}`,
+      frontFile: null,
+      backFile: null,
+    }))
+    ElMessage.success(`已识别 ${sceneAssets.value.length} 个场景`)
+  } catch (e) {
+    ElMessage.error(String(e || '解析剧本失败'))
+  } finally {
+    parsingScenes.value = false
   }
 }
 
@@ -260,9 +346,11 @@ const clearInput = () => {
   inputText.value = ''
   selectedFile.value = null
   selectedFileName.value = ''
-  referenceImageOptions.forEach((item) => {
-    referenceImages[item.key] = null
-  })
+  sceneAssets.value = []
+  characterPositionImage.value = null
+  positionDescription.value = ''
+  groups.value = []
+  storyboardText.value = ''
 }
 
 const formatDuration = (value) => Number(value || 0).toFixed(Number(value || 0) % 1 === 0 ? 0 : 1)
@@ -429,12 +517,22 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+.parse-action {
+  border-color: rgba(245, 200, 75, 0.6);
+  color: #f5c84b;
+}
+
 .reference-panel {
   margin-top: 16px;
   padding: 14px;
   border: 1px solid rgba(83, 145, 198, 0.34);
   border-radius: 8px;
   background: #08101f;
+}
+
+.reference-panel.muted {
+  border-style: dashed;
+  background: #070d19;
 }
 
 .reference-head {
@@ -456,8 +554,57 @@ onMounted(async () => {
 
 .reference-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.scene-empty {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(127, 184, 255, 0.32);
+  border-radius: 8px;
+  color: #8ea2bd;
+  text-align: center;
+  padding: 12px;
+}
+
+.scene-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scene-card {
+  border: 1px solid rgba(74, 136, 189, 0.4);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(15, 30, 52, 0.94), rgba(7, 13, 25, 0.94));
+  padding: 12px;
+}
+
+.scene-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.scene-title span {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #f5c84b;
+  color: #07101e;
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.scene-title strong {
+  color: #edf4ff;
 }
 
 .reference-uploader {
@@ -472,6 +619,25 @@ onMounted(async () => {
   padding: 12px;
   color: #a9bdd6;
   cursor: pointer;
+}
+
+.position-layout {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.38fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.position-upload {
+  min-height: 116px;
+}
+
+.position-layout :deep(.el-textarea__inner) {
+  min-height: 116px !important;
+  border-radius: 8px;
+  background: #080d19;
+  border-color: rgba(83, 145, 198, 0.44);
+  color: #edf4ff;
+  line-height: 1.7;
 }
 
 .reference-uploader input {
@@ -642,6 +808,10 @@ onMounted(async () => {
   }
 
   .reference-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .position-layout {
     grid-template-columns: 1fr;
   }
 }

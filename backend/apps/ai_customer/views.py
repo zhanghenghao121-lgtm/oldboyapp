@@ -6,9 +6,11 @@ from rest_framework.response import Response
 from apps.ai_customer.manga_services import (
     MangaScriptError,
     extract_story_source_text,
+    extract_manga_scenes,
     generate_manga_storyboard,
     normalize_manga_style,
     prepare_reference_images,
+    prepare_storyboard_references,
 )
 from apps.ai_customer.runtime_config import (
     get_assistant_llm_config,
@@ -60,6 +62,23 @@ def ai_manga_config(request):
 @csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def ai_manga_scenes(request):
+    file_obj = request.FILES.get("file")
+    text = str(request.data.get("text", "")).strip()
+    model_preset = str(request.data.get("model_preset", "assistant")).strip().lower() or "assistant"
+    if model_preset not in {"assistant", "manga"}:
+        return bad("模型选项不支持")
+    try:
+        source_text = extract_story_source_text(file_obj=file_obj, text=text)
+        result = extract_manga_scenes(source_text, model_preset=model_preset)
+        return ok(result)
+    except MangaScriptError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def ai_manga_storyboard(request):
     file_obj = request.FILES.get("file")
     text = str(request.data.get("text", "")).strip()
@@ -69,12 +88,19 @@ def ai_manga_storyboard(request):
         return bad("模型选项不支持")
     try:
         source_text = extract_story_source_text(file_obj=file_obj, text=text)
-        reference_images = prepare_reference_images(request.FILES)
+        story_references = prepare_storyboard_references(
+            request.FILES,
+            raw_scene_context=str(request.data.get("scene_context", "") or ""),
+            position_description=str(request.data.get("position_description", "") or ""),
+        )
+        reference_images = story_references["images"] or prepare_reference_images(request.FILES)
         result = generate_manga_storyboard(
             source_text,
             model_preset=model_preset,
             style=style,
             reference_images=reference_images,
+            scene_references=story_references["scenes"],
+            position_description=story_references["position_description"],
         )
         return ok(result)
     except MangaScriptError as exc:

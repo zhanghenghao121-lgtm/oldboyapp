@@ -32,8 +32,6 @@ class SiteBackground(models.Model):
 
 class SiteConfig(models.Model):
     KEY_DEFAULT_AVATAR = "default_avatar_url"
-    KEY_RECHARGE_WECHAT = "recharge_wechat_id"
-    KEY_RECHARGE_QR_URL = "recharge_qr_url"
     KEY_AI_ASSISTANT_BASE_URL = "ai_assistant_base_url"
     KEY_AI_ASSISTANT_API_KEY = "ai_assistant_api_key"
     KEY_AI_ASSISTANT_MODEL = "ai_assistant_model"
@@ -41,19 +39,19 @@ class SiteConfig(models.Model):
     KEY_AI_MANGA_API_KEY = "ai_manga_api_key"
     KEY_AI_MANGA_MODEL = "ai_manga_model"
     KEY_AI_MANGA_STORYBOARD_PROMPT = "ai_manga_storyboard_prompt"
-    KEY_AI_MANGA_IMAGE_PROMPT = "ai_manga_image_prompt"
+    KEY_AI_MANGA_3D_STYLE_PROMPT = "ai_manga_3d_style_prompt"
+    KEY_AI_MANGA_REAL_STYLE_PROMPT = "ai_manga_real_style_prompt"
     KEY_CHOICES = [
         (KEY_DEFAULT_AVATAR, "默认头像URL"),
-        (KEY_RECHARGE_WECHAT, "充值页微信号"),
-        (KEY_RECHARGE_QR_URL, "充值页二维码URL"),
         (KEY_AI_ASSISTANT_BASE_URL, "助手模型API地址"),
         (KEY_AI_ASSISTANT_API_KEY, "助手模型API Key"),
         (KEY_AI_ASSISTANT_MODEL, "助手模型名称"),
         (KEY_AI_MANGA_BASE_URL, "剧本模型API地址"),
         (KEY_AI_MANGA_API_KEY, "剧本模型API Key"),
         (KEY_AI_MANGA_MODEL, "剧本模型名称"),
-        (KEY_AI_MANGA_STORYBOARD_PROMPT, "AI剧本创作分镜提示词"),
-        (KEY_AI_MANGA_IMAGE_PROMPT, "AI剧本创作分镜图提示词"),
+        (KEY_AI_MANGA_STORYBOARD_PROMPT, "AI剧本解析规则"),
+        (KEY_AI_MANGA_3D_STYLE_PROMPT, "3D风格提示词"),
+        (KEY_AI_MANGA_REAL_STYLE_PROMPT, "真人风格提示词"),
     ]
 
     key = models.CharField(max_length=64, choices=KEY_CHOICES, unique=True)

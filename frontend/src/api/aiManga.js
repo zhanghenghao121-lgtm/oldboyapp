@@ -7,13 +7,3 @@ export const generateAiMangaStoryboard = (formData) =>
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 180000,
   })
-
-export const prepareAiMangaStoryboardSections = (payload) =>
-  http.post('/ai-manga/storyboard-prepare', payload, {
-    timeout: 180000,
-  })
-
-export const generateAiMangaStoryboardImage = (payload) =>
-  http.post('/ai-manga/storyboard-image', payload, {
-    timeout: 180000,
-  })

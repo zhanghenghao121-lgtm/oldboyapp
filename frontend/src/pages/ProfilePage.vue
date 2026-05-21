@@ -5,7 +5,7 @@
         <h2>用户信息</h2>
         <div class="header-actions">
           <el-button class="top-neon-btn" @click="$router.push('/change-password')">修改密码</el-button>
-          <el-button class="top-neon-btn" @click="$router.push('/home')">返回首页</el-button>
+          <el-button class="top-neon-btn" @click="$router.push('/ai-manga')">返回剧本创作</el-button>
         </div>
       </header>
 

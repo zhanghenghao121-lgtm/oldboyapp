@@ -8,6 +8,7 @@ from apps.ai_customer.manga_services import (
     extract_story_source_text,
     generate_manga_storyboard,
     normalize_manga_style,
+    prepare_reference_images,
 )
 from apps.ai_customer.runtime_config import (
     get_assistant_llm_config,
@@ -68,7 +69,13 @@ def ai_manga_storyboard(request):
         return bad("模型选项不支持")
     try:
         source_text = extract_story_source_text(file_obj=file_obj, text=text)
-        result = generate_manga_storyboard(source_text, model_preset=model_preset, style=style)
+        reference_images = prepare_reference_images(request.FILES)
+        result = generate_manga_storyboard(
+            source_text,
+            model_preset=model_preset,
+            style=style,
+            reference_images=reference_images,
+        )
         return ok(result)
     except MangaScriptError as exc:
         return bad(str(exc), exc.status)

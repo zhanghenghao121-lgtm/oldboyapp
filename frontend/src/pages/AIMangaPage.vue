@@ -56,8 +56,29 @@
           <span class="file-tip">支持 PDF / DOCX</span>
         </div>
 
+        <div class="reference-panel">
+          <div class="reference-head">
+            <strong>场景参考图</strong>
+            <span>可选，单张不超过 10MB，帮助 AI 对齐场景方向与人物站位。</span>
+          </div>
+          <div class="reference-grid">
+            <label v-for="item in referenceImageOptions" :key="item.key" class="reference-uploader">
+              <input type="file" accept="image/*" @change="handleReferenceImageChange(item.key, $event)" />
+              <span>{{ item.label }}</span>
+              <strong>{{ referenceImages[item.key]?.name || '选择图片' }}</strong>
+              <button
+                v-if="referenceImages[item.key]"
+                type="button"
+                @click.prevent="clearReferenceImage(item.key)"
+              >
+                移除
+              </button>
+            </label>
+          </div>
+        </div>
+
         <div class="action-row">
-          <el-button plain :disabled="!inputText && !selectedFile" @click="clearInput">清空</el-button>
+          <el-button plain :disabled="!hasStoryboardInput" @click="clearInput">清空</el-button>
           <el-button class="primary-action" type="primary" :loading="generating" @click="submitStoryboard">识别剧本</el-button>
         </div>
       </section>
@@ -129,6 +150,11 @@ const fileInputRef = ref(null)
 const selectedFile = ref(null)
 const selectedFileName = ref('')
 const inputText = ref('')
+const referenceImages = reactive({
+  scene_front_image: null,
+  scene_back_image: null,
+  character_position_image: null,
+})
 const generating = ref(false)
 const groups = ref([])
 const storyboardText = ref('')
@@ -142,6 +168,15 @@ const styleOptions = ref([
   { id: 'real', label: '真人风格', prompt: '' },
 ])
 const collapsedGroups = reactive({})
+const maxReferenceImageSize = 10 * 1024 * 1024
+const referenceImageOptions = [
+  { key: 'scene_front_image', label: '场景正面' },
+  { key: 'scene_back_image', label: '场景反面' },
+  { key: 'character_position_image', label: '人物站位' },
+]
+
+const hasReferenceImages = computed(() => Object.values(referenceImages).some(Boolean))
+const hasStoryboardInput = computed(() => Boolean(inputText.value.trim() || selectedFile.value || hasReferenceImages.value))
 
 const currentModelLabel = computed(() => {
   const matched = modelOptions.value.find((item) => item.id === selectedModelPreset.value)
@@ -164,6 +199,25 @@ const handleFileChange = (event) => {
   selectedFileName.value = file.name
 }
 
+const handleReferenceImageChange = (key, event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请上传图片文件')
+    return
+  }
+  if (file.size > maxReferenceImageSize) {
+    ElMessage.warning('单张图片大小不能超过 10MB')
+    return
+  }
+  referenceImages[key] = file
+}
+
+const clearReferenceImage = (key) => {
+  referenceImages[key] = null
+}
+
 const loadConfig = async () => {
   const res = await getAiMangaConfig()
   storyboardPrompt.value = res.data.storyboard_prompt || ''
@@ -184,6 +238,9 @@ const submitStoryboard = async () => {
   formData.append('text', inputText.value)
   formData.append('model_preset', selectedModelPreset.value)
   formData.append('style', selectedStyle.value)
+  referenceImageOptions.forEach((item) => {
+    if (referenceImages[item.key]) formData.append(item.key, referenceImages[item.key])
+  })
 
   generating.value = true
   try {
@@ -203,6 +260,9 @@ const clearInput = () => {
   inputText.value = ''
   selectedFile.value = null
   selectedFileName.value = ''
+  referenceImageOptions.forEach((item) => {
+    referenceImages[item.key] = null
+  })
 }
 
 const formatDuration = (value) => Number(value || 0).toFixed(Number(value || 0) % 1 === 0 ? 0 : 1)
@@ -369,6 +429,73 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+.reference-panel {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(83, 145, 198, 0.34);
+  border-radius: 8px;
+  background: #08101f;
+}
+
+.reference-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.reference-head strong {
+  color: #e8eefc;
+}
+
+.reference-head span {
+  color: #8ea2bd;
+  font-size: 12px;
+}
+
+.reference-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reference-uploader {
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed rgba(127, 184, 255, 0.46);
+  border-radius: 8px;
+  background: #0a1426;
+  padding: 12px;
+  color: #a9bdd6;
+  cursor: pointer;
+}
+
+.reference-uploader input {
+  display: none;
+}
+
+.reference-uploader strong {
+  color: #f5c84b;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-uploader button {
+  align-self: flex-start;
+  border: 0;
+  border-radius: 5px;
+  background: #24344c;
+  color: #dbe8f8;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
 .action-row {
   justify-content: flex-end;
   margin-top: 18px;
@@ -512,6 +639,10 @@ onMounted(async () => {
 
   .model-select {
     width: 100%;
+  }
+
+  .reference-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

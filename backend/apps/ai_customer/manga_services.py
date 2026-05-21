@@ -1,5 +1,7 @@
+import base64
 import io
 import json
+import mimetypes
 import re
 import zipfile
 from xml.etree import ElementTree
@@ -32,9 +34,15 @@ STORYBOARD_SPLIT_PATTERN = re.compile(
 STORYBOARD_MEANINGFUL_PATTERN = re.compile(r"[0-9A-Za-z\u4e00-\u9fff]")
 MAX_GROUP_SECONDS = 15
 DEFAULT_SHOT_SECONDS = 4
+MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024
 STYLE_LABELS = {
     "3d": "3D风格",
     "real": "真人风格",
+}
+REFERENCE_IMAGE_LABELS = {
+    "scene_front_image": "场景正面图",
+    "scene_back_image": "场景反面图",
+    "character_position_image": "人物站位图",
 }
 
 def _normalize_text(text: str) -> str:
@@ -107,6 +115,46 @@ def extract_story_source_text(file_obj=None, text: str = "") -> str:
     if len(merged) < 20:
         raise MangaScriptError("内容过短，请提供更完整的剧本文本")
     return merged
+
+
+def prepare_reference_images(image_files: dict) -> list[dict]:
+    images = []
+    for field_name, label in REFERENCE_IMAGE_LABELS.items():
+        file_obj = image_files.get(field_name) if image_files else None
+        if not file_obj:
+            continue
+
+        size = int(getattr(file_obj, "size", 0) or 0)
+        if size > MAX_REFERENCE_IMAGE_BYTES:
+            raise MangaScriptError(f"{label}大小不能超过 10MB")
+
+        content_type = str(getattr(file_obj, "content_type", "") or "").lower()
+        if not content_type:
+            guessed_type, _ = mimetypes.guess_type(str(getattr(file_obj, "name", "") or ""))
+            content_type = str(guessed_type or "").lower()
+        if not content_type.startswith("image/"):
+            raise MangaScriptError(f"{label}仅支持图片文件")
+
+        raw = file_obj.read()
+        try:
+            file_obj.seek(0)
+        except Exception:
+            pass
+        if not raw:
+            raise MangaScriptError(f"{label}不能为空")
+        if len(raw) > MAX_REFERENCE_IMAGE_BYTES:
+            raise MangaScriptError(f"{label}大小不能超过 10MB")
+
+        images.append(
+            {
+                "field": field_name,
+                "label": label,
+                "name": str(getattr(file_obj, "name", "") or label),
+                "content_type": content_type,
+                "data_url": f"data:{content_type};base64,{base64.b64encode(raw).decode('ascii')}",
+            }
+        )
+    return images
 
 
 def split_storyboard_sections(storyboard: str) -> list[dict]:
@@ -288,7 +336,37 @@ def _extract_json_object(text: str) -> dict:
         return {}
 
 
-def generate_manga_storyboard(source_text: str, model_preset: str = "assistant", style: str = "3d") -> dict:
+def _build_manga_user_content(source_text: str, style_label: str, reference_images: list[dict] | None = None):
+    text_content = (
+        f"请根据以下内容生成 {style_label} 视频提示词分组。\n"
+        "如果原文已经包含分镜结构，请整理为更清晰的提示词组。\n"
+        "每条提示词应可直接复制给视频生成模型使用。\n"
+    )
+    if reference_images:
+        labels = "、".join(item["label"] for item in reference_images)
+        text_content += (
+            f"本次还上传了参考图片：{labels}。\n"
+            "请结合图片中的场景结构、前后方向、空间关系、人物站位和镜头轴线来生成分镜提示词；"
+            "没有在图片中明确出现的信息不要臆造。\n"
+        )
+    text_content += f"原始内容如下：\n{source_text[:24000]}"
+
+    if not reference_images:
+        return text_content
+
+    content = [{"type": "text", "text": text_content}]
+    for item in reference_images:
+        content.append({"type": "text", "text": f"参考图片：{item['label']}（{item['name']}）"})
+        content.append({"type": "image_url", "image_url": {"url": item["data_url"]}})
+    return content
+
+
+def generate_manga_storyboard(
+    source_text: str,
+    model_preset: str = "assistant",
+    style: str = "3d",
+    reference_images: list[dict] | None = None,
+) -> dict:
     runtime = get_runtime_llm_config(model_preset)
     api_key = str(runtime.get("api_key") or "").strip()
     base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
@@ -302,6 +380,8 @@ def generate_manga_storyboard(source_text: str, model_preset: str = "assistant",
         f"{get_manga_storyboard_prompt()}\n\n"
         f"当前风格：{style_label}\n"
         f"当前风格提示词：{get_manga_style_prompt(style_key)}\n\n"
+        "如果用户上传了场景正面图、场景反面图或人物站位图，必须优先参考图片中的空间结构、人物位置、"
+        "前后朝向和镜头轴线，保证人物站位连续一致。\n"
         "硬性要求：输出必须是可解析 JSON；每个 groups[*].shots 的 duration_seconds 累计不得超过 15 秒。"
     )
     payload = {
@@ -312,13 +392,7 @@ def generate_manga_storyboard(source_text: str, model_preset: str = "assistant",
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": (
-                    f"请根据以下内容生成 {style_label} 视频提示词分组。\n"
-                    "如果原文已经包含分镜结构，请整理为更清晰的提示词组。\n"
-                    "每条提示词应可直接复制给视频生成模型使用。\n"
-                    "原始内容如下：\n"
-                    f"{source_text[:24000]}"
-                ),
+                "content": _build_manga_user_content(source_text, style_label, reference_images),
             },
         ],
     }
@@ -354,4 +428,8 @@ def generate_manga_storyboard(source_text: str, model_preset: str = "assistant",
         "model_preset": str(model_preset or "assistant").strip().lower() or "assistant",
         "style": style_key,
         "style_label": style_label,
+        "reference_images": [
+            {"field": item["field"], "label": item["label"], "name": item["name"]}
+            for item in (reference_images or [])
+        ],
     }

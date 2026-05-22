@@ -613,6 +613,7 @@ def _build_manga_user_content(
     reference_images: list[dict] | None = None,
     scene_references: list[dict] | None = None,
     position_description: str = "",
+    attach_images: bool = True,
 ):
     text_content = (
         f"请根据以下内容生成 {style_label} 视频提示词分组。\n"
@@ -635,7 +636,7 @@ def _build_manga_user_content(
         )
     text_content += f"原始内容如下：\n{source_text[:24000]}"
 
-    if not reference_images:
+    if not reference_images or not attach_images:
         return text_content
 
     content = [{"type": "text", "text": text_content}]
@@ -643,6 +644,42 @@ def _build_manga_user_content(
         content.append({"type": "text", "text": f"参考图片：{item['label']}（{item['name']}）"})
         content.append({"type": "image_url", "image_url": {"url": item["data_url"]}})
     return content
+
+
+def _supports_image_payload(base_url: str, model: str) -> bool:
+    text = f"{base_url} {model}".lower()
+    if "deepseek" in text:
+        return False
+    return True
+
+
+def _model_error_message(resp) -> str:
+    detail = ""
+    try:
+        body = resp.json()
+        error = body.get("error") if isinstance(body, dict) else None
+        if isinstance(error, dict):
+            detail = str(error.get("message") or error.get("code") or "")
+        elif isinstance(error, str):
+            detail = error
+        if not detail and isinstance(body, dict):
+            detail = str(body.get("message") or body.get("detail") or "")
+    except Exception:
+        detail = str(getattr(resp, "text", "") or "")
+    detail = _normalize_text(detail)[:240]
+    return f"剧本模型服务错误({resp.status_code})：{detail}" if detail else f"剧本模型服务错误({resp.status_code})"
+
+
+def _post_storyboard_payload(base_url: str, api_key: str, payload: dict):
+    try:
+        return requests.post(
+            f"{base_url}/chat/completions",
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=max(int(getattr(settings, "AI_MANGA_TIMEOUT", 180)), 30),
+        )
+    except Exception as exc:
+        raise MangaScriptError(f"剧本模型请求失败：{exc}", 502)
 
 
 def generate_manga_storyboard(
@@ -670,6 +707,7 @@ def generate_manga_storyboard(
         "前后朝向和镜头轴线，保证人物站位连续一致。\n"
         "硬性要求：输出必须是可解析 JSON；每个 groups[*].shots 的 duration_seconds 累计不得超过 15 秒。"
     )
+    image_payload_enabled = bool(reference_images) and _supports_image_payload(base_url, model)
     payload = {
         "model": model,
         "stream": False,
@@ -684,21 +722,24 @@ def generate_manga_storyboard(
                     reference_images,
                     scene_references,
                     position_description,
+                    attach_images=image_payload_enabled,
                 ),
             },
         ],
     }
-    try:
-        resp = requests.post(
-            f"{base_url}/chat/completions",
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=max(int(getattr(settings, "AI_MANGA_TIMEOUT", 180)), 30),
+    resp = _post_storyboard_payload(base_url, api_key, payload)
+    if resp.status_code >= 400 and image_payload_enabled:
+        payload["messages"][1]["content"] = _build_manga_user_content(
+            source_text,
+            style_label,
+            reference_images,
+            scene_references,
+            position_description,
+            attach_images=False,
         )
-    except Exception as exc:
-        raise MangaScriptError(f"剧本模型请求失败：{exc}", 502)
+        resp = _post_storyboard_payload(base_url, api_key, payload)
     if resp.status_code >= 400:
-        raise MangaScriptError(f"剧本模型服务错误({resp.status_code})", 502)
+        raise MangaScriptError(_model_error_message(resp), 502)
     try:
         body = resp.json()
     except Exception as exc:

@@ -11,7 +11,6 @@
       <button class="side-btn" :class="{ active: activeSection === 'users' }" type="button" @click="selectSection('users')">
         用户信息
       </button>
-      <button class="side-btn" type="button" @click="$router.push('/ai-manga')">返回前台</button>
     </aside>
 
     <main class="main">

@@ -124,6 +124,7 @@
         <div class="action-row">
           <el-button plain :disabled="!hasStoryboardInput" @click="clearInput">清空</el-button>
           <el-button class="primary-action" type="primary" :loading="generating" @click="submitStoryboard">生成分镜词</el-button>
+          <el-button v-if="generating" type="danger" plain @click="cancelStoryboardGeneration">取消生成</el-button>
         </div>
       </section>
 
@@ -199,6 +200,8 @@ const characterPositionImage = ref(null)
 const positionDescription = ref('')
 const parsingScenes = ref(false)
 const generating = ref(false)
+const storyboardController = ref(null)
+const storyboardCanceled = ref(false)
 const groups = ref([])
 const storyboardText = ref('')
 const promptDialogVisible = ref(false)
@@ -301,6 +304,7 @@ const loadConfig = async () => {
 }
 
 const submitStoryboard = async () => {
+  if (generating.value) return
   if (!inputText.value.trim() && !selectedFile.value) {
     ElMessage.warning('请输入文本或上传文档后再生成分镜词')
     return
@@ -326,19 +330,33 @@ const submitStoryboard = async () => {
   if (characterPositionImage.value) formData.append('character_position_image', characterPositionImage.value)
   formData.append('position_description', positionDescription.value)
 
+  storyboardController.value = new AbortController()
+  storyboardCanceled.value = false
   generating.value = true
   try {
-    const res = await generateAiMangaStoryboard(formData)
+    const res = await generateAiMangaStoryboard(formData, { signal: storyboardController.value.signal })
+    if (storyboardCanceled.value) return
     groups.value = res.data.groups || []
     storyboardText.value = res.data.storyboard || renderGroups(groups.value)
     recordUsageCost(res.data.usage_cost)
     Object.keys(collapsedGroups).forEach((key) => delete collapsedGroups[key])
     ElMessage.success('分镜词生成完成')
   } catch (e) {
+    if (storyboardCanceled.value || String(e).toLowerCase() === 'canceled') {
+      ElMessage.info('已取消生成分镜词')
+      return
+    }
     ElMessage.error(String(e || '分镜词生成失败'))
   } finally {
     generating.value = false
+    storyboardController.value = null
   }
+}
+
+const cancelStoryboardGeneration = () => {
+  if (!storyboardController.value) return
+  storyboardCanceled.value = true
+  storyboardController.value.abort()
 }
 
 const parseScenes = async () => {

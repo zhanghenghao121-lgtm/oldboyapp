@@ -62,41 +62,6 @@
           <el-button plain @click="pickFile">上传文档</el-button>
           <span v-if="selectedFileName" class="file-chip">{{ selectedFileName }}</span>
           <span class="file-tip">支持 PDF / DOCX</span>
-          <el-button class="parse-action" plain :loading="parsingScenes" :disabled="!hasScriptSource" @click="parseScenes">
-            解析剧本
-          </el-button>
-        </div>
-
-        <div class="reference-panel" :class="{ muted: !sceneAssets.length }">
-          <div class="reference-head">
-            <strong>场景素材</strong>
-            <span>先解析剧本，再按识别出的场景上传正面和反面图片。单张不超过 10MB。</span>
-          </div>
-          <div v-if="!sceneAssets.length" class="scene-empty">
-            <span>上传或粘贴剧本后点击“解析剧本”，这里会列出剧本中出现的场景名称。</span>
-          </div>
-          <div v-else class="scene-list">
-            <article v-for="scene in sceneAssets" :key="scene.id" class="scene-card">
-              <div class="scene-title">
-                <span>{{ scene.index }}</span>
-                <strong>{{ scene.name }}</strong>
-              </div>
-              <div class="reference-grid">
-                <label class="reference-uploader">
-                  <input type="file" accept="image/*" @change="handleSceneImageChange(scene.id, 'frontFile', $event)" />
-                  <span>场景正面</span>
-                  <strong>{{ scene.frontFile?.name || '选择正面图' }}</strong>
-                  <button v-if="scene.frontFile" type="button" @click.prevent="clearSceneImage(scene.id, 'frontFile')">移除</button>
-                </label>
-                <label class="reference-uploader">
-                  <input type="file" accept="image/*" @change="handleSceneImageChange(scene.id, 'backFile', $event)" />
-                  <span>场景反面</span>
-                  <strong>{{ scene.backFile?.name || '选择反面图' }}</strong>
-                  <button v-if="scene.backFile" type="button" @click.prevent="clearSceneImage(scene.id, 'backFile')">移除</button>
-                </label>
-              </div>
-            </article>
-          </div>
         </div>
 
         <div class="reference-panel">
@@ -143,7 +108,7 @@
 
         <div v-if="!groups.length && !generating" class="empty-state">
           <strong>等待生成分镜词</strong>
-          <span>先解析场景并补充素材，最终输出会按段落分组展示。</span>
+          <span>输入剧本后可补充人物站位图和描述，最终输出会按段落分组展示。</span>
         </div>
 
         <div v-else class="group-list" v-loading="generating">
@@ -189,16 +154,14 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { getAiMangaConfig, generateAiMangaStoryboard, parseAiMangaScenes } from '../api/aiManga'
+import { getAiMangaConfig, generateAiMangaStoryboard } from '../api/aiManga'
 
 const fileInputRef = ref(null)
 const selectedFile = ref(null)
 const selectedFileName = ref('')
 const inputText = ref('')
-const sceneAssets = ref([])
 const characterPositionImage = ref(null)
 const positionDescription = ref('')
-const parsingScenes = ref(false)
 const generating = ref(false)
 const storyboardController = ref(null)
 const storyboardCanceled = ref(false)
@@ -221,7 +184,7 @@ const totalCostPoints = ref(Number(localStorage.getItem(costStorageKey) || 0) ||
 const lastUsageCost = ref(null)
 
 const hasScriptSource = computed(() => Boolean(inputText.value.trim() || selectedFile.value))
-const hasStoryboardInput = computed(() => Boolean(hasScriptSource.value || sceneAssets.value.length || characterPositionImage.value || positionDescription.value.trim()))
+const hasStoryboardInput = computed(() => Boolean(hasScriptSource.value || characterPositionImage.value || positionDescription.value.trim()))
 
 const currentModelLabel = computed(() => {
   const matched = modelOptions.value.find((item) => item.id === selectedModelPreset.value)
@@ -348,25 +311,6 @@ const prepareReferenceImage = async (file) => {
   return compressReferenceImage(file)
 }
 
-const handleSceneImageChange = async (sceneId, key, event) => {
-  const file = event.target.files?.[0]
-  event.target.value = ''
-  if (!file) return
-  try {
-    const preparedFile = await prepareReferenceImage(file)
-    if (!preparedFile) return
-    const scene = sceneAssets.value.find((item) => item.id === sceneId)
-    if (scene) scene[key] = preparedFile
-  } catch (e) {
-    ElMessage.error(String(e || '图片压缩失败'))
-  }
-}
-
-const clearSceneImage = (sceneId, key) => {
-  const scene = sceneAssets.value.find((item) => item.id === sceneId)
-  if (scene) scene[key] = null
-}
-
 const handleCharacterImageChange = async (event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -400,18 +344,6 @@ const submitStoryboard = async () => {
   formData.append('text', inputText.value)
   formData.append('model_preset', selectedModelPreset.value)
   formData.append('style', selectedStyle.value)
-  const sceneContext = sceneAssets.value.map((scene, index) => {
-    const frontField = `scene_${index}_front_image`
-    const backField = `scene_${index}_back_image`
-    if (scene.frontFile) formData.append(frontField, scene.frontFile)
-    if (scene.backFile) formData.append(backField, scene.backFile)
-    return {
-      name: scene.name,
-      front_field: frontField,
-      back_field: backField,
-    }
-  })
-  formData.append('scene_context', JSON.stringify(sceneContext))
   if (characterPositionImage.value) formData.append('character_position_image', characterPositionImage.value)
   formData.append('position_description', positionDescription.value)
 
@@ -444,42 +376,10 @@ const cancelStoryboardGeneration = () => {
   storyboardController.value.abort()
 }
 
-const parseScenes = async () => {
-  if (!hasScriptSource.value) {
-    ElMessage.warning('请先输入文本或上传剧本文档')
-    return
-  }
-
-  const formData = new FormData()
-  if (selectedFile.value) formData.append('file', selectedFile.value)
-  formData.append('text', inputText.value)
-  formData.append('model_preset', selectedModelPreset.value)
-
-  parsingScenes.value = true
-  try {
-    const res = await parseAiMangaScenes(formData)
-    if (res.data.source_text && !inputText.value.trim()) inputText.value = res.data.source_text
-    recordUsageCost(res.data.usage_cost)
-    sceneAssets.value = (res.data.scenes || []).map((scene, index) => ({
-      id: `${Date.now()}-${index}`,
-      index: index + 1,
-      name: scene.name || `场景${index + 1}`,
-      frontFile: null,
-      backFile: null,
-    }))
-    ElMessage.success(`已识别 ${sceneAssets.value.length} 个场景`)
-  } catch (e) {
-    ElMessage.error(String(e || '解析剧本失败'))
-  } finally {
-    parsingScenes.value = false
-  }
-}
-
 const clearInput = () => {
   inputText.value = ''
   selectedFile.value = null
   selectedFileName.value = ''
-  sceneAssets.value = []
   characterPositionImage.value = null
   positionDescription.value = ''
   groups.value = []
@@ -677,22 +577,12 @@ onMounted(async () => {
   font-size: 13px;
 }
 
-.parse-action {
-  border-color: rgba(245, 200, 75, 0.6);
-  color: #f5c84b;
-}
-
 .reference-panel {
   margin-top: 16px;
   padding: 14px;
   border: 1px solid rgba(83, 145, 198, 0.34);
   border-radius: 8px;
   background: #08101f;
-}
-
-.reference-panel.muted {
-  border-style: dashed;
-  background: #070d19;
 }
 
 .reference-head {
@@ -710,61 +600,6 @@ onMounted(async () => {
 .reference-head span {
   color: #8ea2bd;
   font-size: 12px;
-}
-
-.reference-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.scene-empty {
-  min-height: 72px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed rgba(127, 184, 255, 0.32);
-  border-radius: 8px;
-  color: #8ea2bd;
-  text-align: center;
-  padding: 12px;
-}
-
-.scene-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.scene-card {
-  border: 1px solid rgba(74, 136, 189, 0.4);
-  border-radius: 10px;
-  background: linear-gradient(135deg, rgba(15, 30, 52, 0.94), rgba(7, 13, 25, 0.94));
-  padding: 12px;
-}
-
-.scene-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.scene-title span {
-  width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: #f5c84b;
-  color: #07101e;
-  font-weight: 800;
-  font-size: 12px;
-}
-
-.scene-title strong {
-  color: #edf4ff;
 }
 
 .reference-uploader {
@@ -969,10 +804,6 @@ onMounted(async () => {
 
   .cost-card {
     width: 100%;
-  }
-
-  .reference-grid {
-    grid-template-columns: 1fr;
   }
 
   .position-layout {

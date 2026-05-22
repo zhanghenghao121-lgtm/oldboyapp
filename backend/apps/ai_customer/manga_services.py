@@ -62,8 +62,6 @@ STYLE_LABELS = {
     "real": "真人风格",
 }
 REFERENCE_IMAGE_LABELS = {
-    "scene_front_image": "场景正面图",
-    "scene_back_image": "场景反面图",
     "character_position_image": "人物站位图",
 }
 
@@ -237,46 +235,6 @@ def prepare_reference_images(image_files: dict) -> list[dict]:
         if image:
             images.append(image)
     return images
-
-
-def prepare_storyboard_references(image_files: dict, raw_scene_context: str = "", position_description: str = "") -> dict:
-    references = []
-    scenes = []
-    try:
-        scene_context = json.loads(raw_scene_context or "[]")
-    except Exception:
-        scene_context = []
-
-    if isinstance(scene_context, list):
-        for idx, item in enumerate(scene_context, start=1):
-            if not isinstance(item, dict):
-                continue
-            name = _normalize_text(item.get("name", ""))[:80] or f"场景{idx}"
-            front_field = str(item.get("front_field") or "")
-            back_field = str(item.get("back_field") or "")
-            scene = {"name": name, "images": []}
-            for field_name, direction in [(front_field, "正面"), (back_field, "反面")]:
-                if not field_name:
-                    continue
-                image = _prepare_uploaded_image(image_files, field_name, f"场景《{name}》{direction}图")
-                if image:
-                    image["scene_name"] = name
-                    image["direction"] = direction
-                    image["label"] = f"场景《{name}》{direction}图"
-                    references.append(image)
-                    scene["images"].append({"direction": direction, "field": field_name, "name": image["name"]})
-            scenes.append(scene)
-
-    character_image = _prepare_uploaded_image(image_files, "character_position_image", "人物站位图")
-    if character_image:
-        character_image["label"] = "人物站位图"
-        references.append(character_image)
-
-    return {
-        "images": references,
-        "scenes": scenes,
-        "position_description": _normalize_text(position_description)[:2000],
-    }
 
 
 def split_storyboard_sections(storyboard: str) -> list[dict]:
@@ -537,99 +495,10 @@ def _calculate_token_usage_cost(usage: dict, model: str) -> dict:
     }
 
 
-def _post_chat_completion(runtime: dict, messages: list[dict], temperature: float = 0.4) -> dict:
-    api_key = str(runtime.get("api_key") or "").strip()
-    base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
-    model = str(runtime.get("model") or "").strip()
-    if not api_key or not base_url or not model:
-        raise MangaScriptError("剧本模型配置不完整，请先在后台模型设置中补全", 500)
-
-    payload = {
-        "model": model,
-        "stream": False,
-        "temperature": temperature,
-        "messages": messages,
-    }
-    try:
-        resp = requests.post(
-            f"{base_url}/chat/completions",
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=max(int(getattr(settings, "AI_MANGA_TIMEOUT", 180)), 30),
-        )
-    except Exception as exc:
-        raise MangaScriptError(f"剧本模型请求失败：{exc}", 502)
-    if resp.status_code >= 400:
-        raise MangaScriptError(f"剧本模型服务错误({resp.status_code})", 502)
-    try:
-        body = resp.json()
-    except Exception as exc:
-        raise MangaScriptError(f"剧本模型返回非 JSON：{exc}", 502)
-
-    content = str((((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "")).strip()
-    if not content:
-        raise MangaScriptError("剧本模型未返回有效内容", 502)
-    return {
-        "content": content,
-        "usage_cost": _calculate_token_usage_cost(body.get("usage") or {}, model),
-    }
-
-
-def _normalize_scene_names(content: str) -> list[dict]:
-    data = _extract_json_object(content)
-    raw_scenes = data.get("scenes") if isinstance(data, dict) else []
-    names = []
-    if isinstance(raw_scenes, list):
-        for item in raw_scenes:
-            if isinstance(item, dict):
-                name = item.get("name") or item.get("scene") or item.get("title")
-            else:
-                name = item
-            normalized = _normalize_text(name)[:80]
-            if normalized and normalized not in names:
-                names.append(normalized)
-
-    if not names:
-        pattern = re.compile(r"(?:场景|地点|内景|外景|INT\.?|EXT\.?)\s*[:：]?\s*([^\n，。；;]{2,30})", re.IGNORECASE)
-        for match in pattern.findall(content):
-            normalized = _normalize_text(match)[:80]
-            if normalized and normalized not in names:
-                names.append(normalized)
-
-    return [{"id": idx, "name": name} for idx, name in enumerate(names[:30], start=1)]
-
-
-def extract_manga_scenes(source_text: str, model_preset: str = "assistant") -> dict:
-    runtime = get_runtime_llm_config(model_preset)
-    system_prompt = (
-        "你是专业剧本场景统筹。请只识别剧本中明确出现的场景名称或地点名称，"
-        "合并同义重复场景，不要臆造。输出必须是 JSON，格式："
-        '{"scenes":[{"name":"场景名称"}]}'
-    )
-    completion = _post_chat_completion(
-        runtime,
-        [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"请解析以下剧本中的场景名称：\n{source_text[:24000]}"},
-        ],
-        temperature=0.2,
-    )
-    content = completion["content"]
-    scenes = _normalize_scene_names(content)
-    if not scenes:
-        raise MangaScriptError("未识别到明确的场景名称，请补充更完整的剧本内容")
-    return {
-        "source_text": source_text,
-        "scenes": scenes,
-        "usage_cost": completion["usage_cost"],
-    }
-
-
 def _build_manga_user_content(
     source_text: str,
     style_label: str,
     reference_images: list[dict] | None = None,
-    scene_references: list[dict] | None = None,
     position_description: str = "",
     attach_images: bool = True,
 ):
@@ -638,18 +507,13 @@ def _build_manga_user_content(
         "如果原文已经包含分镜结构，请整理为更清晰的提示词组。\n"
         "每条提示词应可直接复制给视频生成模型使用。\n"
     )
-    if scene_references:
-        text_content += "已识别并补充的场景资料如下：\n"
-        for scene in scene_references:
-            image_directions = "、".join(item["direction"] for item in scene.get("images") or []) or "未上传参考图"
-            text_content += f"- {scene.get('name')}：{image_directions}\n"
     if position_description:
         text_content += f"人物站位描述：{position_description}\n"
     if reference_images:
         labels = "、".join(item["label"] for item in reference_images)
         text_content += (
             f"本次还上传了参考图片：{labels}。\n"
-            "请结合图片中的场景结构、前后方向、空间关系、人物站位和镜头轴线来生成分镜提示词；"
+            "请结合图片中的人物位置、前后方向、空间关系、人物站位和镜头轴线来生成分镜提示词；"
             "没有在图片中明确出现的信息不要臆造。\n"
         )
     text_content += f"原始内容如下：\n{source_text[:24000]}"
@@ -705,7 +569,6 @@ def generate_manga_storyboard(
     model_preset: str = "assistant",
     style: str = "3d",
     reference_images: list[dict] | None = None,
-    scene_references: list[dict] | None = None,
     position_description: str = "",
 ) -> dict:
     requested_model_preset = str(model_preset or "assistant").strip().lower() or "assistant"
@@ -725,7 +588,7 @@ def generate_manga_storyboard(
         f"{get_manga_storyboard_prompt()}\n\n"
         f"当前风格：{style_label}\n"
         f"当前风格提示词：{get_manga_style_prompt(style_key)}\n\n"
-        "如果用户上传了场景正面图、场景反面图或人物站位图，必须优先参考图片中的空间结构、人物位置、"
+        "如果用户上传了人物站位图，必须优先参考图片中的人物位置、空间关系、"
         "前后朝向和镜头轴线，保证人物站位连续一致。\n"
         "硬性要求：输出必须是可解析 JSON；每个 groups[*].shots 的 duration_seconds 累计不得超过 15 秒。"
     )
@@ -742,7 +605,6 @@ def generate_manga_storyboard(
                     source_text,
                     style_label,
                     reference_images,
-                    scene_references,
                     position_description,
                     attach_images=image_payload_enabled,
                 ),
@@ -755,7 +617,6 @@ def generate_manga_storyboard(
             source_text,
             style_label,
             reference_images,
-            scene_references,
             position_description,
             attach_images=False,
         )
@@ -790,6 +651,5 @@ def generate_manga_storyboard(
             {"field": item["field"], "label": item["label"], "name": item["name"]}
             for item in (reference_images or [])
         ],
-        "scene_references": scene_references or [],
         "position_description": position_description,
     }

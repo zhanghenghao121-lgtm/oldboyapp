@@ -186,6 +186,7 @@ let transformControls
 let animationFrame
 let loader
 let cameraRig
+let cameraMarker
 let cameraHelper
 let captureCamera
 let raycaster
@@ -217,6 +218,25 @@ const createPlaceholder = (name) => {
   group.add(body, label)
   group.name = name
   return group
+}
+
+const normalizeLoadedModel = (rawObject, name) => {
+  const wrapper = new THREE.Group()
+  wrapper.name = name
+  wrapper.add(rawObject)
+  rawObject.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(rawObject)
+  const size = box.getSize(new THREE.Vector3())
+  const maxDimension = Math.max(size.x, size.y, size.z, 0.001)
+  const scale = 2 / maxDimension
+  rawObject.scale.multiplyScalar(scale)
+  rawObject.updateMatrixWorld(true)
+  const scaledBox = new THREE.Box3().setFromObject(rawObject)
+  const center = scaledBox.getCenter(new THREE.Vector3())
+  rawObject.position.x -= center.x
+  rawObject.position.z -= center.z
+  rawObject.position.y -= scaledBox.min.y
+  return wrapper
 }
 
 const applyPlacementToObject = (placement, object) => {
@@ -281,11 +301,12 @@ const rebuildSceneObjects = async () => {
   objectMap.forEach((object) => scene.remove(object))
   objectMap.clear()
   selectableObjects.splice(0, selectableObjects.length)
+  if (cameraRig) selectableObjects.push(cameraRig)
   for (const placement of store.placements) {
     let object
     try {
       const gltf = await loader.loadAsync(placement.modelUrl)
-      object = gltf.scene
+      object = normalizeLoadedModel(gltf.scene, placement.name)
     } catch {
       object = createPlaceholder(placement.name)
     }
@@ -332,11 +353,30 @@ const initThree = () => {
 
   captureCamera = new THREE.PerspectiveCamera(store.camera.fov, store.resolution.width / store.resolution.height, 0.1, 100)
   cameraRig = new THREE.Group()
+  cameraRig.userData.selectType = 'camera'
+  cameraMarker = new THREE.Group()
+  const markerBody = new THREE.Mesh(
+    new THREE.BoxGeometry(0.42, 0.28, 0.24),
+    new THREE.MeshStandardMaterial({ color: '#f5c84b', roughness: 0.42 })
+  )
+  const markerLens = new THREE.Mesh(
+    new THREE.ConeGeometry(0.18, 0.32, 16),
+    new THREE.MeshStandardMaterial({ color: '#7fb8ff', roughness: 0.35 })
+  )
+  markerLens.rotation.x = Math.PI / 2
+  markerLens.position.z = -0.28
+  cameraMarker.add(markerBody, markerLens)
+  cameraMarker.userData.selectType = 'camera'
+  cameraMarker.traverse((child) => {
+    child.userData.selectType = 'camera'
+  })
+  cameraRig.add(cameraMarker)
   cameraRig.add(captureCamera)
   scene.add(cameraRig)
   cameraHelper = new THREE.CameraHelper(captureCamera)
   scene.add(cameraHelper)
   syncCameraFromStore()
+  selectableObjects.push(cameraRig)
 
   renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
@@ -377,6 +417,7 @@ const activeCamera = () => (cameraPreview.value ? captureCamera : editCamera)
 const animate = () => {
   animationFrame = requestAnimationFrame(animate)
   orbitControls?.update()
+  if (cameraMarker) cameraMarker.visible = !cameraPreview.value
   renderer.render(scene, activeCamera())
 }
 
@@ -396,6 +437,11 @@ const handlePointerDown = (event) => {
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
   raycaster.setFromCamera(pointer, editCamera)
   const hits = raycaster.intersectObjects(selectableObjects, true)
+  const cameraHit = hits.find((hit) => hit.object.userData.selectType === 'camera')
+  if (cameraHit) {
+    selectCamera()
+    return
+  }
   const placementId = hits.find((hit) => hit.object.userData.placementId)?.object.userData.placementId
   if (placementId) selectPlacement(placementId)
 }
@@ -495,6 +541,7 @@ const captureShot = async () => {
   const oldSize = new THREE.Vector2()
   renderer.getSize(oldSize)
   try {
+    if (cameraMarker) cameraMarker.visible = false
     renderer.setSize(store.resolution.width, store.resolution.height, false)
     captureCamera.aspect = store.resolution.width / store.resolution.height
     captureCamera.updateProjectionMatrix()
@@ -508,10 +555,12 @@ const captureShot = async () => {
       camera_state: store.camera,
     })
     lastShotUrl.value = res.data.image_url
+    window.open(lastShotUrl.value, '_blank', 'noopener,noreferrer')
     ElMessage.success('拍摄 PNG 已上传')
   } catch (e) {
     ElMessage.error(String(e || '拍摄失败'))
   } finally {
+    if (cameraMarker) cameraMarker.visible = !cameraPreview.value
     renderer.setSize(oldSize.x, oldSize.y)
     shooting.value = false
   }

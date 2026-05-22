@@ -10,6 +10,27 @@ class StandposerUploadError(Exception):
     pass
 
 
+def _cos_client():
+    config = CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY)
+    return CosS3Client(config)
+
+
+def cos_download_url(key: str, fallback_url: str = "") -> str:
+    if not key:
+        return fallback_url
+    if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
+        return fallback_url
+    try:
+        return _cos_client().get_presigned_url(
+            Method="GET",
+            Bucket=settings.COS_BUCKET,
+            Key=key,
+            Expired=int(getattr(settings, "STANDPOSER_SIGNED_URL_TTL", 3600)),
+        )
+    except Exception:
+        return fallback_url
+
+
 def upload_to_cos(file_obj, folder: str, allowed_extensions: set[str], allowed_content_types: set[str] | None = None):
     filename = str(getattr(file_obj, "name", "") or "")
     ext = os.path.splitext(filename)[1].lower()
@@ -29,8 +50,7 @@ def upload_to_cos(file_obj, folder: str, allowed_extensions: set[str], allowed_c
 
     date_path = datetime.now().strftime("%Y/%m/%d")
     key = f"{folder.strip('/')}/{date_path}/{uuid.uuid4().hex}{ext}"
-    config = CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY)
-    client = CosS3Client(config)
+    client = _cos_client()
     try:
         client.put_object(Bucket=settings.COS_BUCKET, Body=file_obj.file, Key=key, ContentType=content_type)
     except Exception as exc:

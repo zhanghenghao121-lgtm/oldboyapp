@@ -1,9 +1,15 @@
 from rest_framework import serializers
 
 from .models import CharacterAsset, GenerationTask, SceneShot, StandScene
+from .services import cos_download_url
 
 
 class CharacterAssetSerializer(serializers.ModelSerializer):
+    model_url = serializers.SerializerMethodField()
+
+    def get_model_url(self, obj):
+        return cos_download_url(obj.cos_key, obj.model_url)
+
     class Meta:
         model = CharacterAsset
         fields = [
@@ -26,6 +32,28 @@ class CharacterCreateSerializer(serializers.Serializer):
 
 
 class StandSceneSerializer(serializers.ModelSerializer):
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        data = dict(representation.get("scene_data") or {})
+        placements = []
+        character_ids = [item.get("characterId") for item in data.get("placements") or []]
+        characters = {
+            item.id: item
+            for item in CharacterAsset.objects.filter(id__in=[value for value in character_ids if value])
+        }
+        for item in data.get("placements") or []:
+            placement = dict(item)
+            character = characters.get(placement.get("characterId"))
+            if character:
+                placement["modelUrl"] = cos_download_url(character.cos_key, character.model_url)
+            placements.append(placement)
+        data["placements"] = placements
+        representation["scene_data"] = data
+        if instance.thumbnail_url:
+            shot = instance.shots.order_by("-id").first()
+            representation["thumbnail_url"] = cos_download_url(shot.cos_key, instance.thumbnail_url) if shot else instance.thumbnail_url
+        return representation
+
     class Meta:
         model = StandScene
         fields = ["id", "name", "scene_data", "thumbnail_url", "created_at", "updated_at"]
@@ -33,6 +61,11 @@ class StandSceneSerializer(serializers.ModelSerializer):
 
 
 class SceneShotSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    def get_image_url(self, obj):
+        return cos_download_url(obj.cos_key, obj.image_url)
+
     class Meta:
         model = SceneShot
         fields = ["id", "scene", "image_url", "cos_key", "width", "height", "camera_state", "created_at"]

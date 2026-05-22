@@ -13,7 +13,6 @@
             本次 {{ formatPoints(lastUsageCost.total_points) }} · {{ formatTokenCount(lastUsageCost.total_tokens) }} tokens
           </small>
           <small v-else>1 元 = 1 积分</small>
-          <button type="button" @click="resetCostPoints">重置</button>
         </div>
         <el-select v-model="selectedModelPreset" class="model-select" placeholder="选择模型">
           <el-option
@@ -246,12 +245,6 @@ const recordUsageCost = (usageCost) => {
   localStorage.setItem(costStorageKey, String(totalCostPoints.value))
 }
 
-const resetCostPoints = () => {
-  totalCostPoints.value = 0
-  lastUsageCost.value = null
-  localStorage.removeItem(costStorageKey)
-}
-
 const pickFile = () => {
   fileInputRef.value?.click()
 }
@@ -480,7 +473,7 @@ onMounted(async () => {
   display: grid;
   align-content: center;
   gap: 2px;
-  padding: 9px 46px 9px 12px;
+  padding: 9px 12px;
   border: 1px solid rgba(245, 200, 75, 0.38);
   border-radius: 8px;
   background: #101827;
@@ -498,19 +491,6 @@ onMounted(async () => {
   color: #f5c84b;
   font-size: 17px;
   line-height: 1.25;
-}
-
-.cost-card button {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  border: 0;
-  border-radius: 5px;
-  background: #24344c;
-  color: #dbe8f8;
-  padding: 4px 7px;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .workspace {

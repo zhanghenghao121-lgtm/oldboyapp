@@ -10,6 +10,12 @@ from xml.etree import ElementTree
 import requests
 from django.conf import settings
 
+try:
+    from PIL import Image, ImageOps
+except Exception:  # pragma: no cover - optional runtime dependency
+    Image = None
+    ImageOps = None
+
 from apps.ai_customer.runtime_config import (
     get_manga_storyboard_prompt,
     get_manga_style_prompt,
@@ -36,6 +42,7 @@ STORYBOARD_MEANINGFUL_PATTERN = re.compile(r"[0-9A-Za-z\u4e00-\u9fff]")
 MAX_GROUP_SECONDS = 15
 DEFAULT_SHOT_SECONDS = 4
 MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024
+TARGET_REFERENCE_IMAGE_BYTES = int(MAX_REFERENCE_IMAGE_BYTES * 0.95)
 MILLION_TOKENS = Decimal("1000000")
 TOKEN_PRICES_PER_MILLION = {
     "deepseek-v4-flash": {
@@ -132,14 +139,67 @@ def extract_story_source_text(file_obj=None, text: str = "") -> str:
     return merged
 
 
+def _image_to_rgb(image):
+    if image.mode in {"RGBA", "LA"} or (image.mode == "P" and "transparency" in image.info):
+        background = Image.new("RGB", image.size, "#ffffff")
+        background.paste(image.convert("RGBA"), mask=image.convert("RGBA").getchannel("A"))
+        return background
+    return image.convert("RGB")
+
+
+def _save_jpeg(image, quality: int) -> bytes:
+    stream = io.BytesIO()
+    image.save(stream, format="JPEG", quality=quality, optimize=True, progressive=True)
+    return stream.getvalue()
+
+
+def _image_resampling_filter():
+    return getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+
+
+def _compress_reference_image(raw: bytes, label: str) -> tuple[bytes, str]:
+    if len(raw) <= TARGET_REFERENCE_IMAGE_BYTES:
+        return raw, ""
+    if Image is None or ImageOps is None:
+        raise MangaScriptError(f"{label}超过 10MB，服务器暂未启用图片压缩依赖")
+
+    try:
+        image = Image.open(io.BytesIO(raw))
+        image = ImageOps.exif_transpose(image)
+        image = _image_to_rgb(image)
+    except Exception as exc:
+        raise MangaScriptError(f"{label}压缩失败：{exc}")
+
+    max_side = 4096
+    width, height = image.size
+    if max(width, height) > max_side:
+        ratio = max_side / max(width, height)
+        image = image.resize((max(1, int(width * ratio)), max(1, int(height * ratio))), _image_resampling_filter())
+
+    quality = 88
+    compressed = _save_jpeg(image, quality)
+    while len(compressed) > TARGET_REFERENCE_IMAGE_BYTES and quality > 45:
+        quality -= 8
+        compressed = _save_jpeg(image, quality)
+
+    while len(compressed) > TARGET_REFERENCE_IMAGE_BYTES and max(image.size) > 1200:
+        width, height = image.size
+        image = image.resize((max(1, int(width * 0.85)), max(1, int(height * 0.85))), _image_resampling_filter())
+        quality = 82
+        compressed = _save_jpeg(image, quality)
+        while len(compressed) > TARGET_REFERENCE_IMAGE_BYTES and quality > 45:
+            quality -= 8
+            compressed = _save_jpeg(image, quality)
+
+    if len(compressed) > MAX_REFERENCE_IMAGE_BYTES:
+        raise MangaScriptError(f"{label}压缩后仍超过 10MB，请换一张更小的图片")
+    return compressed, "image/jpeg"
+
+
 def _prepare_uploaded_image(image_files: dict, field_name: str, label: str) -> dict | None:
     file_obj = image_files.get(field_name) if image_files else None
     if not file_obj:
         return None
-
-    size = int(getattr(file_obj, "size", 0) or 0)
-    if size > MAX_REFERENCE_IMAGE_BYTES:
-        raise MangaScriptError(f"{label}大小不能超过 10MB")
 
     content_type = str(getattr(file_obj, "content_type", "") or "").lower()
     if not content_type:
@@ -155,8 +215,10 @@ def _prepare_uploaded_image(image_files: dict, field_name: str, label: str) -> d
         pass
     if not raw:
         raise MangaScriptError(f"{label}不能为空")
-    if len(raw) > MAX_REFERENCE_IMAGE_BYTES:
-        raise MangaScriptError(f"{label}大小不能超过 10MB")
+    compressed_raw, compressed_type = _compress_reference_image(raw, label)
+    if compressed_type:
+        raw = compressed_raw
+        content_type = compressed_type
 
     return {
         "field": field_name,

@@ -215,6 +215,7 @@ const styleOptions = ref([
 ])
 const collapsedGroups = reactive({})
 const maxReferenceImageSize = 10 * 1024 * 1024
+const targetReferenceImageSize = Math.floor(maxReferenceImageSize * 0.95)
 const costStorageKey = 'ai_manga_total_cost_points'
 const totalCostPoints = ref(Number(localStorage.getItem(costStorageKey) || 0) || 0)
 const lastUsageCost = ref(null)
@@ -265,20 +266,100 @@ const validateReferenceImage = (file) => {
     ElMessage.warning('请上传图片文件')
     return false
   }
-  if (file.size > maxReferenceImageSize) {
-    ElMessage.warning('单张图片大小不能超过 10MB')
-    return false
-  }
   return true
 }
 
-const handleSceneImageChange = (sceneId, key, event) => {
+const loadImageFile = (file) =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const image = new Image()
+    image.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(image)
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('图片读取失败'))
+    }
+    image.src = url
+  })
+
+const canvasToBlob = (canvas, quality) =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob)
+        else reject(new Error('图片压缩失败'))
+      },
+      'image/jpeg',
+      quality
+    )
+  })
+
+const renderImageToCanvas = (image, scale = 1) => {
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.width * scale))
+  canvas.height = Math.max(1, Math.round(image.height * scale))
+  const context = canvas.getContext('2d')
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  return canvas
+}
+
+const compressReferenceImage = async (file) => {
+  if (file.size <= maxReferenceImageSize) return file
+
+  ElMessage.info('图片超过 10MB，正在自动压缩')
+  const image = await loadImageFile(file)
+  const maxSide = 4096
+  let scale = Math.min(1, maxSide / Math.max(image.width, image.height))
+  let canvas = renderImageToCanvas(image, scale)
+  let quality = 0.88
+  let blob = await canvasToBlob(canvas, quality)
+
+  while (blob.size > targetReferenceImageSize && quality > 0.46) {
+    quality -= 0.08
+    blob = await canvasToBlob(canvas, quality)
+  }
+
+  while (blob.size > targetReferenceImageSize && Math.max(canvas.width, canvas.height) > 1200) {
+    scale *= 0.85
+    canvas = renderImageToCanvas(image, scale)
+    quality = 0.82
+    blob = await canvasToBlob(canvas, quality)
+    while (blob.size > targetReferenceImageSize && quality > 0.46) {
+      quality -= 0.08
+      blob = await canvasToBlob(canvas, quality)
+    }
+  }
+
+  if (blob.size > maxReferenceImageSize) {
+    throw new Error('图片压缩后仍超过 10MB，请换一张更小的图片')
+  }
+
+  const compressedName = file.name.replace(/\.[^.]+$/, '') || 'image'
+  ElMessage.success('图片已自动压缩到 10MB 以下')
+  return new File([blob], `${compressedName}.jpg`, { type: 'image/jpeg' })
+}
+
+const prepareReferenceImage = async (file) => {
+  if (!validateReferenceImage(file)) return null
+  return compressReferenceImage(file)
+}
+
+const handleSceneImageChange = async (sceneId, key, event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
-  if (!validateReferenceImage(file)) return
-  const scene = sceneAssets.value.find((item) => item.id === sceneId)
-  if (scene) scene[key] = file
+  try {
+    const preparedFile = await prepareReferenceImage(file)
+    if (!preparedFile) return
+    const scene = sceneAssets.value.find((item) => item.id === sceneId)
+    if (scene) scene[key] = preparedFile
+  } catch (e) {
+    ElMessage.error(String(e || '图片压缩失败'))
+  }
 }
 
 const clearSceneImage = (sceneId, key) => {
@@ -286,12 +367,16 @@ const clearSceneImage = (sceneId, key) => {
   if (scene) scene[key] = null
 }
 
-const handleCharacterImageChange = (event) => {
+const handleCharacterImageChange = async (event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
-  if (!validateReferenceImage(file)) return
-  characterPositionImage.value = file
+  try {
+    const preparedFile = await prepareReferenceImage(file)
+    if (preparedFile) characterPositionImage.value = preparedFile
+  } catch (e) {
+    ElMessage.error(String(e || '图片压缩失败'))
+  }
 }
 
 const loadConfig = async () => {

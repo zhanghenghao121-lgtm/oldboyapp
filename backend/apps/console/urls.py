@@ -6,6 +6,8 @@ from apps.console.views import (
     console_login,
     console_logout,
     console_me,
+    console_user_update,
+    console_users,
     public_backgrounds,
 )
 
@@ -16,4 +18,6 @@ urlpatterns = [
     path("console/logout", console_logout),
     path("console/configs", console_configs),
     path("console/configs/<str:key>", console_config_update),
+    path("console/users", console_users),
+    path("console/users/<int:user_id>", console_user_update),
 ]

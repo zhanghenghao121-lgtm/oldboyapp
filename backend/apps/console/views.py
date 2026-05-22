@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.db.models import Q
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -10,6 +11,7 @@ from apps.console.models import SiteConfig
 from apps.console.permissions import IsConsoleAdmin
 from apps.console.serializers import (
     ConsoleLoginSerializer,
+    ConsoleUserUpdateSerializer,
     SiteConfigSerializer,
     SiteConfigUpdateSerializer,
 )
@@ -60,6 +62,22 @@ def _get_admin_user(request):
         return user
     user, _ = resolve_console_user(request)
     return user
+
+
+def _serialize_console_user(user):
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "avatar_url": user.avatar_url or "",
+        "signature": user.signature or "",
+        "points": float(user.points or 0),
+        "is_active": user.is_active,
+        "is_staff": user.is_staff,
+        "is_superuser": user.is_superuser,
+        "last_login": user.last_login,
+        "date_joined": user.date_joined,
+    }
 
 
 @api_view(["GET"])
@@ -145,3 +163,57 @@ def console_config_update(request, key):
     obj.updated_by = admin_user
     obj.save(update_fields=["value", "updated_by", "updated_at"])
     return ok(SiteConfigSerializer(obj).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsConsoleAdmin])
+def console_users(request):
+    q = str(request.query_params.get("q", "") or "").strip()
+    queryset = User.objects.all().order_by("-id")
+    if q:
+        queryset = queryset.filter(Q(username__icontains=q) | Q(email__icontains=q)).order_by("-id")
+    users = queryset[:200]
+    return ok({"list": [_serialize_console_user(user) for user in users]})
+
+
+@csrf_exempt
+@api_view(["PATCH"])
+@permission_classes([IsConsoleAdmin])
+def console_user_update(request, user_id):
+    target = User.objects.filter(id=user_id).first()
+    if not target:
+        return bad("用户不存在", 404)
+
+    s = ConsoleUserUpdateSerializer(data=request.data, partial=True)
+    if not s.is_valid():
+        errors = s.errors
+        first_error = next(iter(errors.values()))[0] if errors else "参数错误"
+        return bad(first_error)
+
+    payload = s.validated_data
+    if not payload:
+        return bad("没有可更新字段")
+
+    if "username" in payload:
+        username = payload["username"].strip()
+        if User.objects.filter(username=username).exclude(id=target.id).exists():
+            return bad("用户名已存在")
+        target.username = username
+
+    if "email" in payload:
+        email = payload["email"].lower().strip()
+        if User.objects.filter(email__iexact=email).exclude(id=target.id).exists():
+            return bad("邮箱已存在")
+        target.email = email
+
+    if "avatar_url" in payload:
+        target.avatar_url = payload.get("avatar_url", "").strip()
+    if "signature" in payload:
+        target.signature = payload.get("signature", "").strip()
+    if "points" in payload:
+        target.points = payload["points"]
+    if "is_active" in payload:
+        target.is_active = payload["is_active"]
+
+    target.save()
+    return ok({"user": _serialize_console_user(target)})

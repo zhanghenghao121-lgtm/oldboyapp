@@ -6,6 +6,15 @@
         <h1>AI剧本创作</h1>
       </div>
       <div class="topbar-actions">
+        <div class="cost-card" title="按 deepseek-v4-pro / flash 当前 token 价格折算，1 元 = 1 积分">
+          <span>累计花费</span>
+          <strong>{{ formatPoints(totalCostPoints) }} 积分</strong>
+          <small v-if="lastUsageCost">
+            本次 {{ formatPoints(lastUsageCost.total_points) }} · {{ formatTokenCount(lastUsageCost.total_tokens) }} tokens
+          </small>
+          <small v-else>1 元 = 1 积分</small>
+          <button type="button" @click="resetCostPoints">重置</button>
+        </div>
         <el-select v-model="selectedModelPreset" class="model-select" placeholder="选择模型">
           <el-option
             v-for="item in modelOptions"
@@ -204,6 +213,9 @@ const styleOptions = ref([
 ])
 const collapsedGroups = reactive({})
 const maxReferenceImageSize = 10 * 1024 * 1024
+const costStorageKey = 'ai_manga_total_cost_points'
+const totalCostPoints = ref(Number(localStorage.getItem(costStorageKey) || 0) || 0)
+const lastUsageCost = ref(null)
 
 const hasScriptSource = computed(() => Boolean(inputText.value.trim() || selectedFile.value))
 const hasStoryboardInput = computed(() => Boolean(hasScriptSource.value || sceneAssets.value.length || characterPositionImage.value || positionDescription.value.trim()))
@@ -216,6 +228,29 @@ const currentModelLabel = computed(() => {
 const currentStyle = computed(() => styleOptions.value.find((item) => item.id === selectedStyle.value) || styleOptions.value[0])
 const currentStyleLabel = computed(() => currentStyle.value?.label || '3D风格')
 const currentStylePrompt = computed(() => currentStyle.value?.prompt || '')
+
+const formatPoints = (value) => {
+  const numberValue = Number(value || 0)
+  if (!Number.isFinite(numberValue) || numberValue <= 0) return '0.0000'
+  return numberValue < 0.0001 ? numberValue.toFixed(6) : numberValue.toFixed(4)
+}
+
+const formatTokenCount = (value) => Number(value || 0).toLocaleString('zh-CN')
+
+const recordUsageCost = (usageCost) => {
+  if (!usageCost) return
+  lastUsageCost.value = usageCost
+  const cost = Number(usageCost.total_points || 0)
+  if (!Number.isFinite(cost) || cost <= 0) return
+  totalCostPoints.value = Number((totalCostPoints.value + cost).toFixed(6))
+  localStorage.setItem(costStorageKey, String(totalCostPoints.value))
+}
+
+const resetCostPoints = () => {
+  totalCostPoints.value = 0
+  lastUsageCost.value = null
+  localStorage.removeItem(costStorageKey)
+}
 
 const pickFile = () => {
   fileInputRef.value?.click()
@@ -303,6 +338,7 @@ const submitStoryboard = async () => {
     const res = await generateAiMangaStoryboard(formData)
     groups.value = res.data.groups || []
     storyboardText.value = res.data.storyboard || renderGroups(groups.value)
+    recordUsageCost(res.data.usage_cost)
     Object.keys(collapsedGroups).forEach((key) => delete collapsedGroups[key])
     ElMessage.success('分镜词生成完成')
   } catch (e) {
@@ -327,6 +363,7 @@ const parseScenes = async () => {
   try {
     const res = await parseAiMangaScenes(formData)
     if (res.data.source_text && !inputText.value.trim()) inputText.value = res.data.source_text
+    recordUsageCost(res.data.usage_cost)
     sceneAssets.value = (res.data.scenes || []).map((scene, index) => ({
       id: `${Date.now()}-${index}`,
       index: index + 1,
@@ -434,6 +471,46 @@ onMounted(async () => {
 
 .model-select {
   width: 280px;
+}
+
+.cost-card {
+  position: relative;
+  min-width: 168px;
+  min-height: 62px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 9px 46px 9px 12px;
+  border: 1px solid rgba(245, 200, 75, 0.38);
+  border-radius: 8px;
+  background: #101827;
+  color: #cfe0f5;
+}
+
+.cost-card span,
+.cost-card small {
+  font-size: 12px;
+  color: #8ea2bd;
+  line-height: 1.25;
+}
+
+.cost-card strong {
+  color: #f5c84b;
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.cost-card button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: 0;
+  border-radius: 5px;
+  background: #24344c;
+  color: #dbe8f8;
+  padding: 4px 7px;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .workspace {
@@ -804,6 +881,10 @@ onMounted(async () => {
   }
 
   .model-select {
+    width: 100%;
+  }
+
+  .cost-card {
     width: 100%;
   }
 

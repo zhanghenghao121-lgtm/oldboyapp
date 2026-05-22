@@ -25,3 +25,5 @@ export const consoleLogout = async () => {
 
 export const getConsoleConfigs = () => http.get('/console/configs', consoleHeaders())
 export const updateConsoleConfig = (key, payload) => http.put(`/console/configs/${key}`, payload, consoleHeaders())
+export const getConsoleUsers = (params = {}) => http.get('/console/users', { ...consoleHeaders(), params })
+export const updateConsoleUser = (id, payload) => http.patch(`/console/users/${id}`, payload, consoleHeaders())

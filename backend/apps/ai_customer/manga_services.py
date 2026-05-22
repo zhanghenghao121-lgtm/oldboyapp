@@ -4,6 +4,7 @@ import json
 import mimetypes
 import re
 import zipfile
+from decimal import Decimal, ROUND_HALF_UP
 from xml.etree import ElementTree
 
 import requests
@@ -35,6 +36,19 @@ STORYBOARD_MEANINGFUL_PATTERN = re.compile(r"[0-9A-Za-z\u4e00-\u9fff]")
 MAX_GROUP_SECONDS = 15
 DEFAULT_SHOT_SECONDS = 4
 MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024
+MILLION_TOKENS = Decimal("1000000")
+TOKEN_PRICES_PER_MILLION = {
+    "deepseek-v4-flash": {
+        "input_cache_hit": Decimal("0.02"),
+        "input_cache_miss": Decimal("1"),
+        "output": Decimal("2"),
+    },
+    "deepseek-v4-pro": {
+        "input_cache_hit": Decimal("0.025"),
+        "input_cache_miss": Decimal("3"),
+        "output": Decimal("6"),
+    },
+}
 STYLE_LABELS = {
     "3d": "3D风格",
     "real": "真人风格",
@@ -381,7 +395,69 @@ def _extract_json_object(text: str) -> dict:
         return {}
 
 
-def _post_chat_completion(runtime: dict, messages: list[dict], temperature: float = 0.4) -> str:
+def _as_int(value) -> int:
+    try:
+        return max(int(value or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _resolve_pricing_model(model: str) -> str:
+    normalized = str(model or "").strip().lower()
+    if "flash" in normalized:
+        return "deepseek-v4-flash"
+    return "deepseek-v4-pro"
+
+
+def _decimal_points(value: Decimal) -> float:
+    return float(value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP))
+
+
+def _calculate_token_usage_cost(usage: dict, model: str) -> dict:
+    usage = usage if isinstance(usage, dict) else {}
+    prompt_tokens = _as_int(usage.get("prompt_tokens") or usage.get("input_tokens"))
+    completion_tokens = _as_int(usage.get("completion_tokens") or usage.get("output_tokens"))
+    total_tokens = _as_int(usage.get("total_tokens")) or prompt_tokens + completion_tokens
+
+    prompt_details = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+    cache_hit_tokens = _as_int(
+        usage.get("prompt_cache_hit_tokens")
+        or usage.get("input_cache_hit_tokens")
+        or usage.get("cache_hit_tokens")
+        or prompt_details.get("cached_tokens")
+    )
+    cache_miss_tokens = _as_int(
+        usage.get("prompt_cache_miss_tokens")
+        or usage.get("input_cache_miss_tokens")
+        or usage.get("cache_miss_tokens")
+    )
+    if cache_miss_tokens <= 0 and prompt_tokens:
+        cache_miss_tokens = max(prompt_tokens - cache_hit_tokens, 0)
+
+    pricing_model = _resolve_pricing_model(model)
+    prices = TOKEN_PRICES_PER_MILLION[pricing_model]
+    hit_points = Decimal(cache_hit_tokens) * prices["input_cache_hit"] / MILLION_TOKENS
+    miss_points = Decimal(cache_miss_tokens) * prices["input_cache_miss"] / MILLION_TOKENS
+    output_points = Decimal(completion_tokens) * prices["output"] / MILLION_TOKENS
+    total_points = hit_points + miss_points + output_points
+
+    return {
+        "model": model,
+        "pricing_model": pricing_model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "input_cache_hit_tokens": cache_hit_tokens,
+        "input_cache_miss_tokens": cache_miss_tokens,
+        "input_cache_hit_points": _decimal_points(hit_points),
+        "input_cache_miss_points": _decimal_points(miss_points),
+        "output_points": _decimal_points(output_points),
+        "total_points": _decimal_points(total_points),
+        "prices_per_million": {key: float(value) for key, value in prices.items()},
+    }
+
+
+def _post_chat_completion(runtime: dict, messages: list[dict], temperature: float = 0.4) -> dict:
     api_key = str(runtime.get("api_key") or "").strip()
     base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
     model = str(runtime.get("model") or "").strip()
@@ -413,7 +489,10 @@ def _post_chat_completion(runtime: dict, messages: list[dict], temperature: floa
     content = str((((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "")).strip()
     if not content:
         raise MangaScriptError("剧本模型未返回有效内容", 502)
-    return content
+    return {
+        "content": content,
+        "usage_cost": _calculate_token_usage_cost(body.get("usage") or {}, model),
+    }
 
 
 def _normalize_scene_names(content: str) -> list[dict]:
@@ -447,7 +526,7 @@ def extract_manga_scenes(source_text: str, model_preset: str = "assistant") -> d
         "合并同义重复场景，不要臆造。输出必须是 JSON，格式："
         '{"scenes":[{"name":"场景名称"}]}'
     )
-    content = _post_chat_completion(
+    completion = _post_chat_completion(
         runtime,
         [
             {"role": "system", "content": system_prompt},
@@ -455,12 +534,14 @@ def extract_manga_scenes(source_text: str, model_preset: str = "assistant") -> d
         ],
         temperature=0.2,
     )
+    content = completion["content"]
     scenes = _normalize_scene_names(content)
     if not scenes:
         raise MangaScriptError("未识别到明确的场景名称，请补充更完整的剧本内容")
     return {
         "source_text": source_text,
         "scenes": scenes,
+        "usage_cost": completion["usage_cost"],
     }
 
 
@@ -564,6 +645,7 @@ def generate_manga_storyboard(
     content = str((((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "")).strip()
     if not content:
         raise MangaScriptError("剧本模型未返回有效内容", 502)
+    usage_cost = _calculate_token_usage_cost(body.get("usage") or {}, model)
     groups = _normalize_ai_prompt_groups(content)
     if not groups:
         raise MangaScriptError("剧本模型未返回可用提示词", 502)
@@ -575,6 +657,7 @@ def generate_manga_storyboard(
         "model": model,
         "base_url": base_url,
         "model_preset": str(model_preset or "assistant").strip().lower() or "assistant",
+        "usage_cost": usage_cost,
         "style": style_key,
         "style_label": style_label,
         "reference_images": [

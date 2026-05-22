@@ -5,7 +5,6 @@ import ForgotPage from '../pages/ForgotPage.vue'
 import ProfilePage from '../pages/ProfilePage.vue'
 import ChangePasswordPage from '../pages/ChangePasswordPage.vue'
 import AIMangaPage from '../pages/AIMangaPage.vue'
-import StandPoserPage from '../pages/StandPoserPage.vue'
 import AdminLoginPage from '../pages/AdminLoginPage.vue'
 import AdminDashboardPage from '../pages/AdminDashboardPage.vue'
 import { me } from '../api/auth'
@@ -21,7 +20,6 @@ const router = createRouter({
     { path: '/profile', component: ProfilePage, meta: { requiresAuth: true } },
     { path: '/change-password', component: ChangePasswordPage, meta: { requiresAuth: true } },
     { path: '/ai-manga', component: AIMangaPage, meta: { requiresAuth: true } },
-    { path: '/stand-poser', component: StandPoserPage, meta: { requiresAuth: true } },
     { path: '/admin/login', component: AdminLoginPage },
     { path: '/admin/dashboard', component: AdminDashboardPage, meta: { requiresConsoleAuth: true } },
     { path: '/:pathMatch(.*)*', redirect: '/ai-manga' },

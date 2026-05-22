@@ -1,13 +1,5 @@
 <template>
   <div class="script-shell">
-    <div class="tool-entry">
-      <div>
-        <p class="eyebrow">3D STAND POSER</p>
-        <h2>3D站位生成器</h2>
-      </div>
-      <el-button type="primary" @click="$router.push('/stand-poser')">进入生成器</el-button>
-    </div>
-
     <header class="topbar">
       <div>
         <p class="eyebrow">AI SCRIPT PROMPT</p>
@@ -550,21 +542,6 @@ onMounted(async () => {
   background: #0a1020;
 }
 
-.tool-entry {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px 28px;
-  border-bottom: 1px solid rgba(245, 200, 75, 0.28);
-  background: #101827;
-}
-
-.tool-entry h2 {
-  margin: 0;
-  font-size: 20px;
-}
-
 .eyebrow {
   margin: 0 0 6px;
   color: #7fb8ff;
@@ -972,7 +949,6 @@ onMounted(async () => {
 
 @media (max-width: 1080px) {
   .topbar,
-  .tool-entry,
   .section-head {
     flex-direction: column;
     align-items: stretch;

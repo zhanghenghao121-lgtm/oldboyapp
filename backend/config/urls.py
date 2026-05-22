@@ -8,6 +8,5 @@ urlpatterns = [
     path("api/v1/storage/", include("apps.storage.urls")),
     path("api/v1/", include("apps.console.urls")),
     path("api/v1/", include("apps.ai_customer.urls")),
-    path("api/v1/", include("apps.standposer.urls")),
     path("api/v1/healthz", lambda request: JsonResponse({"ok": True})),
 ]

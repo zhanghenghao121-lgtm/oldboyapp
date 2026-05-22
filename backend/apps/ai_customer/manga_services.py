@@ -44,6 +44,39 @@ MAX_GROUP_SECONDS = 15
 DEFAULT_SHOT_SECONDS = 4
 MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024
 TARGET_REFERENCE_IMAGE_BYTES = int(MAX_REFERENCE_IMAGE_BYTES * 0.95)
+PROMPT_TEXT_KEYS = (
+    "prompt",
+    "text",
+    "content",
+    "description",
+    "desc",
+    "shot_description",
+    "camera_prompt",
+    "video_prompt",
+    "shot",
+    "scene",
+    "提示词",
+    "分镜词",
+    "分镜提示词",
+    "镜头描述",
+    "画面描述",
+    "画面",
+)
+DURATION_KEYS = ("duration_seconds", "duration", "seconds", "时长", "秒数")
+PROMPT_CONTAINER_KEYS = (
+    "groups",
+    "shots",
+    "sections",
+    "items",
+    "prompts",
+    "storyboard",
+    "result",
+    "data",
+    "分镜",
+    "镜头",
+    "段落",
+    "提示词列表",
+)
 MILLION_TOKENS = Decimal("1000000")
 TOKEN_PRICES_PER_MILLION = {
     "deepseek-v4-flash": {
@@ -290,6 +323,23 @@ def _clean_prompt_line(value: str) -> str:
     return text.strip()
 
 
+def _pick_first_text(item: dict, keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = item.get(key)
+        if isinstance(value, str):
+            text = _normalize_text(value)
+            if text:
+                return text
+    return ""
+
+
+def _pick_duration(item: dict):
+    for key in DURATION_KEYS:
+        if key in item:
+            return item.get(key)
+    return DEFAULT_SHOT_SECONDS
+
+
 def _append_group(groups: list[dict], shots: list[dict]) -> None:
     if not shots:
         return
@@ -322,12 +372,10 @@ def _regroup_shots(shots: list[dict]) -> list[dict]:
     current = []
     current_seconds = 0.0
     for shot in shots:
-        prompt = _clean_prompt_line(shot.get("prompt") or shot.get("text") or shot.get("content") or "")
+        prompt = _clean_prompt_line(_pick_first_text(shot, PROMPT_TEXT_KEYS))
         if not prompt or not STORYBOARD_MEANINGFUL_PATTERN.search(prompt):
             continue
-        duration = _coerce_duration_seconds(
-            shot.get("duration_seconds") or shot.get("duration") or shot.get("seconds")
-        )
+        duration = _coerce_duration_seconds(_pick_duration(shot))
         if current and current_seconds + duration > MAX_GROUP_SECONDS:
             _append_group(groups, current)
             current = []
@@ -338,23 +386,32 @@ def _regroup_shots(shots: list[dict]) -> list[dict]:
     return groups
 
 
+def _collect_prompt_shots(value) -> list[dict]:
+    if isinstance(value, list):
+        shots = []
+        for item in value:
+            shots.extend(_collect_prompt_shots(item))
+        return shots
+
+    if not isinstance(value, dict):
+        return [{"prompt": value, "duration_seconds": DEFAULT_SHOT_SECONDS}] if isinstance(value, str) else []
+
+    shots = []
+    for key in PROMPT_CONTAINER_KEYS:
+        if key in value:
+            shots.extend(_collect_prompt_shots(value.get(key)))
+    if shots:
+        return shots
+
+    prompt = _pick_first_text(value, PROMPT_TEXT_KEYS)
+    if prompt:
+        return [{"prompt": prompt, "duration_seconds": _pick_duration(value)}]
+    return []
+
+
 def _normalize_ai_prompt_groups(content: str) -> list[dict]:
-    data = _extract_json_object(content)
-    flattened = []
-
-    if isinstance(data.get("groups"), list):
-        for group in data.get("groups") or []:
-            if not isinstance(group, dict):
-                continue
-            shots = group.get("shots") or group.get("items") or group.get("sections") or []
-            if isinstance(shots, list):
-                flattened.extend(item for item in shots if isinstance(item, dict))
-
-    if not flattened:
-        sections = data.get("sections") or data.get("shots") or data.get("prompts") or []
-        if isinstance(sections, list):
-            flattened.extend(item for item in sections if isinstance(item, dict))
-
+    data = _extract_json_value(content)
+    flattened = _collect_prompt_shots(data)
     if flattened:
         return _regroup_shots(flattened)
 
@@ -394,24 +451,22 @@ def _render_prompt_groups(groups: list[dict]) -> str:
     return _normalize_text("\n".join(rendered))
 
 
-def _extract_json_object(text: str) -> dict:
+def _extract_json_value(text: str):
     raw = str(text or "").strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
         raw = raw.strip()
     try:
-        data = json.loads(raw)
-        return data if isinstance(data, dict) else {}
+        return json.loads(raw)
     except Exception:
         pass
 
-    match = re.search(r"\{[\s\S]*\}", raw)
+    match = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", raw)
     if not match:
         return {}
     try:
-        data = json.loads(match.group(0))
-        return data if isinstance(data, dict) else {}
+        return json.loads(match.group(0))
     except Exception:
         return {}
 

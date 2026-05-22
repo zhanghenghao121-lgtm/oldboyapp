@@ -38,6 +38,9 @@ class SiteConfig(models.Model):
     KEY_AI_MANGA_BASE_URL = "ai_manga_base_url"
     KEY_AI_MANGA_API_KEY = "ai_manga_api_key"
     KEY_AI_MANGA_MODEL = "ai_manga_model"
+    KEY_AI_MANGA_VISION_BASE_URL = "ai_manga_vision_base_url"
+    KEY_AI_MANGA_VISION_API_KEY = "ai_manga_vision_api_key"
+    KEY_AI_MANGA_VISION_MODEL = "ai_manga_vision_model"
     KEY_AI_MANGA_STORYBOARD_PROMPT = "ai_manga_storyboard_prompt"
     KEY_AI_MANGA_3D_STYLE_PROMPT = "ai_manga_3d_style_prompt"
     KEY_AI_MANGA_REAL_STYLE_PROMPT = "ai_manga_real_style_prompt"
@@ -49,6 +52,9 @@ class SiteConfig(models.Model):
         (KEY_AI_MANGA_BASE_URL, "剧本模型API地址"),
         (KEY_AI_MANGA_API_KEY, "剧本模型API Key"),
         (KEY_AI_MANGA_MODEL, "剧本模型名称"),
+        (KEY_AI_MANGA_VISION_BASE_URL, "图文模型API地址"),
+        (KEY_AI_MANGA_VISION_API_KEY, "图文模型API Key"),
+        (KEY_AI_MANGA_VISION_MODEL, "图文模型名称"),
         (KEY_AI_MANGA_STORYBOARD_PROMPT, "AI剧本解析规则"),
         (KEY_AI_MANGA_3D_STYLE_PROMPT, "3D风格提示词"),
         (KEY_AI_MANGA_REAL_STYLE_PROMPT, "真人风格提示词"),

@@ -62,6 +62,21 @@
                 </el-form-item>
               </el-form>
             </div>
+
+            <div class="model-box">
+              <h4>图文识别模型</h4>
+              <el-form label-width="92px">
+                <el-form-item label="API地址">
+                  <el-input v-model="forms.ai_manga_vision_base_url" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
+                </el-form-item>
+                <el-form-item label="API Key">
+                  <el-input v-model="forms.ai_manga_vision_api_key" show-password placeholder="请输入 ARK API Key" />
+                </el-form-item>
+                <el-form-item label="模型名称">
+                  <el-input v-model="forms.ai_manga_vision_model" placeholder="doubao-seed-2-0-mini-260428" />
+                </el-form-item>
+              </el-form>
+            </div>
           </div>
         </section>
 
@@ -222,6 +237,9 @@ const forms = reactive({
   ai_manga_base_url: '',
   ai_manga_api_key: '',
   ai_manga_model: '',
+  ai_manga_vision_base_url: '',
+  ai_manga_vision_api_key: '',
+  ai_manga_vision_model: '',
   ai_manga_storyboard_prompt: '',
   ai_manga_3d_style_prompt: '',
   ai_manga_real_style_prompt: '',
@@ -288,6 +306,9 @@ const saveModelConfigs = async () => {
       'ai_manga_base_url',
       'ai_manga_api_key',
       'ai_manga_model',
+      'ai_manga_vision_base_url',
+      'ai_manga_vision_api_key',
+      'ai_manga_vision_model',
     ])
     ElMessage.success('模型配置已保存')
   } catch (e) {

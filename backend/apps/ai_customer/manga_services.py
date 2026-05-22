@@ -17,6 +17,7 @@ except Exception:  # pragma: no cover - optional runtime dependency
     ImageOps = None
 
 from apps.ai_customer.runtime_config import (
+    get_manga_vision_llm_config,
     get_manga_storyboard_prompt,
     get_manga_style_prompt,
     get_runtime_llm_config,
@@ -468,6 +469,8 @@ def _resolve_pricing_model(model: str) -> str:
     normalized = str(model or "").strip().lower()
     if "flash" in normalized:
         return "deepseek-v4-flash"
+    if "deepseek" not in normalized:
+        return ""
     return "deepseek-v4-pro"
 
 
@@ -497,6 +500,21 @@ def _calculate_token_usage_cost(usage: dict, model: str) -> dict:
         cache_miss_tokens = max(prompt_tokens - cache_hit_tokens, 0)
 
     pricing_model = _resolve_pricing_model(model)
+    if not pricing_model:
+        return {
+            "model": model,
+            "pricing_model": "",
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "input_cache_hit_tokens": cache_hit_tokens,
+            "input_cache_miss_tokens": cache_miss_tokens,
+            "input_cache_hit_points": 0,
+            "input_cache_miss_points": 0,
+            "output_points": 0,
+            "total_points": 0,
+            "prices_per_million": {},
+        }
     prices = TOKEN_PRICES_PER_MILLION[pricing_model]
     hit_points = Decimal(cache_hit_tokens) * prices["input_cache_hit"] / MILLION_TOKENS
     miss_points = Decimal(cache_miss_tokens) * prices["input_cache_miss"] / MILLION_TOKENS
@@ -690,11 +708,15 @@ def generate_manga_storyboard(
     scene_references: list[dict] | None = None,
     position_description: str = "",
 ) -> dict:
-    runtime = get_runtime_llm_config(model_preset)
+    requested_model_preset = str(model_preset or "assistant").strip().lower() or "assistant"
+    use_vision_model = bool(reference_images)
+    runtime = get_manga_vision_llm_config() if use_vision_model else get_runtime_llm_config(model_preset)
     api_key = str(runtime.get("api_key") or "").strip()
     base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
     model = str(runtime.get("model") or "").strip()
     if not api_key or not base_url or not model:
+        if use_vision_model:
+            raise MangaScriptError("图文识别模型配置不完整，请先在后台模型设置中补全 API 地址、API Key 和模型名称", 500)
         raise MangaScriptError("剧本模型配置不完整，请先在后台模型设置中补全", 500)
 
     style_key = normalize_manga_style(style)
@@ -759,7 +781,8 @@ def generate_manga_storyboard(
         "source_text": source_text,
         "model": model,
         "base_url": base_url,
-        "model_preset": str(model_preset or "assistant").strip().lower() or "assistant",
+        "model_preset": "vision" if use_vision_model else requested_model_preset,
+        "requested_model_preset": requested_model_preset,
         "usage_cost": usage_cost,
         "style": style_key,
         "style_label": style_label,

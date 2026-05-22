@@ -75,6 +75,20 @@ def get_manga_llm_config():
     }
 
 
+def get_manga_vision_llm_config():
+    return {
+        "base_url": _read_config_value(
+            SiteConfig.KEY_AI_MANGA_VISION_BASE_URL,
+            "https://ark.cn-beijing.volces.com/api/v3",
+        ),
+        "api_key": _read_config_value(SiteConfig.KEY_AI_MANGA_VISION_API_KEY, ""),
+        "model": _read_config_value(
+            SiteConfig.KEY_AI_MANGA_VISION_MODEL,
+            "doubao-seed-2-0-mini-260428",
+        ),
+    }
+
+
 def get_runtime_llm_config(preset: str = "assistant"):
     if str(preset or "").strip().lower() == "manga":
         return get_manga_llm_config()

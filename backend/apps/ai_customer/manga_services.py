@@ -17,6 +17,8 @@ except Exception:  # pragma: no cover - optional runtime dependency
     ImageOps = None
 
 from apps.ai_customer.runtime_config import (
+    get_ai_image_config,
+    get_ai_image_reverse_prompt,
     get_manga_vision_llm_config,
     get_manga_storyboard_prompt,
     get_manga_style_prompt,
@@ -97,6 +99,30 @@ STYLE_LABELS = {
 REFERENCE_IMAGE_LABELS = {
     "character_position_image": "人物站位图",
 }
+AI_IMAGE_REFERENCE_LABELS = {
+    "front_scene_image": "参考图1：场景正面镜头背景",
+    "reverse_scene_image": "参考图2：场景反打镜头背景",
+    "front_position_image": "参考图3：正面人物站位图",
+}
+AI_IMAGE_SIZE_OPTIONS = {
+    "auto",
+    "1:1",
+    "3:2",
+    "2:3",
+    "4:3",
+    "3:4",
+    "5:4",
+    "4:5",
+    "16:9",
+    "9:16",
+    "2:1",
+    "1:2",
+    "3:1",
+    "1:3",
+    "21:9",
+    "9:21",
+}
+AI_IMAGE_RESOLUTION_OPTIONS = {"1k", "2k", "4k"}
 
 
 def _normalize_text(text: str) -> str:
@@ -264,6 +290,15 @@ def _prepare_uploaded_image(image_files: dict, field_name: str, label: str) -> d
 def prepare_reference_images(image_files: dict) -> list[dict]:
     images = []
     for field_name, label in REFERENCE_IMAGE_LABELS.items():
+        image = _prepare_uploaded_image(image_files, field_name, label)
+        if image:
+            images.append(image)
+    return images
+
+
+def prepare_ai_image_references(image_files: dict) -> list[dict]:
+    images = []
+    for field_name, label in AI_IMAGE_REFERENCE_LABELS.items():
         image = _prepare_uploaded_image(image_files, field_name, label)
         if image:
             images.append(image)
@@ -607,6 +642,23 @@ def _model_error_message(resp) -> str:
     return f"剧本模型服务错误({resp.status_code})：{detail}" if detail else f"剧本模型服务错误({resp.status_code})"
 
 
+def _service_error_message(resp, label: str) -> str:
+    detail = ""
+    try:
+        body = resp.json()
+        error = body.get("error") if isinstance(body, dict) else None
+        if isinstance(error, dict):
+            detail = str(error.get("message") or error.get("code") or "")
+        elif isinstance(error, str):
+            detail = error
+        if not detail and isinstance(body, dict):
+            detail = str(body.get("message") or body.get("detail") or "")
+    except Exception:
+        detail = str(getattr(resp, "text", "") or "")
+    detail = _normalize_text(detail)[:240]
+    return f"{label}服务错误({resp.status_code})：{detail}" if detail else f"{label}服务错误({resp.status_code})"
+
+
 def _post_storyboard_payload(base_url: str, api_key: str, payload: dict):
     try:
         return requests.post(
@@ -617,6 +669,164 @@ def _post_storyboard_payload(base_url: str, api_key: str, payload: dict):
         )
     except Exception as exc:
         raise MangaScriptError(f"剧本模型请求失败：{exc}", 502)
+
+
+def _normalize_ai_image_size(value: str) -> str:
+    text = str(value or "16:9").strip().lower()
+    if text in AI_IMAGE_SIZE_OPTIONS or re.fullmatch(r"\d{2,5}x\d{2,5}", text):
+        return text
+    return "16:9"
+
+
+def _normalize_ai_image_resolution(value: str) -> str:
+    text = str(value or "1k").strip().lower()
+    return text if text in AI_IMAGE_RESOLUTION_OPTIONS else "1k"
+
+
+def _build_ai_image_prompt(mode: str, prompt: str) -> str:
+    text = _normalize_text(prompt)
+    if str(mode or "").strip().lower() != "reverse_shot":
+        if not text:
+            raise MangaScriptError("请输入生图提示词")
+        return text[:6000]
+    reverse_prompt = get_ai_image_reverse_prompt()
+    if text:
+        return f"{reverse_prompt}\n\n补充要求：\n{text[:2000]}"
+    return reverse_prompt
+
+
+def _post_ai_image_payload(base_url: str, api_key: str, payload: dict):
+    try:
+        return requests.post(
+            f"{base_url}/images/generations",
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=max(int(getattr(settings, "AI_IMAGE_SUBMIT_TIMEOUT", 60)), 20),
+        )
+    except Exception as exc:
+        raise MangaScriptError(f"生图任务提交失败：{exc}", 502)
+
+
+def _get_ai_image_task(base_url: str, api_key: str, task_id: str):
+    try:
+        return requests.get(
+            f"{base_url}/tasks/{task_id}",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=max(int(getattr(settings, "AI_IMAGE_QUERY_TIMEOUT", 30)), 10),
+        )
+    except Exception as exc:
+        raise MangaScriptError(f"生图任务查询失败：{exc}", 502)
+
+
+def _extract_ai_image_task_id(body: dict) -> str:
+    data = body.get("data") if isinstance(body, dict) else None
+    if isinstance(data, list) and data:
+        return str((data[0] or {}).get("task_id") or "").strip()
+    if isinstance(data, dict):
+        return str(data.get("task_id") or data.get("id") or "").strip()
+    return ""
+
+
+def _extract_ai_image_urls(task_data: dict) -> list[str]:
+    images = (((task_data or {}).get("result") or {}).get("images") or [])
+    urls = []
+    for item in images:
+        value = (item or {}).get("url")
+        if isinstance(value, list):
+            urls.extend(str(url).strip() for url in value if str(url or "").strip())
+        elif value:
+            urls.append(str(value).strip())
+    return urls
+
+
+def submit_ai_image_generation(
+    *,
+    mode: str = "text",
+    prompt: str = "",
+    size: str = "16:9",
+    resolution: str = "1k",
+    reference_images: list[dict] | None = None,
+) -> dict:
+    runtime = get_ai_image_config()
+    api_key = str(runtime.get("api_key") or "").strip()
+    base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
+    model = str(runtime.get("model") or "gpt-image-2").strip() or "gpt-image-2"
+    if not api_key or not base_url or not model:
+        raise MangaScriptError("生图模型配置不完整，请先在后台模型设置中补全 API 地址、API Key 和模型名称", 500)
+
+    mode_key = str(mode or "text").strip().lower()
+    images = reference_images or []
+    if mode_key == "reverse_shot" and len(images) != len(AI_IMAGE_REFERENCE_LABELS):
+        raise MangaScriptError("反打画面需要上传场景正面、场景反打、正面人物站位 3 张参考图")
+
+    payload = {
+        "model": model,
+        "prompt": _build_ai_image_prompt(mode_key, prompt),
+        "n": 1,
+        "size": _normalize_ai_image_size(size),
+        "resolution": _normalize_ai_image_resolution(resolution),
+    }
+    if images:
+        payload["image_urls"] = [item["data_url"] for item in images]
+
+    resp = _post_ai_image_payload(base_url, api_key, payload)
+    if resp.status_code >= 400:
+        raise MangaScriptError(_service_error_message(resp, "生图模型"), 502)
+    try:
+        body = resp.json()
+    except Exception as exc:
+        raise MangaScriptError(f"生图模型返回非 JSON：{exc}", 502)
+
+    task_id = _extract_ai_image_task_id(body)
+    if not task_id:
+        raise MangaScriptError("生图模型未返回任务ID", 502)
+    return {
+        "task_id": task_id,
+        "status": "submitted",
+        "model": model,
+        "size": payload["size"],
+        "resolution": payload["resolution"],
+        "mode": mode_key,
+        "reference_images": [
+            {"field": item["field"], "label": item["label"], "name": item["name"]}
+            for item in images
+        ],
+    }
+
+
+def get_ai_image_task_result(task_id: str) -> dict:
+    task_id = str(task_id or "").strip()
+    if not task_id:
+        raise MangaScriptError("缺少任务ID")
+    runtime = get_ai_image_config()
+    api_key = str(runtime.get("api_key") or "").strip()
+    base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
+    if not api_key or not base_url:
+        raise MangaScriptError("生图模型配置不完整，请先在后台模型设置中补全", 500)
+
+    resp = _get_ai_image_task(base_url, api_key, task_id)
+    if resp.status_code >= 400:
+        raise MangaScriptError(_service_error_message(resp, "生图任务"), 502)
+    try:
+        body = resp.json()
+    except Exception as exc:
+        raise MangaScriptError(f"生图任务返回非 JSON：{exc}", 502)
+
+    data = body.get("data") if isinstance(body, dict) else {}
+    data = data if isinstance(data, dict) else {}
+    error = data.get("error") if isinstance(data.get("error"), dict) else {}
+    return {
+        "task_id": data.get("id") or task_id,
+        "status": data.get("status") or "",
+        "progress": data.get("progress") or 0,
+        "created": data.get("created"),
+        "completed": data.get("completed"),
+        "actual_time": data.get("actual_time"),
+        "cost": data.get("cost"),
+        "images": _extract_ai_image_urls(data),
+        "expires_at": (((data.get("result") or {}).get("images") or [{}])[0] or {}).get("expires_at"),
+        "error": error.get("message") or data.get("message") or "",
+    }
 
 
 def generate_manga_storyboard(

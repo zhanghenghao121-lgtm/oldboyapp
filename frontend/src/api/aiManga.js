@@ -8,3 +8,14 @@ export const generateAiMangaStoryboard = (formData, config = {}) =>
     timeout: 180000,
     ...config,
   })
+
+export const getAiImageConfig = () => http.get('/ai-image/config')
+
+export const generateAiImage = (formData, config = {}) =>
+  http.post('/ai-image/generate', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 90000,
+    ...config,
+  })
+
+export const getAiImageTask = (taskId) => http.get(`/ai-image/tasks/${encodeURIComponent(taskId)}`, { timeout: 45000 })

@@ -27,7 +27,7 @@
           <div class="panel-head">
             <div>
               <h3>模型设置</h3>
-              <p>保留现有 AI 配置结构，前台可选择助手模型或剧本模型。</p>
+              <p>保留现有 AI 配置结构，前台可选择剧本模型，并可独立配置生图模型。</p>
             </div>
             <el-button class="main-btn" type="primary" :loading="savingModels" @click="saveModelConfigs">保存模型配置</el-button>
           </div>
@@ -77,6 +77,21 @@
                 </el-form-item>
               </el-form>
             </div>
+
+            <div class="model-box">
+              <h4>生图模型</h4>
+              <el-form label-width="92px">
+                <el-form-item label="API地址">
+                  <el-input v-model="forms.ai_image_base_url" placeholder="https://api.apimart.ai/v1" />
+                </el-form-item>
+                <el-form-item label="API Key">
+                  <el-input v-model="forms.ai_image_api_key" show-password placeholder="请输入 Apimart API Key" />
+                </el-form-item>
+                <el-form-item label="模型名称">
+                  <el-input v-model="forms.ai_image_model" placeholder="gpt-image-2" />
+                </el-form-item>
+              </el-form>
+            </div>
           </div>
         </section>
 
@@ -113,6 +128,14 @@
                   type="textarea"
                   :rows="8"
                   placeholder="设置真人风格专用提示词"
+                />
+              </el-form-item>
+              <el-form-item label="反打画面提示词">
+                <el-input
+                  v-model="forms.ai_image_reverse_prompt"
+                  type="textarea"
+                  :rows="12"
+                  placeholder="设置生出反打画面的默认提示词"
                 />
               </el-form-item>
             </div>
@@ -240,6 +263,10 @@ const forms = reactive({
   ai_manga_vision_base_url: '',
   ai_manga_vision_api_key: '',
   ai_manga_vision_model: '',
+  ai_image_base_url: '',
+  ai_image_api_key: '',
+  ai_image_model: '',
+  ai_image_reverse_prompt: '',
   ai_manga_storyboard_prompt: '',
   ai_manga_3d_style_prompt: '',
   ai_manga_real_style_prompt: '',
@@ -309,6 +336,9 @@ const saveModelConfigs = async () => {
       'ai_manga_vision_base_url',
       'ai_manga_vision_api_key',
       'ai_manga_vision_model',
+      'ai_image_base_url',
+      'ai_image_api_key',
+      'ai_image_model',
     ])
     ElMessage.success('模型配置已保存')
   } catch (e) {
@@ -321,7 +351,7 @@ const saveModelConfigs = async () => {
 const savePromptConfigs = async () => {
   savingPrompts.value = true
   try {
-    await saveKeys(['ai_manga_storyboard_prompt', 'ai_manga_3d_style_prompt', 'ai_manga_real_style_prompt'])
+    await saveKeys(['ai_manga_storyboard_prompt', 'ai_manga_3d_style_prompt', 'ai_manga_real_style_prompt', 'ai_image_reverse_prompt'])
     ElMessage.success('提示词配置已保存')
   } catch (e) {
     ElMessage.error(String(e || '提示词配置保存失败'))

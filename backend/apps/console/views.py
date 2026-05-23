@@ -16,6 +16,7 @@ from apps.console.serializers import (
     SiteConfigUpdateSerializer,
 )
 from apps.ai_customer.runtime_config import (
+    DEFAULT_AI_IMAGE_REVERSE_PROMPT,
     DEFAULT_MANGA_3D_STYLE_PROMPT,
     DEFAULT_MANGA_REAL_STYLE_PROMPT,
     DEFAULT_MANGA_STORYBOARD_PROMPT,
@@ -44,6 +45,10 @@ def _config_defaults():
         SiteConfig.KEY_AI_MANGA_VISION_BASE_URL: "https://ark.cn-beijing.volces.com/api/v3",
         SiteConfig.KEY_AI_MANGA_VISION_API_KEY: "",
         SiteConfig.KEY_AI_MANGA_VISION_MODEL: "doubao-seed-2-0-mini-260428",
+        SiteConfig.KEY_AI_IMAGE_BASE_URL: "https://api.apimart.ai/v1",
+        SiteConfig.KEY_AI_IMAGE_API_KEY: "",
+        SiteConfig.KEY_AI_IMAGE_MODEL: "gpt-image-2",
+        SiteConfig.KEY_AI_IMAGE_REVERSE_PROMPT: DEFAULT_AI_IMAGE_REVERSE_PROMPT,
         SiteConfig.KEY_AI_MANGA_STORYBOARD_PROMPT: DEFAULT_MANGA_STORYBOARD_PROMPT,
         SiteConfig.KEY_AI_MANGA_3D_STYLE_PROMPT: DEFAULT_MANGA_3D_STYLE_PROMPT,
         SiteConfig.KEY_AI_MANGA_REAL_STYLE_PROMPT: DEFAULT_MANGA_REAL_STYLE_PROMPT,

@@ -36,6 +36,27 @@ DEFAULT_MANGA_3D_STYLE_PROMPT = (
 DEFAULT_MANGA_REAL_STYLE_PROMPT = (
     "真人影视质感，真实摄影机语言，自然光影和真实表演，场景细节可信，避免动漫化和卡通化。"
 )
+
+DEFAULT_AI_IMAGE_REVERSE_PROMPT = (
+    "根据参考图生成同一场景的反打镜头画面。"
+    "\n参考图1：场景的正面镜头背景。"
+    "\n参考图2：同一场景的反打镜头背景。"
+    "\n参考图3：正面镜头下的人物完整站位图。"
+    "\n\n请以参考图2作为新的背景和摄像机角度，推理参考图3中所有人物在真实三维空间中的位置，并在反打镜头中重新摆放人物。"
+    "\n\n重要要求："
+    "\n1. 不是镜像翻转参考图3，而是保持人物在场景中的真实空间位置不变，仅切换到反方向摄像机视角。"
+    "\n2. 人物之间的前后距离、左右空间关系、遮挡关系要根据反打镜头重新计算。"
+    "\n3. 正面镜头中靠近镜头的人物，在反打镜头中应变为远离镜头；正面镜头中远离镜头的人物，在反打镜头中应更靠近镜头。"
+    "\n4. 正面镜头中位于场景左侧/右侧的人物，要按照场景真实坐标转换到反打视角，不要简单复制画面左右。"
+    "\n5. 所有人物的身份、服装、发型、体型、表情和动作保持一致。"
+    "\n6. 背景必须使用参考图2的反打镜头背景，不能使用参考图1的正面背景。"
+    "\n7. 保持同一场景、同一时间、同一光线、同一风格、同一镜头高度。"
+    "\n8. 不要新增人物，不要减少人物，不要改变人物站位逻辑，不要改变场景布局。"
+    "\n9. 画面构图自然，符合影视反打镜头逻辑，不要越轴。"
+    "\n\n输出：一张反打镜头下的人物站位画面。"
+)
+
+
 def _read_config_value(key: str, default: str = "") -> str:
     try:
         value = (
@@ -89,6 +110,17 @@ def get_manga_vision_llm_config():
     }
 
 
+def get_ai_image_config():
+    return {
+        "base_url": _read_config_value(
+            SiteConfig.KEY_AI_IMAGE_BASE_URL,
+            "https://api.apimart.ai/v1",
+        ),
+        "api_key": _read_config_value(SiteConfig.KEY_AI_IMAGE_API_KEY, ""),
+        "model": _read_config_value(SiteConfig.KEY_AI_IMAGE_MODEL, "gpt-image-2"),
+    }
+
+
 def get_runtime_llm_config(preset: str = "assistant"):
     if str(preset or "").strip().lower() == "manga":
         return get_manga_llm_config()
@@ -99,6 +131,13 @@ def get_manga_storyboard_prompt():
     return _read_config_value(
         SiteConfig.KEY_AI_MANGA_STORYBOARD_PROMPT,
         DEFAULT_MANGA_STORYBOARD_PROMPT,
+    )
+
+
+def get_ai_image_reverse_prompt():
+    return _read_config_value(
+        SiteConfig.KEY_AI_IMAGE_REVERSE_PROMPT,
+        DEFAULT_AI_IMAGE_REVERSE_PROMPT,
     )
 
 

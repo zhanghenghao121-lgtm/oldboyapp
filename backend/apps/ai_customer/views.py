@@ -1,3 +1,5 @@
+import json
+
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -101,7 +103,14 @@ def ai_image_config(request):
 def ai_image_generate(request):
     try:
         mode = str(request.data.get("mode", "text") or "text").strip().lower()
-        references = prepare_ai_image_references(request.FILES)
+        try:
+            object_names = json.loads(str(request.data.get("object_names", "[]") or "[]"))
+        except Exception:
+            object_names = []
+        if not isinstance(object_names, list):
+            object_names = []
+        object_names = [str(item or "").strip() for item in object_names]
+        references = prepare_ai_image_references(request.FILES, object_names=object_names)
         result = submit_ai_image_generation(
             mode=mode,
             prompt=str(request.data.get("prompt", "") or ""),

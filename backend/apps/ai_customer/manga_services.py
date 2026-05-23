@@ -102,8 +102,8 @@ REFERENCE_IMAGE_LABELS = {
 AI_IMAGE_REFERENCE_LABELS = {
     "front_scene_image": "参考图1：场景正面镜头背景",
     "reverse_scene_image": "参考图2：场景反打镜头背景",
-    "front_position_image": "参考图3：正面人物站位图",
 }
+MAX_AI_IMAGE_REFERENCES = 16
 AI_IMAGE_SIZE_OPTIONS = {
     "auto",
     "1:1",
@@ -296,11 +296,26 @@ def prepare_reference_images(image_files: dict) -> list[dict]:
     return images
 
 
-def prepare_ai_image_references(image_files: dict) -> list[dict]:
+def prepare_ai_image_references(image_files: dict, object_names: list[str] | None = None) -> list[dict]:
     images = []
     for field_name, label in AI_IMAGE_REFERENCE_LABELS.items():
         image = _prepare_uploaded_image(image_files, field_name, label)
         if image:
+            images.append(image)
+    names = object_names or []
+    object_files = []
+    if image_files:
+        try:
+            object_files = list(image_files.getlist("object_images"))
+        except Exception:
+            object_files = []
+    for index, file_obj in enumerate(object_files[: max(0, MAX_AI_IMAGE_REFERENCES - len(images))], start=1):
+        label = str(names[index - 1] if index - 1 < len(names) else "").strip()
+        label = label[:40] or f"对象{index}"
+        image = _prepare_uploaded_image({"object_image": file_obj}, "object_image", f"@{label} 参考图")
+        if image:
+            image["field"] = "object_images"
+            image["label"] = f"@{label}"
             images.append(image)
     return images
 
@@ -689,10 +704,9 @@ def _build_ai_image_prompt(mode: str, prompt: str) -> str:
         if not text:
             raise MangaScriptError("请输入生图提示词")
         return text[:6000]
-    reverse_prompt = get_ai_image_reverse_prompt()
-    if text:
-        return f"{reverse_prompt}\n\n补充要求：\n{text[:2000]}"
-    return reverse_prompt
+    if not text:
+        raise MangaScriptError("请在描述框中用 @对象 描述正面镜头站位")
+    return f"{get_ai_image_reverse_prompt()}\n\n用户站位描述：\n{text[:3000]}"
 
 
 def _post_ai_image_payload(base_url: str, api_key: str, payload: dict):
@@ -756,8 +770,15 @@ def submit_ai_image_generation(
 
     mode_key = str(mode or "text").strip().lower()
     images = reference_images or []
-    if mode_key == "reverse_shot" and len(images) != len(AI_IMAGE_REFERENCE_LABELS):
-        raise MangaScriptError("反打画面需要上传场景正面、场景反打、正面人物站位 3 张参考图")
+    if len(images) > MAX_AI_IMAGE_REFERENCES:
+        raise MangaScriptError("参考图最多支持 16 张")
+    if mode_key == "reverse_shot":
+        scene_fields = {item.get("field") for item in images}
+        object_count = sum(1 for item in images if item.get("field") == "object_images")
+        if not {"front_scene_image", "reverse_scene_image"}.issubset(scene_fields):
+            raise MangaScriptError("反打画面需要上传场景正面参考图和场景反打参考图")
+        if object_count <= 0:
+            raise MangaScriptError("请至少上传 1 张角色或物品参考图")
 
     payload = {
         "model": model,

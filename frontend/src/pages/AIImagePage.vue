@@ -11,7 +11,7 @@
       </button>
       <button class="mode-btn" :class="{ active: mode === 'reverse_shot' }" type="button" @click="mode = 'reverse_shot'">
         <strong>生出反打画面</strong>
-        <span>三张参考图推理站位</span>
+        <span>@角色/物品推理站位</span>
       </button>
       <el-button plain class="back-btn" @click="$router.push('/ai-manga')">返回剧本创作</el-button>
     </aside>
@@ -49,12 +49,35 @@
                 <button v-if="reverseImages[item.field]" type="button" @click.prevent="reverseImages[item.field] = null">移除</button>
               </label>
             </div>
+
+            <div class="object-panel">
+              <div class="object-head">
+                <div>
+                  <h4>角色 / 物品参考</h4>
+                  <span>上传后可点击插入 @对象名</span>
+                </div>
+                <el-button plain size="small" :disabled="objectRefs.length >= 14" @click="addObjectRef">添加对象</el-button>
+              </div>
+              <div class="object-list">
+                <div v-for="item in objectRefs" :key="item.id" class="object-card">
+                  <el-input v-model="item.name" maxlength="20" placeholder="对象名，如 顾知夏 / 木箱" />
+                  <label class="object-file">
+                    <input type="file" accept="image/*" @change="(event) => handleObjectImageChange(event, item.id)" />
+                    <span>{{ item.file?.name || '上传参考图' }}</span>
+                  </label>
+                  <el-button text :disabled="!item.name.trim()" @click="insertMention(item.name)">插入@</el-button>
+                  <button class="remove-object" type="button" @click="removeObjectRef(item.id)">×</button>
+                </div>
+              </div>
+            </div>
+
             <el-input
+              ref="promptInputRef"
               v-model="prompt"
               type="textarea"
-              :rows="5"
+              :rows="7"
               resize="none"
-              placeholder="可选补充：人物表情、镜头焦段、画面质感等，不写则使用后台反打提示词。"
+              placeholder="用 @对象名 描述它们在参考图1正面镜头中的站位，例如：@顾知夏站在门口左侧，面向@木箱，距离镜头更近；@木箱在桌子右后方，半遮挡。"
             />
           </template>
 
@@ -87,7 +110,7 @@
           <div v-else class="result-stack">
             <img v-for="url in imageUrls" :key="url" :src="url" alt="AI生成结果" />
             <div class="result-actions">
-              <el-button plain @click="copyImageUrl">复制图片链接</el-button>
+              <el-button plain @click="downloadImage">下载图片</el-button>
               <el-button type="primary" @click="openImage">打开图片</el-button>
             </div>
           </div>
@@ -105,6 +128,7 @@ import { generateAiImage, getAiImageConfig, getAiImageTask } from '../api/aiMang
 
 const mode = ref('text')
 const prompt = ref('')
+const promptInputRef = ref(null)
 const selectedModel = ref('gpt-image-2')
 const size = ref('16:9')
 const resolution = ref('1k')
@@ -114,8 +138,8 @@ const resolutionOptions = ref(['1k', '2k', '4k'])
 const reverseImages = reactive({
   front_scene_image: null,
   reverse_scene_image: null,
-  front_position_image: null,
 })
+const objectRefs = ref([{ id: Date.now(), name: '', file: null }])
 const generating = ref(false)
 const taskId = ref('')
 const taskStatus = ref('')
@@ -126,10 +150,10 @@ let pollTimer = null
 const reverseUploads = [
   { field: 'front_scene_image', kicker: '参考图 1', title: '场景正面背景' },
   { field: 'reverse_scene_image', kicker: '参考图 2', title: '场景反打背景' },
-  { field: 'front_position_image', kicker: '参考图 3', title: '正面人物站位图' },
 ]
 
-const hasReverseImages = computed(() => reverseUploads.every((item) => reverseImages[item.field]))
+const validObjectRefs = computed(() => objectRefs.value.filter((item) => item.name.trim() && item.file))
+const hasReverseImages = computed(() => reverseUploads.every((item) => reverseImages[item.field]) && validObjectRefs.value.length > 0)
 
 const stopPolling = () => {
   if (pollTimer) window.clearTimeout(pollTimer)
@@ -145,6 +169,44 @@ const handleReverseImageChange = (event, field) => {
     return
   }
   reverseImages[field] = file
+}
+
+const addObjectRef = () => {
+  objectRefs.value.push({ id: Date.now() + Math.random(), name: '', file: null })
+}
+
+const removeObjectRef = (id) => {
+  objectRefs.value = objectRefs.value.filter((item) => item.id !== id)
+  if (!objectRefs.value.length) addObjectRef()
+}
+
+const handleObjectImageChange = (event, id) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请上传图片文件')
+    return
+  }
+  const matched = objectRefs.value.find((item) => item.id === id)
+  if (matched) matched.file = file
+}
+
+const insertMention = (name) => {
+  const mention = `@${String(name || '').trim()}`
+  if (!mention || mention === '@') return
+  const textarea = promptInputRef.value?.textarea
+  if (!textarea) {
+    prompt.value = `${prompt.value}${prompt.value ? ' ' : ''}${mention}`
+    return
+  }
+  const start = textarea.selectionStart ?? prompt.value.length
+  const end = textarea.selectionEnd ?? prompt.value.length
+  prompt.value = `${prompt.value.slice(0, start)}${mention}${prompt.value.slice(end)}`
+  requestAnimationFrame(() => {
+    textarea.focus()
+    textarea.setSelectionRange(start + mention.length, start + mention.length)
+  })
 }
 
 const schedulePoll = () => {
@@ -188,7 +250,11 @@ const submitImage = async () => {
     return
   }
   if (mode.value === 'reverse_shot' && !hasReverseImages.value) {
-    ElMessage.warning('请上传 3 张反打参考图')
+    ElMessage.warning('请上传 2 张场景图和至少 1 张角色/物品参考图')
+    return
+  }
+  if (mode.value === 'reverse_shot' && !prompt.value.trim()) {
+    ElMessage.warning('请用 @对象名 描述正面镜头站位')
     return
   }
 
@@ -200,6 +266,10 @@ const submitImage = async () => {
   formData.append('resolution', resolution.value)
   reverseUploads.forEach((item) => {
     if (reverseImages[item.field]) formData.append(item.field, reverseImages[item.field])
+  })
+  formData.append('object_names', JSON.stringify(validObjectRefs.value.map((item) => item.name.trim())))
+  validObjectRefs.value.forEach((item) => {
+    formData.append('object_images', item.file)
   })
 
   generating.value = true
@@ -224,6 +294,7 @@ const clearForm = () => {
   reverseUploads.forEach((item) => {
     reverseImages[item.field] = null
   })
+  objectRefs.value = [{ id: Date.now(), name: '', file: null }]
   taskId.value = ''
   taskStatus.value = ''
   progress.value = 0
@@ -232,12 +303,24 @@ const clearForm = () => {
   stopPolling()
 }
 
-const copyImageUrl = async () => {
+const downloadImage = async () => {
+  const url = imageUrls.value[0]
+  if (!url) return
   try {
-    await navigator.clipboard.writeText(imageUrls.value[0] || '')
-    ElMessage.success('图片链接已复制')
+    const response = await fetch(url)
+    const blob = await response.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = `ai-image-${taskId.value || Date.now()}.png`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(objectUrl)
+    ElMessage.success('图片已开始下载')
   } catch {
-    ElMessage.error('复制失败，请手动复制')
+    window.open(url, '_blank', 'noopener,noreferrer')
+    ElMessage.warning('浏览器拦截了直接下载，已为你打开图片')
   }
 }
 
@@ -417,6 +500,86 @@ onBeforeUnmount(stopPolling)
   border: 0;
   color: #ffe1df;
   background: transparent;
+}
+
+.object-panel {
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid rgba(145, 184, 169, 0.22);
+  border-radius: 8px;
+  background: #0b1414;
+}
+
+.object-head,
+.object-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.object-head {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.object-head h4 {
+  margin: 0;
+}
+
+.object-head span {
+  display: block;
+  margin-top: 4px;
+  color: #91a8a0;
+  font-size: 12px;
+}
+
+.object-list {
+  display: grid;
+  gap: 10px;
+}
+
+.object-card {
+  position: relative;
+  padding: 10px;
+  border: 1px solid rgba(145, 184, 169, 0.2);
+  border-radius: 8px;
+  background: #101a1b;
+}
+
+.object-card .el-input {
+  width: 160px;
+}
+
+.object-file {
+  min-width: 0;
+  flex: 1;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px dashed rgba(157, 214, 189, 0.42);
+  border-radius: 8px;
+  color: #cfe3dc;
+  cursor: pointer;
+}
+
+.object-file input {
+  display: none;
+}
+
+.object-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remove-object {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  color: #ffe1df;
+  background: rgba(255, 111, 103, 0.12);
 }
 
 .action-row {

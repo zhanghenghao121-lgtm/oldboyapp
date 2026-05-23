@@ -22,7 +22,7 @@
             :value="item.id"
           />
         </el-select>
-        <el-button plain @click="$router.push('/ai-image')">AI生成功能</el-button>
+        <el-button plain @click="$router.push('/ai-image')">AI生图</el-button>
         <el-button plain @click="$router.push('/profile')">用户信息</el-button>
       </div>
     </header>

@@ -700,7 +700,11 @@ def _normalize_ai_image_resolution(value: str) -> str:
 
 def _normalize_seedream_size(value: str) -> str:
     text = str(value or "2k").strip().lower()
-    return text.upper() if text in AI_IMAGE_RESOLUTION_OPTIONS else "2K"
+    if text in {"2k", "3k", "4k"}:
+        return text
+    if re.fullmatch(r"\d{2,5}x\d{2,5}", text):
+        return text
+    return "2k"
 
 
 def _build_ai_image_prompt(mode: str, prompt: str) -> str:

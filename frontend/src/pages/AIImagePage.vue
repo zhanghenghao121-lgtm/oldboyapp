@@ -35,7 +35,7 @@
           <el-select v-if="!isSeedreamSelected" v-model="size" class="small-select">
             <el-option v-for="item in sizeOptions" :key="item" :label="item" :value="item" />
           </el-select>
-          <el-segmented v-model="resolution" :options="resolutionOptions" />
+          <el-segmented v-model="resolution" :options="activeResolutionOptions" />
         </div>
       </header>
 
@@ -43,7 +43,7 @@
         <div class="control-panel">
           <div class="panel-head">
             <h3>{{ mode === 'reverse_shot' ? '镜头参考' : '画面描述' }}</h3>
-            <span>{{ isSeedreamSelected ? 'Doubao 使用 1K / 2K / 4K 档位' : '默认 16:9 · 1k · 1 张' }}</span>
+            <span>{{ isSeedreamSelected ? 'Doubao 使用 2k / 3k / 4k 档位' : '默认 16:9 · 1k · 1 张' }}</span>
           </div>
 
           <template v-if="mode === 'reverse_shot'">
@@ -128,7 +128,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { generateAiImage, getAiImageConfig, getAiImageTask } from '../api/aiManga'
@@ -166,8 +166,17 @@ const isSeedreamSelected = computed(() => {
   const text = `${selectedModelOption.value.provider || ''} ${selectedModelOption.value.model || ''} ${selectedModelOption.value.label || ''}`.toLowerCase()
   return text.includes('seedream') || text.includes('doubao') || text.includes('volcengine')
 })
+const activeResolutionOptions = computed(() => (isSeedreamSelected.value ? ['2k', '3k', '4k'] : resolutionOptions.value))
 const validObjectRefs = computed(() => objectRefs.value.filter((item) => item.name.trim() && item.file))
 const hasReverseImages = computed(() => reverseUploads.every((item) => reverseImages[item.field]) && validObjectRefs.value.length > 0)
+
+watch(isSeedreamSelected, (selected) => {
+  if (selected && !activeResolutionOptions.value.includes(resolution.value)) {
+    resolution.value = '2k'
+  } else if (!selected && !resolutionOptions.value.includes(resolution.value)) {
+    resolution.value = '1k'
+  }
+})
 
 const stopPolling = () => {
   if (pollTimer) window.clearTimeout(pollTimer)

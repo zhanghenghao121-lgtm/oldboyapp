@@ -27,6 +27,7 @@ class ConsoleUserUpdateSerializer(serializers.Serializer):
     signature = serializers.CharField(max_length=120, required=False, allow_blank=True)
     points = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0"), required=False)
     is_active = serializers.BooleanField(required=False)
+    is_whitelisted = serializers.BooleanField(required=False)
 
     def validate_username(self, value):
         username = value.strip()

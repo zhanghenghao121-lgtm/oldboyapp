@@ -17,6 +17,7 @@ from apps.ai_customer.manga_services import (
 )
 from apps.ai_customer.runtime_config import (
     get_ai_image_config,
+    get_ai_image_configs,
     get_ai_image_reverse_prompt,
     get_assistant_llm_config,
     get_manga_llm_config,
@@ -33,6 +34,15 @@ def bad(message, status=400):
     return Response({"ok": False, "message": message}, status=status)
 
 
+def _feature_allowed(request):
+    user = request.user
+    return bool(user and user.is_authenticated and (user.is_whitelisted or user.is_staff or user.is_superuser))
+
+
+def _feature_denied():
+    return bad("当前账号未加入功能白名单，请联系管理员开通", 403)
+
+
 def _serialize_model_option(option_id: str, label: str, runtime: dict):
     return {
         "id": option_id,
@@ -45,6 +55,8 @@ def _serialize_model_option(option_id: str, label: str, runtime: dict):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def ai_manga_config(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
     assistant = get_assistant_llm_config()
     manga = get_manga_llm_config()
     return ok(
@@ -67,7 +79,10 @@ def ai_manga_config(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def ai_image_config(request):
-    image_config = get_ai_image_config()
+    if not _feature_allowed(request):
+        return _feature_denied()
+    image_configs = get_ai_image_configs()
+    image_config = image_configs[0]
     return ok(
         {
             "default_model": image_config.get("model") or "gpt-image-2",
@@ -77,10 +92,12 @@ def ai_image_config(request):
             "reverse_prompt": get_ai_image_reverse_prompt(),
             "model_options": [
                 {
-                    "id": image_config.get("model") or "gpt-image-2",
-                    "label": image_config.get("model") or "GPT-Image-2",
-                    "model": image_config.get("model") or "gpt-image-2",
+                    "id": item.get("id") or item.get("model"),
+                    "label": item.get("label") or item.get("model"),
+                    "model": item.get("model"),
+                    "provider": item.get("provider"),
                 }
+                for item in image_configs
             ],
             "size_options": [
                 "16:9",
@@ -101,6 +118,8 @@ def ai_image_config(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def ai_image_generate(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
     try:
         mode = str(request.data.get("mode", "text") or "text").strip().lower()
         try:
@@ -114,6 +133,7 @@ def ai_image_generate(request):
         result = submit_ai_image_generation(
             mode=mode,
             prompt=str(request.data.get("prompt", "") or ""),
+            model=str(request.data.get("model", "") or ""),
             size=str(request.data.get("size", "16:9") or "16:9"),
             resolution=str(request.data.get("resolution", "1k") or "1k"),
             reference_images=references,
@@ -126,6 +146,8 @@ def ai_image_generate(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def ai_image_task(request, task_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
     try:
         return ok(get_ai_image_task_result(task_id))
     except MangaScriptError as exc:
@@ -136,6 +158,8 @@ def ai_image_task(request, task_id):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def ai_manga_storyboard(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
     file_obj = request.FILES.get("file")
     text = str(request.data.get("text", "")).strip()
     model_preset = str(request.data.get("model_preset", "assistant")).strip().lower() or "assistant"

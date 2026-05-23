@@ -109,8 +109,11 @@ def get_manga_vision_llm_config():
     }
 
 
-def get_ai_image_config():
-    return {
+def get_ai_image_configs():
+    gpt_image = {
+        "id": "gpt-image-2",
+        "label": "GPT-Image-2",
+        "provider": "apimart",
         "base_url": _read_config_value(
             SiteConfig.KEY_AI_IMAGE_BASE_URL,
             "https://api.apimart.ai/v1",
@@ -118,6 +121,30 @@ def get_ai_image_config():
         "api_key": _read_config_value(SiteConfig.KEY_AI_IMAGE_API_KEY, ""),
         "model": _read_config_value(SiteConfig.KEY_AI_IMAGE_MODEL, "gpt-image-2"),
     }
+    doubao = {
+        "id": "doubao-seedream-5-lite",
+        "label": "Doubao-Seedream-5.0-lite",
+        "provider": "volcengine",
+        "base_url": _read_config_value(
+            SiteConfig.KEY_AI_IMAGE_DOUBAO_BASE_URL,
+            "https://ark.cn-beijing.volces.com/api/v3",
+        ),
+        "api_key": _read_config_value(SiteConfig.KEY_AI_IMAGE_DOUBAO_API_KEY, ""),
+        "model": _read_config_value(
+            SiteConfig.KEY_AI_IMAGE_DOUBAO_MODEL,
+            "doubao-seedream-5-0-260128",
+        ),
+    }
+    return [gpt_image, doubao]
+
+
+def get_ai_image_config(model: str = ""):
+    requested = str(model or "").strip()
+    options = get_ai_image_configs()
+    for item in options:
+        if requested and requested in {item["id"], item["model"]}:
+            return item
+    return options[0]
 
 
 def get_runtime_llm_config(preset: str = "assistant"):

@@ -23,10 +23,16 @@
           <h2>{{ mode === 'reverse_shot' ? '反打镜头生成' : 'AI 图像生成' }}</h2>
         </div>
         <div class="preset-row">
+          <el-button plain @click="settingsDialogRef?.open()">设置</el-button>
           <el-select v-model="selectedModel" class="model-select" placeholder="选择模型">
-            <el-option v-for="item in modelOptions" :key="item.id" :label="item.label" :value="item.model" />
+            <el-option
+              v-for="item in modelOptions"
+              :key="item.id"
+              :label="`${item.label} · ${item.model}`"
+              :value="item.model"
+            />
           </el-select>
-          <el-select v-model="size" class="small-select">
+          <el-select v-if="!isSeedreamSelected" v-model="size" class="small-select">
             <el-option v-for="item in sizeOptions" :key="item" :label="item" :value="item" />
           </el-select>
           <el-segmented v-model="resolution" :options="resolutionOptions" />
@@ -37,7 +43,7 @@
         <div class="control-panel">
           <div class="panel-head">
             <h3>{{ mode === 'reverse_shot' ? '镜头参考' : '画面描述' }}</h3>
-            <span>默认 16:9 · 1k · 1 张</span>
+            <span>{{ isSeedreamSelected ? 'Doubao 使用 1K / 2K / 4K 档位' : '默认 16:9 · 1k · 1 张' }}</span>
           </div>
 
           <template v-if="mode === 'reverse_shot'">
@@ -117,6 +123,7 @@
         </div>
       </section>
     </main>
+    <UserSettingsDialog ref="settingsDialogRef" />
   </div>
 </template>
 
@@ -125,10 +132,12 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { generateAiImage, getAiImageConfig, getAiImageTask } from '../api/aiManga'
+import UserSettingsDialog from '../components/UserSettingsDialog.vue'
 
 const mode = ref('text')
 const prompt = ref('')
 const promptInputRef = ref(null)
+const settingsDialogRef = ref(null)
 const selectedModel = ref('gpt-image-2')
 const size = ref('16:9')
 const resolution = ref('1k')
@@ -152,6 +161,11 @@ const reverseUploads = [
   { field: 'reverse_scene_image', kicker: '参考图 2', title: '场景反打背景' },
 ]
 
+const selectedModelOption = computed(() => modelOptions.value.find((item) => item.model === selectedModel.value) || modelOptions.value[0] || {})
+const isSeedreamSelected = computed(() => {
+  const text = `${selectedModelOption.value.provider || ''} ${selectedModelOption.value.model || ''} ${selectedModelOption.value.label || ''}`.toLowerCase()
+  return text.includes('seedream') || text.includes('doubao') || text.includes('volcengine')
+})
 const validObjectRefs = computed(() => objectRefs.value.filter((item) => item.name.trim() && item.file))
 const hasReverseImages = computed(() => reverseUploads.every((item) => reverseImages[item.field]) && validObjectRefs.value.length > 0)
 
@@ -279,6 +293,15 @@ const submitImage = async () => {
   imageUrls.value = []
   try {
     const res = await generateAiImage(formData)
+    if (res.data.images?.length) {
+      imageUrls.value = res.data.images
+      taskId.value = res.data.task_id || ''
+      taskStatus.value = res.data.status || 'completed'
+      progress.value = 100
+      generating.value = false
+      ElMessage.success('图片生成完成')
+      return
+    }
     taskId.value = res.data.task_id
     taskStatus.value = res.data.status || 'submitted'
     ElMessage.success('生图任务已提交')

@@ -48,6 +48,9 @@ def _config_defaults():
         SiteConfig.KEY_AI_IMAGE_BASE_URL: "https://api.apimart.ai/v1",
         SiteConfig.KEY_AI_IMAGE_API_KEY: "",
         SiteConfig.KEY_AI_IMAGE_MODEL: "gpt-image-2",
+        SiteConfig.KEY_AI_IMAGE_DOUBAO_BASE_URL: "https://ark.cn-beijing.volces.com/api/v3",
+        SiteConfig.KEY_AI_IMAGE_DOUBAO_API_KEY: "",
+        SiteConfig.KEY_AI_IMAGE_DOUBAO_MODEL: "doubao-seedream-5-0-260128",
         SiteConfig.KEY_AI_IMAGE_REVERSE_PROMPT: DEFAULT_AI_IMAGE_REVERSE_PROMPT,
         SiteConfig.KEY_AI_MANGA_STORYBOARD_PROMPT: DEFAULT_MANGA_STORYBOARD_PROMPT,
         SiteConfig.KEY_AI_MANGA_3D_STYLE_PROMPT: DEFAULT_MANGA_3D_STYLE_PROMPT,
@@ -80,6 +83,7 @@ def _serialize_console_user(user):
         "avatar_url": user.avatar_url or "",
         "signature": user.signature or "",
         "points": float(user.points or 0),
+        "is_whitelisted": bool(user.is_whitelisted or user.is_staff or user.is_superuser),
         "is_active": user.is_active,
         "is_staff": user.is_staff,
         "is_superuser": user.is_superuser,
@@ -222,6 +226,8 @@ def console_user_update(request, user_id):
         target.points = payload["points"]
     if "is_active" in payload:
         target.is_active = payload["is_active"]
+    if "is_whitelisted" in payload:
+        target.is_whitelisted = bool(payload["is_whitelisted"] or target.is_staff or target.is_superuser)
 
     target.save()
     return ok({"user": _serialize_console_user(target)})

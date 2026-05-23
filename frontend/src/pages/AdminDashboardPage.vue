@@ -79,7 +79,7 @@
             </div>
 
             <div class="model-box">
-              <h4>生图模型</h4>
+              <h4>生图模型 · GPT-Image-2</h4>
               <el-form label-width="92px">
                 <el-form-item label="API地址">
                   <el-input v-model="forms.ai_image_base_url" placeholder="https://api.apimart.ai/v1" />
@@ -89,6 +89,21 @@
                 </el-form-item>
                 <el-form-item label="模型名称">
                   <el-input v-model="forms.ai_image_model" placeholder="gpt-image-2" />
+                </el-form-item>
+              </el-form>
+            </div>
+
+            <div class="model-box">
+              <h4>生图模型 · Doubao</h4>
+              <el-form label-width="92px">
+                <el-form-item label="API地址">
+                  <el-input v-model="forms.ai_image_doubao_base_url" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
+                </el-form-item>
+                <el-form-item label="API Key">
+                  <el-input v-model="forms.ai_image_doubao_api_key" show-password placeholder="请输入 ARK API Key" />
+                </el-form-item>
+                <el-form-item label="模型名称">
+                  <el-input v-model="forms.ai_image_doubao_model" placeholder="doubao-seedream-5-0-260128" />
                 </el-form-item>
               </el-form>
             </div>
@@ -171,6 +186,11 @@
           <el-table-column label="积分" width="120">
             <template #default="{ row }">{{ formatPoints(row.points) }}</template>
           </el-table-column>
+          <el-table-column label="白名单" width="120">
+            <template #default="{ row }">
+              <el-tag :type="row.is_whitelisted ? 'success' : 'info'" effect="plain">{{ row.is_whitelisted ? '已开通' : '未开通' }}</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="状态" width="110">
             <template #default="{ row }">
               <el-tag :type="row.is_active ? 'success' : 'danger'" effect="dark">{{ row.is_active ? '启用' : '禁用' }}</el-tag>
@@ -219,6 +239,9 @@
         <el-form-item label="账号状态">
           <el-switch v-model="userForm.is_active" active-text="启用" inactive-text="禁用" />
         </el-form-item>
+        <el-form-item label="功能白名单">
+          <el-switch v-model="userForm.is_whitelisted" :disabled="userForm.is_staff" active-text="已开通" inactive-text="未开通" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>
@@ -266,6 +289,9 @@ const forms = reactive({
   ai_image_base_url: '',
   ai_image_api_key: '',
   ai_image_model: '',
+  ai_image_doubao_base_url: '',
+  ai_image_doubao_api_key: '',
+  ai_image_doubao_model: '',
   ai_image_reverse_prompt: '',
   ai_manga_storyboard_prompt: '',
   ai_manga_3d_style_prompt: '',
@@ -280,6 +306,8 @@ const userForm = reactive({
   signature: '',
   points: 0,
   is_active: true,
+  is_staff: false,
+  is_whitelisted: false,
 })
 
 const assignConfigs = (items) => {
@@ -339,6 +367,9 @@ const saveModelConfigs = async () => {
       'ai_image_base_url',
       'ai_image_api_key',
       'ai_image_model',
+      'ai_image_doubao_base_url',
+      'ai_image_doubao_api_key',
+      'ai_image_doubao_model',
     ])
     ElMessage.success('模型配置已保存')
   } catch (e) {
@@ -368,6 +399,8 @@ const openUserEditor = (user) => {
   userForm.signature = user.signature || ''
   userForm.points = Number(user.points || 0)
   userForm.is_active = Boolean(user.is_active)
+  userForm.is_staff = Boolean(user.is_staff)
+  userForm.is_whitelisted = Boolean(user.is_whitelisted)
   editDialogVisible.value = true
 }
 
@@ -382,6 +415,7 @@ const saveUser = async () => {
       signature: userForm.signature,
       points: userForm.points,
       is_active: userForm.is_active,
+      is_whitelisted: userForm.is_whitelisted,
     }
     const res = await updateConsoleUser(userForm.id, payload)
     const updated = res.data.user

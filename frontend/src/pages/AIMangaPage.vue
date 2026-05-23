@@ -23,7 +23,7 @@
           />
         </el-select>
         <el-button plain @click="$router.push('/ai-image')">AI生图</el-button>
-        <el-button plain @click="$router.push('/profile')">用户信息</el-button>
+        <el-button plain @click="settingsDialogRef?.open()">设置</el-button>
       </div>
     </header>
 
@@ -147,6 +147,7 @@
         <el-button type="primary" @click="promptDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+    <UserSettingsDialog ref="settingsDialogRef" />
   </div>
 </template>
 
@@ -155,6 +156,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { getAiMangaConfig, generateAiMangaStoryboard } from '../api/aiManga'
+import UserSettingsDialog from '../components/UserSettingsDialog.vue'
 
 const fileInputRef = ref(null)
 const selectedFile = ref(null)
@@ -168,6 +170,7 @@ const storyboardCanceled = ref(false)
 const groups = ref([])
 const storyboardText = ref('')
 const promptDialogVisible = ref(false)
+const settingsDialogRef = ref(null)
 const storyboardPrompt = ref('')
 const selectedModelPreset = ref('assistant')
 const selectedStyle = ref('3d')

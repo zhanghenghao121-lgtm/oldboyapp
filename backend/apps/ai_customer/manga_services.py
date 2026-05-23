@@ -698,6 +698,11 @@ def _normalize_ai_image_resolution(value: str) -> str:
     return text if text in AI_IMAGE_RESOLUTION_OPTIONS else "1k"
 
 
+def _normalize_seedream_size(value: str) -> str:
+    text = str(value or "2k").strip().lower()
+    return text.upper() if text in AI_IMAGE_RESOLUTION_OPTIONS else "2K"
+
+
 def _build_ai_image_prompt(mode: str, prompt: str) -> str:
     text = _normalize_text(prompt)
     if str(mode or "").strip().lower() != "reverse_shot":
@@ -741,6 +746,30 @@ def _extract_ai_image_task_id(body: dict) -> str:
     return ""
 
 
+def _extract_generation_image_urls(body: dict) -> list[str]:
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, list):
+        return []
+    urls = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("url") or item.get("image_url")
+        if isinstance(value, list):
+            urls.extend(str(url).strip() for url in value if str(url or "").strip())
+        elif value:
+            urls.append(str(value).strip())
+        b64_json = str(item.get("b64_json") or "").strip()
+        if b64_json:
+            urls.append(f"data:image/png;base64,{b64_json}")
+    return urls
+
+
+def _is_seedream_runtime(runtime: dict) -> bool:
+    text = f"{runtime.get('provider')} {runtime.get('base_url')} {runtime.get('model')}".lower()
+    return "seedream" in text or "doubao" in text or "volces" in text or "volcengine" in text or "ark.cn" in text
+
+
 def _extract_ai_image_urls(task_data: dict) -> list[str]:
     images = (((task_data or {}).get("result") or {}).get("images") or [])
     urls = []
@@ -757,11 +786,12 @@ def submit_ai_image_generation(
     *,
     mode: str = "text",
     prompt: str = "",
+    model: str = "",
     size: str = "16:9",
     resolution: str = "1k",
     reference_images: list[dict] | None = None,
 ) -> dict:
-    runtime = get_ai_image_config()
+    runtime = get_ai_image_config(model)
     api_key = str(runtime.get("api_key") or "").strip()
     base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
     model = str(runtime.get("model") or "gpt-image-2").strip() or "gpt-image-2"
@@ -780,15 +810,30 @@ def submit_ai_image_generation(
         if object_count <= 0:
             raise MangaScriptError("请至少上传 1 张角色或物品参考图")
 
-    payload = {
-        "model": model,
-        "prompt": _build_ai_image_prompt(mode_key, prompt),
-        "n": 1,
-        "size": _normalize_ai_image_size(size),
-        "resolution": _normalize_ai_image_resolution(resolution),
-    }
-    if images:
-        payload["image_urls"] = [item["data_url"] for item in images]
+    prompt_text = _build_ai_image_prompt(mode_key, prompt)
+    if _is_seedream_runtime(runtime):
+        payload = {
+            "model": model,
+            "prompt": prompt_text,
+            "sequential_image_generation": "disabled",
+            "response_format": "url",
+            "size": _normalize_seedream_size(resolution),
+            "stream": False,
+            "watermark": True,
+        }
+        if images:
+            image_urls = [item["data_url"] for item in images]
+            payload["image"] = image_urls if len(image_urls) > 1 else image_urls[0]
+    else:
+        payload = {
+            "model": model,
+            "prompt": prompt_text,
+            "n": 1,
+            "size": _normalize_ai_image_size(size),
+            "resolution": _normalize_ai_image_resolution(resolution),
+        }
+        if images:
+            payload["image_urls"] = [item["data_url"] for item in images]
 
     resp = _post_ai_image_payload(base_url, api_key, payload)
     if resp.status_code >= 400:
@@ -799,6 +844,21 @@ def submit_ai_image_generation(
         raise MangaScriptError(f"生图模型返回非 JSON：{exc}", 502)
 
     task_id = _extract_ai_image_task_id(body)
+    image_urls = _extract_generation_image_urls(body)
+    if image_urls:
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "images": image_urls,
+            "model": model,
+            "size": payload["size"],
+            "resolution": _normalize_ai_image_resolution(resolution),
+            "mode": mode_key,
+            "reference_images": [
+                {"field": item["field"], "label": item["label"], "name": item["name"]}
+                for item in images
+            ],
+        }
     if not task_id:
         raise MangaScriptError("生图模型未返回任务ID", 502)
     return {

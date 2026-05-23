@@ -44,6 +44,9 @@ class SiteConfig(models.Model):
     KEY_AI_IMAGE_BASE_URL = "ai_image_base_url"
     KEY_AI_IMAGE_API_KEY = "ai_image_api_key"
     KEY_AI_IMAGE_MODEL = "ai_image_model"
+    KEY_AI_IMAGE_DOUBAO_BASE_URL = "ai_image_doubao_base_url"
+    KEY_AI_IMAGE_DOUBAO_API_KEY = "ai_image_doubao_api_key"
+    KEY_AI_IMAGE_DOUBAO_MODEL = "ai_image_doubao_model"
     KEY_AI_IMAGE_REVERSE_PROMPT = "ai_image_reverse_prompt"
     KEY_AI_MANGA_STORYBOARD_PROMPT = "ai_manga_storyboard_prompt"
     KEY_AI_MANGA_3D_STYLE_PROMPT = "ai_manga_3d_style_prompt"
@@ -62,6 +65,9 @@ class SiteConfig(models.Model):
         (KEY_AI_IMAGE_BASE_URL, "生图模型API地址"),
         (KEY_AI_IMAGE_API_KEY, "生图模型API Key"),
         (KEY_AI_IMAGE_MODEL, "生图模型名称"),
+        (KEY_AI_IMAGE_DOUBAO_BASE_URL, "豆包生图API地址"),
+        (KEY_AI_IMAGE_DOUBAO_API_KEY, "豆包生图API Key"),
+        (KEY_AI_IMAGE_DOUBAO_MODEL, "豆包生图模型名称"),
         (KEY_AI_IMAGE_REVERSE_PROMPT, "反打画面提示词"),
         (KEY_AI_MANGA_STORYBOARD_PROMPT, "AI剧本解析规则"),
         (KEY_AI_MANGA_3D_STYLE_PROMPT, "3D风格提示词"),

@@ -5,7 +5,9 @@
         <h2>用户信息</h2>
         <div class="header-actions">
           <el-button class="top-neon-btn" @click="$router.push('/change-password')">修改密码</el-button>
-          <el-button class="top-neon-btn" @click="$router.push('/ai-manga')">返回剧本创作</el-button>
+          <el-button class="top-neon-btn" :disabled="!form.feature_allowed" @click="$router.push('/ai-manga')">
+            {{ form.feature_allowed ? '返回剧本创作' : '功能未开通' }}
+          </el-button>
         </div>
       </header>
 
@@ -29,6 +31,11 @@
         </el-form-item>
         <el-form-item label="用户积分">
           <el-input :model-value="Number(form.points || 0).toFixed(2)" disabled />
+        </el-form-item>
+        <el-form-item label="功能权限">
+          <el-tag :type="form.feature_allowed ? 'success' : 'info'" effect="plain">
+            {{ form.feature_allowed ? '白名单已开通' : '未加入白名单，请联系管理员开通' }}
+          </el-tag>
         </el-form-item>
         <el-form-item label="用户签名">
           <el-input v-model="form.signature" maxlength="120" />
@@ -69,6 +76,7 @@ const form = reactive({
   email: '',
   signature: '',
   points: 0,
+  feature_allowed: false,
 })
 const avatarSource = computed(() => (form.avatar_url || defaultAvatar.value || fallbackAvatar).trim())
 const displayAvatarSrc = computed(() => (avatarLoadFailed.value ? fallbackAvatar : avatarSource.value))

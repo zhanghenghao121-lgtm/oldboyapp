@@ -43,6 +43,7 @@ def bad(message, status=400):
 
 
 def _user_payload(user):
+    feature_allowed = bool(user.is_whitelisted or user.is_staff or user.is_superuser)
     return {
         "id": user.id,
         "username": user.username,
@@ -50,6 +51,10 @@ def _user_payload(user):
         "avatar_url": user.avatar_url or DEFAULT_AVATAR,
         "signature": user.signature or "",
         "points": float(user.points or 0),
+        "is_whitelisted": bool(user.is_whitelisted),
+        "is_staff": bool(user.is_staff),
+        "is_superuser": bool(user.is_superuser),
+        "feature_allowed": feature_allowed,
     }
 
 

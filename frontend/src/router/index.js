@@ -20,8 +20,8 @@ const router = createRouter({
     { path: '/forgot', component: ForgotPage },
     { path: '/profile', component: ProfilePage, meta: { requiresAuth: true } },
     { path: '/change-password', component: ChangePasswordPage, meta: { requiresAuth: true } },
-    { path: '/ai-manga', component: AIMangaPage, meta: { requiresAuth: true } },
-    { path: '/ai-image', component: AIImagePage, meta: { requiresAuth: true } },
+    { path: '/ai-manga', component: AIMangaPage, meta: { requiresAuth: true, requiresWhitelist: true } },
+    { path: '/ai-image', component: AIImagePage, meta: { requiresAuth: true, requiresWhitelist: true } },
     { path: '/admin/login', component: AdminLoginPage },
     { path: '/admin/dashboard', component: AdminDashboardPage, meta: { requiresConsoleAuth: true } },
     { path: '/:pathMatch(.*)*', redirect: '/ai-manga' },
@@ -39,7 +39,10 @@ router.beforeEach(async (to) => {
   }
   if (to.meta.requiresAuth) {
     try {
-      await me()
+      const res = await me()
+      if (to.meta.requiresWhitelist && !res.data?.user?.feature_allowed) {
+        return '/profile'
+      }
       return true
     } catch {
       return '/login'

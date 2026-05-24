@@ -7,7 +7,6 @@ import zipfile
 from decimal import Decimal, ROUND_HALF_UP
 from xml.etree import ElementTree
 
-import requests
 from django.conf import settings
 
 try:
@@ -24,6 +23,7 @@ from apps.ai_customer.runtime_config import (
     get_manga_style_prompt,
     get_runtime_llm_config,
 )
+from apps.ai_customer.llm_clients import LLMClientError, chat_completion, image_generation, task_status
 
 try:
     from pypdf import PdfReader
@@ -676,14 +676,9 @@ def _service_error_message(resp, label: str) -> str:
 
 def _post_storyboard_payload(base_url: str, api_key: str, payload: dict):
     try:
-        return requests.post(
-            f"{base_url}/chat/completions",
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=max(int(getattr(settings, "AI_MANGA_TIMEOUT", 180)), 30),
-        )
-    except Exception as exc:
-        raise MangaScriptError(f"剧本模型请求失败：{exc}", 502)
+        return chat_completion({"base_url": base_url, "api_key": api_key}, payload, service_name="剧本模型")
+    except LLMClientError as exc:
+        raise MangaScriptError(str(exc), exc.status) from exc
 
 
 def _normalize_ai_image_size(value: str) -> str:
@@ -720,25 +715,16 @@ def _build_ai_image_prompt(mode: str, prompt: str) -> str:
 
 def _post_ai_image_payload(base_url: str, api_key: str, payload: dict):
     try:
-        return requests.post(
-            f"{base_url}/images/generations",
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=max(int(getattr(settings, "AI_IMAGE_SUBMIT_TIMEOUT", 60)), 20),
-        )
-    except Exception as exc:
-        raise MangaScriptError(f"生图任务提交失败：{exc}", 502)
+        return image_generation(base_url, api_key, payload, service_name="生图模型")
+    except LLMClientError as exc:
+        raise MangaScriptError(str(exc), exc.status) from exc
 
 
 def _get_ai_image_task(base_url: str, api_key: str, task_id: str):
     try:
-        return requests.get(
-            f"{base_url}/tasks/{task_id}",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=max(int(getattr(settings, "AI_IMAGE_QUERY_TIMEOUT", 30)), 10),
-        )
-    except Exception as exc:
-        raise MangaScriptError(f"生图任务查询失败：{exc}", 502)
+        return task_status(base_url, api_key, task_id, service_name="生图任务")
+    except LLMClientError as exc:
+        raise MangaScriptError(str(exc), exc.status) from exc
 
 
 def _extract_ai_image_task_id(body: dict) -> str:
@@ -839,13 +825,7 @@ def submit_ai_image_generation(
         if images:
             payload["image_urls"] = [item["data_url"] for item in images]
 
-    resp = _post_ai_image_payload(base_url, api_key, payload)
-    if resp.status_code >= 400:
-        raise MangaScriptError(_service_error_message(resp, "生图模型"), 502)
-    try:
-        body = resp.json()
-    except Exception as exc:
-        raise MangaScriptError(f"生图模型返回非 JSON：{exc}", 502)
+    body = _post_ai_image_payload(base_url, api_key, payload)
 
     task_id = _extract_ai_image_task_id(body)
     image_urls = _extract_generation_image_urls(body)
@@ -889,13 +869,7 @@ def get_ai_image_task_result(task_id: str) -> dict:
     if not api_key or not base_url:
         raise MangaScriptError("生图模型配置不完整，请先在后台模型设置中补全", 500)
 
-    resp = _get_ai_image_task(base_url, api_key, task_id)
-    if resp.status_code >= 400:
-        raise MangaScriptError(_service_error_message(resp, "生图任务"), 502)
-    try:
-        body = resp.json()
-    except Exception as exc:
-        raise MangaScriptError(f"生图任务返回非 JSON：{exc}", 502)
+    body = _get_ai_image_task(base_url, api_key, task_id)
 
     data = body.get("data") if isinstance(body, dict) else {}
     data = data if isinstance(data, dict) else {}
@@ -961,8 +935,11 @@ def generate_manga_storyboard(
             },
         ],
     }
-    resp = _post_storyboard_payload(base_url, api_key, payload)
-    if resp.status_code >= 400 and image_payload_enabled:
+    try:
+        body = _post_storyboard_payload(base_url, api_key, payload)
+    except MangaScriptError:
+        if not image_payload_enabled:
+            raise
         payload["messages"][1]["content"] = _build_manga_user_content(
             source_text,
             style_label,
@@ -970,13 +947,7 @@ def generate_manga_storyboard(
             position_description,
             attach_images=False,
         )
-        resp = _post_storyboard_payload(base_url, api_key, payload)
-    if resp.status_code >= 400:
-        raise MangaScriptError(_model_error_message(resp), 502)
-    try:
-        body = resp.json()
-    except Exception as exc:
-        raise MangaScriptError(f"剧本模型返回非 JSON：{exc}", 502)
+        body = _post_storyboard_payload(base_url, api_key, payload)
 
     content = str((((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "")).strip()
     if not content:

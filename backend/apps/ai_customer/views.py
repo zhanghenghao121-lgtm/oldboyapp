@@ -15,6 +15,10 @@ from apps.ai_customer.manga_services import (
     prepare_reference_images,
     submit_ai_image_generation,
 )
+from apps.ai_customer.position_services import (
+    generate_reverse_prompt,
+    recognize_position_image,
+)
 from apps.ai_customer.runtime_config import (
     get_ai_image_config,
     get_ai_image_configs,
@@ -150,6 +154,47 @@ def ai_image_task(request, task_id):
         return _feature_denied()
     try:
         return ok(get_ai_image_task_result(task_id))
+    except MangaScriptError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def ai_manga_position_recognize(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    try:
+        return ok(recognize_position_image(request.FILES))
+    except MangaScriptError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def ai_manga_position_reverse_prompt(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    try:
+        try:
+            bindings = json.loads(str(request.data.get("bindings", "[]") or "[]"))
+        except Exception:
+            bindings = []
+        if not isinstance(bindings, list):
+            bindings = []
+        try:
+            recognition = json.loads(str(request.data.get("recognition", "{}") or "{}"))
+        except Exception:
+            recognition = {}
+        if not isinstance(recognition, dict):
+            recognition = {}
+        result = generate_reverse_prompt(
+            str(request.data.get("position_description", "") or ""),
+            bindings=bindings,
+            recognition=recognition,
+        )
+        return ok(result)
     except MangaScriptError as exc:
         return bad(str(exc), exc.status)
 

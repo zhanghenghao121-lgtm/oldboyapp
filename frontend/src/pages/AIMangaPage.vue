@@ -67,23 +67,55 @@
         <div class="reference-panel">
           <div class="reference-head">
             <strong>人物站位</strong>
-            <span>可选上传站位图，并描述人物在场景中的位置关系。</span>
+            <span>上传站位图后会自动识别，识别结果可继续编辑。</span>
           </div>
           <div class="position-layout">
             <label class="reference-uploader position-upload">
               <input type="file" accept="image/*" @change="handleCharacterImageChange" />
               <span>人物站位图</span>
               <strong>{{ characterPositionImage?.name || '选择图片' }}</strong>
-              <button v-if="characterPositionImage" type="button" @click.prevent="characterPositionImage = null">移除</button>
+              <button v-if="characterPositionImage" type="button" @click.prevent="clearCharacterImage">移除</button>
             </label>
+            <div v-if="characterPositionPreview" class="position-preview">
+              <img :src="characterPositionPreview" alt="人物站位图预览" />
+            </div>
             <el-input
               v-model="positionDescription"
               type="textarea"
-              :rows="4"
+              :rows="6"
               resize="none"
-              placeholder="例如：男主站在画面左前方，女主在右后方靠窗，镜头轴线从门口朝室内。"
+              placeholder="上传站位图后会自动填入识别结果；也可以手动输入：男主站在画面左前方，女主在右后方靠窗，镜头轴线从门口朝室内。"
             />
           </div>
+          <div class="position-tools">
+            <span v-if="recognizingPosition" class="recognition-status">正在自动识别站位图...</span>
+            <el-button plain :disabled="!positionDescription.trim()" :loading="generatingReversePrompt" @click="generateReversePrompt">
+              生成反打提示词
+            </el-button>
+            <el-button plain :disabled="!reversePrompt" @click="copyReversePrompt">复制反打提示词</el-button>
+          </div>
+          <div v-if="roleBindings.length" class="binding-panel">
+            <div class="binding-head">
+              <strong>角色 / 物品绑定</strong>
+              <span>可把识别对象改成后续生图会使用的 @名称。</span>
+            </div>
+            <div class="binding-list">
+              <div v-for="item in roleBindings" :key="item.id" class="binding-row">
+                <span>{{ item.type }}</span>
+                <strong>{{ item.label }}</strong>
+                <el-input v-model="item.binding" maxlength="24" placeholder="@名称" />
+              </div>
+            </div>
+          </div>
+          <el-input
+            v-if="reversePrompt"
+            v-model="reversePrompt"
+            class="reverse-prompt-output"
+            type="textarea"
+            :rows="7"
+            resize="none"
+            placeholder="生成后的反打镜头提示词会显示在这里"
+          />
         </div>
 
         <div class="action-row">
@@ -152,10 +184,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { getAiMangaConfig, generateAiMangaStoryboard } from '../api/aiManga'
+import {
+  generateAiMangaReversePrompt,
+  generateAiMangaStoryboard,
+  getAiMangaConfig,
+  recognizeAiMangaPosition,
+} from '../api/aiManga'
 import UserSettingsDialog from '../components/UserSettingsDialog.vue'
 
 const fileInputRef = ref(null)
@@ -163,7 +200,13 @@ const selectedFile = ref(null)
 const selectedFileName = ref('')
 const inputText = ref('')
 const characterPositionImage = ref(null)
+const characterPositionPreview = ref('')
 const positionDescription = ref('')
+const recognizingPosition = ref(false)
+const generatingReversePrompt = ref(false)
+const positionRecognition = ref(null)
+const roleBindings = ref([])
+const reversePrompt = ref('')
 const generating = ref(false)
 const storyboardController = ref(null)
 const storyboardCanceled = ref(false)
@@ -320,11 +363,78 @@ const handleCharacterImageChange = async (event) => {
   if (!file) return
   try {
     const preparedFile = await prepareReferenceImage(file)
-    if (preparedFile) characterPositionImage.value = preparedFile
+    if (preparedFile) {
+      clearCharacterImage(false)
+      characterPositionImage.value = preparedFile
+      characterPositionPreview.value = URL.createObjectURL(preparedFile)
+      positionRecognition.value = null
+      roleBindings.value = []
+      reversePrompt.value = ''
+      await recognizePosition()
+    }
   } catch (e) {
     ElMessage.error(String(e || '图片压缩失败'))
   }
 }
+
+const clearCharacterImage = (clearText = true) => {
+  if (characterPositionPreview.value) URL.revokeObjectURL(characterPositionPreview.value)
+  characterPositionImage.value = null
+  characterPositionPreview.value = ''
+  positionRecognition.value = null
+  roleBindings.value = []
+  reversePrompt.value = ''
+  if (clearText) positionDescription.value = ''
+}
+
+const recognizePosition = async () => {
+  if (!characterPositionImage.value) {
+    ElMessage.warning('请先上传人物站位图')
+    return
+  }
+  const formData = new FormData()
+  formData.append('position_image', characterPositionImage.value)
+  recognizingPosition.value = true
+  try {
+    const res = await recognizeAiMangaPosition(formData)
+    const data = res.data || {}
+    positionRecognition.value = data.recognition || null
+    positionDescription.value = data.description || positionDescription.value
+    roleBindings.value = (data.subjects || []).map((item) => ({
+      ...item,
+      binding: item.binding || item.label || '',
+    }))
+    reversePrompt.value = ''
+    ElMessage.success('站位图识别完成，可继续编辑描述')
+  } catch (e) {
+    ElMessage.error(String(e || '站位图识别失败'))
+  } finally {
+    recognizingPosition.value = false
+  }
+}
+
+const generateReversePrompt = async () => {
+  if (!positionDescription.value.trim()) {
+    ElMessage.warning('请先填写或识别站位描述')
+    return
+  }
+  generatingReversePrompt.value = true
+  try {
+    const res = await generateAiMangaReversePrompt({
+      position_description: positionDescription.value,
+      bindings: JSON.stringify(roleBindings.value),
+      recognition: JSON.stringify(positionRecognition.value || {}),
+    })
+    reversePrompt.value = res.data.prompt || ''
+    ElMessage.success('反打提示词已生成')
+  } catch (e) {
+    ElMessage.error(String(e || '反打提示词生成失败'))
+  } finally {
+    generatingReversePrompt.value = false
+  }
+}
+
+const copyReversePrompt = () => copyText(reversePrompt.value, '反打提示词已复制')
 
 const loadConfig = async () => {
   const res = await getAiMangaConfig()
@@ -384,7 +494,12 @@ const clearInput = () => {
   selectedFile.value = null
   selectedFileName.value = ''
   characterPositionImage.value = null
+  if (characterPositionPreview.value) URL.revokeObjectURL(characterPositionPreview.value)
+  characterPositionPreview.value = ''
   positionDescription.value = ''
+  positionRecognition.value = null
+  roleBindings.value = []
+  reversePrompt.value = ''
   groups.value = []
   storyboardText.value = ''
 }
@@ -425,6 +540,10 @@ onMounted(async () => {
   } catch (e) {
     ElMessage.error(String(e || '获取剧本创作配置失败'))
   }
+})
+
+onBeforeUnmount(() => {
+  if (characterPositionPreview.value) URL.revokeObjectURL(characterPositionPreview.value)
 })
 </script>
 
@@ -621,7 +740,7 @@ onMounted(async () => {
 
 .position-layout {
   display: grid;
-  grid-template-columns: minmax(160px, 0.38fr) minmax(0, 1fr);
+  grid-template-columns: minmax(150px, 0.28fr) minmax(120px, 0.32fr) minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -658,6 +777,84 @@ onMounted(async () => {
   color: #dbe8f8;
   padding: 4px 8px;
   cursor: pointer;
+}
+
+.position-preview {
+  min-height: 116px;
+  border: 1px solid rgba(83, 145, 198, 0.3);
+  border-radius: 8px;
+  background: #050a14;
+  overflow: hidden;
+}
+
+.position-preview img {
+  width: 100%;
+  height: 100%;
+  min-height: 116px;
+  object-fit: cover;
+  display: block;
+}
+
+.position-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.recognition-status {
+  margin-right: auto;
+  color: #7fb8ff;
+  font-size: 13px;
+}
+
+.binding-panel,
+.reverse-prompt-output {
+  margin-top: 12px;
+}
+
+.binding-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.binding-head span {
+  color: #8ea2bd;
+  font-size: 12px;
+}
+
+.binding-list {
+  display: grid;
+  gap: 8px;
+}
+
+.binding-row {
+  display: grid;
+  grid-template-columns: 52px minmax(90px, 1fr) minmax(120px, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid rgba(83, 145, 198, 0.26);
+  border-radius: 8px;
+  background: #0a1426;
+}
+
+.binding-row span {
+  color: #7fb8ff;
+  font-size: 12px;
+}
+
+.binding-row strong {
+  min-width: 0;
+  color: #dbe8f8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .action-row {

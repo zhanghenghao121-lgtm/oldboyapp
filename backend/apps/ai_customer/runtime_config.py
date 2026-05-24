@@ -109,6 +109,22 @@ def get_manga_vision_llm_config():
     }
 
 
+def get_position_vision_llm_config():
+    vision = get_manga_vision_llm_config()
+    return {
+        **vision,
+        "model": "doubao-seed-2-0-pro-260215",
+    }
+
+
+def get_position_agent_llm_config():
+    manga = get_manga_llm_config()
+    return {
+        **manga,
+        "model": "deepseek-v4-pro",
+    }
+
+
 def get_ai_image_configs():
     gpt_image = {
         "id": "gpt-image-2",

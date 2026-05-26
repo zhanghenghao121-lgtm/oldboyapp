@@ -1,9 +1,6 @@
-import base64
-import io
 import random
 import re
 import string
-from PIL import Image, ImageDraw, ImageFont
 
 
 PASSWORD_PATTERN = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$")
@@ -23,32 +20,3 @@ def valid_username(username: str) -> bool:
 
 def gen_numeric_code(length: int = 6) -> str:
     return "".join(random.choice(string.digits) for _ in range(length))
-
-
-def gen_captcha_text(length: int = 4) -> str:
-    chars = string.ascii_letters + string.digits
-    return "".join(random.choice(chars) for _ in range(length))
-
-
-def captcha_base64(text: str) -> str:
-    width, height = 220, 80
-    img = Image.new("RGB", (width, height), color=(255, 255, 255))
-    draw = ImageDraw.Draw(img)
-    font = None
-    try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 52)
-    except Exception:
-        pass
-
-    if font:
-        draw.text((24, 12), text, fill=(20, 40, 70), font=font)
-    else:
-        draw.text((24, 24), text, fill=(20, 40, 70))
-
-    for _ in range(10):
-        x1, y1 = random.randint(0, width), random.randint(0, height)
-        x2, y2 = random.randint(0, width), random.randint(0, height)
-        draw.line((x1, y1, x2, y2), fill=(170, 170, 170), width=2)
-    stream = io.BytesIO()
-    img.save(stream, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(stream.getvalue()).decode("utf-8")

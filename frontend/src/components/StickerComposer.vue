@@ -246,6 +246,17 @@ const resetComposer = () => {
   refreshLayers()
 }
 
+const downloadComposite = (blob, filename) => {
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(objectUrl)
+}
+
 const composeImage = async () => {
   if (!editor || !hasScene.value || !layers.value.length) return
   composing.value = true
@@ -254,10 +265,12 @@ const composeImage = async () => {
     editor.requestRenderAll()
     const blob = await editor.toBlob({ format: 'png', multiplier: 1 })
     if (!blob) throw new Error('生成合成图失败')
-    const file = new File([blob], `scene-composite-${Date.now()}.png`, { type: 'image/png' })
+    const filename = `scene-composite-${Date.now()}.png`
+    const file = new File([blob], filename, { type: 'image/png' })
     const res = await uploadToCos(file, 'images/composites', { timeout: 120000 })
     compositeUrl.value = res.data.url
-    ElMessage.success('合成图片已上传')
+    downloadComposite(blob, filename)
+    ElMessage.success('合成图片已上传并开始下载')
   } catch (error) {
     ElMessage.error(String(error || '合成失败'))
   } finally {

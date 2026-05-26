@@ -22,11 +22,32 @@
           <strong>{{ cutting ? '正在抠图并上传...' : '添加角色图片' }}</strong>
           <span>{{ hasScene ? '可连续添加多个角色' : '请先上传场景图' }}</span>
         </label>
+        <el-checkbox v-model="saveToLibrary" class="save-option">抠图后保存到资产库</el-checkbox>
+      </div>
+
+      <div class="control-card library-card">
+        <div class="card-head">
+          <h3>3. 资产库</h3>
+          <el-button text size="small" :loading="libraryLoading" @click="loadAssetLibrary">刷新</el-button>
+        </div>
+        <div v-if="libraryLoading && !assetLibrary.length" class="no-layer">正在加载资产...</div>
+        <div v-else-if="!assetLibrary.length" class="no-layer">勾选保存后，抠图角色会留在这里。</div>
+        <div v-else class="asset-list">
+          <div v-for="asset in assetLibrary" :key="asset.id" class="asset-row">
+            <img :src="aiImageCutoutAssetUrl(asset.key)" :alt="asset.name" />
+            <div class="asset-info">
+              <strong>{{ asset.name }}</strong>
+              <small>{{ asset.mode === 'ai' ? 'AI 精细抠图' : '免费快速抠图' }}</small>
+            </div>
+            <el-button text size="small" :loading="addingAssetId === asset.id" :disabled="!hasScene" @click="addAssetToCanvas(asset)">添加</el-button>
+            <el-button text size="small" class="remove-asset" @click="deleteAsset(asset)">移除</el-button>
+          </div>
+        </div>
       </div>
 
       <div class="control-card layers-card">
         <div class="card-head">
-          <h3>3. 图层</h3>
+          <h3>4. 图层</h3>
           <span>{{ layers.length }} 个角色</span>
         </div>
         <div v-if="!layers.length" class="no-layer">抠图后的角色会出现在这里。</div>
@@ -77,18 +98,27 @@
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Canvas, FabricImage } from 'fabric'
 
-import { aiImageCutoutAssetUrl, cutoutAiImageCharacter } from '../api/aiManga'
+import {
+  aiImageCutoutAssetUrl,
+  cutoutAiImageCharacter,
+  deleteAiImageCutoutAsset,
+  getAiImageCutoutAssets,
+} from '../api/aiManga'
 import { uploadToCos } from '../api/storage'
 
 const canvasElement = ref(null)
 const sceneName = ref('')
 const hasScene = ref(false)
 const cutoutMode = ref('fast')
+const saveToLibrary = ref(false)
 const cutting = ref(false)
 const composing = ref(false)
+const libraryLoading = ref(false)
+const assetLibrary = ref([])
+const addingAssetId = ref('')
 const layers = ref([])
 const selectedId = ref('')
 const compositeUrl = ref('')
@@ -134,6 +164,18 @@ function syncSelection() {
 
 const findLayer = (id) => editor?.getObjects().find((item) => item.stickerId === id)
 
+const loadAssetLibrary = async () => {
+  libraryLoading.value = true
+  try {
+    const res = await getAiImageCutoutAssets()
+    assetLibrary.value = res.data.list || []
+  } catch (error) {
+    ElMessage.error(String(error || '资产库加载失败'))
+  } finally {
+    libraryLoading.value = false
+  }
+}
+
 const handleSceneUpload = async (event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -177,33 +219,68 @@ const handleCharacterUpload = async (event) => {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('mode', cutoutMode.value)
+    formData.append('save_to_library', saveToLibrary.value ? 'true' : 'false')
     const res = await cutoutAiImageCharacter(formData)
     const item = res.data
-    const image = await FabricImage.fromURL(aiImageCutoutAssetUrl(item.key))
-    layerCounter += 1
-    image.stickerId = `character-${layerCounter}`
-    image.stickerName = file.name.replace(/\.[^.]+$/, '') || `角色 ${layerCounter}`
-    image.cutoutMode = item.mode
-    const targetHeight = Math.min(editor.height * 0.62, image.height)
-    image.scaleToHeight(targetHeight)
-    image.set({
-      left: (editor.width - image.getScaledWidth()) / 2,
-      top: Math.max(editor.height - image.getScaledHeight() - 12, 0),
-      cornerColor: '#6ee7ac',
-      borderColor: '#6ee7ac',
-      transparentCorners: false,
-    })
-    editor.add(image)
-    editor.setActiveObject(image)
-    editor.requestRenderAll()
-    selectedId.value = image.stickerId
-    compositeUrl.value = ''
-    refreshLayers()
-    ElMessage.success(item.mode === 'ai' ? 'AI 抠图完成，已加入画布' : '快速抠图完成，已加入画布')
+    await addCharacterLayer(item, file.name.replace(/\.[^.]+$/, ''))
+    if (item.library_asset) {
+      assetLibrary.value = [item.library_asset, ...assetLibrary.value.filter((asset) => asset.id !== item.library_asset.id)]
+    }
+    ElMessage.success(item.library_asset ? '抠图完成，已加入画布并保存到资产库' : '抠图完成，已加入画布')
   } catch (error) {
     ElMessage.error(String(error || '角色抠图失败'))
   } finally {
     cutting.value = false
+  }
+}
+
+const addCharacterLayer = async (item, name) => {
+  const image = await FabricImage.fromURL(aiImageCutoutAssetUrl(item.key))
+  layerCounter += 1
+  image.stickerId = `character-${layerCounter}`
+  image.stickerName = name || item.name || `角色 ${layerCounter}`
+  image.cutoutMode = item.mode
+  const targetHeight = Math.min(editor.height * 0.62, image.height)
+  image.scaleToHeight(targetHeight)
+  image.set({
+    left: (editor.width - image.getScaledWidth()) / 2,
+    top: Math.max(editor.height - image.getScaledHeight() - 12, 0),
+    cornerColor: '#6ee7ac',
+    borderColor: '#6ee7ac',
+    transparentCorners: false,
+  })
+  editor.add(image)
+  editor.setActiveObject(image)
+  editor.requestRenderAll()
+  selectedId.value = image.stickerId
+  compositeUrl.value = ''
+  refreshLayers()
+}
+
+const addAssetToCanvas = async (asset) => {
+  if (!hasScene.value) {
+    ElMessage.warning('请先上传场景图')
+    return
+  }
+  addingAssetId.value = asset.id
+  try {
+    await addCharacterLayer(asset, asset.name)
+    ElMessage.success('资产已加入画布')
+  } catch (error) {
+    ElMessage.error(String(error || '添加资产失败'))
+  } finally {
+    addingAssetId.value = ''
+  }
+}
+
+const deleteAsset = async (asset) => {
+  try {
+    await ElMessageBox.confirm(`确认从资产库移除“${asset.name}”？`, '移除资产', { type: 'warning' })
+    await deleteAiImageCutoutAsset(asset.id)
+    assetLibrary.value = assetLibrary.value.filter((item) => item.id !== asset.id)
+    ElMessage.success('资产已移除')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(String(error || '移除资产失败'))
   }
 }
 
@@ -282,7 +359,10 @@ const openComposite = () => {
   if (compositeUrl.value) window.open(compositeUrl.value, '_blank', 'noopener,noreferrer')
 }
 
-onMounted(initializeCanvas)
+onMounted(() => {
+  initializeCanvas()
+  loadAssetLibrary()
+})
 onBeforeUnmount(() => editor?.dispose())
 </script>
 
@@ -357,6 +437,11 @@ onBeforeUnmount(() => editor?.dispose())
   line-height: 1.5;
 }
 
+.save-option {
+  margin-top: 10px;
+  color: #dfeee8;
+}
+
 .card-head,
 .layer-row,
 .layer-actions,
@@ -375,6 +460,54 @@ onBeforeUnmount(() => editor?.dispose())
 
 .no-layer {
   padding: 12px 0;
+}
+
+.asset-list {
+  display: grid;
+  gap: 8px;
+  max-height: 290px;
+  overflow-y: auto;
+}
+
+.asset-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid rgba(145, 184, 169, 0.2);
+  border-radius: 8px;
+  background: #0b1414;
+}
+
+.asset-row img {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  object-fit: contain;
+  border-radius: 6px;
+  background: repeating-conic-gradient(#152020 0 25%, #1d2c2b 0 50%) 50% / 14px 14px;
+}
+
+.asset-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.asset-info strong,
+.asset-info small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-info small {
+  margin-top: 3px;
+  color: #91a8a0;
+}
+
+.remove-asset {
+  color: #f89a92;
 }
 
 .layer-row {

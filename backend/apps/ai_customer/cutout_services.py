@@ -7,6 +7,7 @@ import requests
 from django.conf import settings
 from qcloud_cos import CosConfig, CosS3Client
 
+from apps.ai_customer.models import PositionStickerAsset
 from apps.ai_customer.runtime_config import get_remove_bg_api_key
 from apps.storage.models import UploadedFileRecord
 
@@ -93,7 +94,7 @@ def _remove_bg_cutout(raw: bytes, filename: str, content_type: str) -> tuple[byt
     return png_bytes, width, height
 
 
-def _upload_transparent_png(png_bytes: bytes, user) -> dict:
+def _upload_transparent_png(png_bytes: bytes, user) -> tuple[dict, UploadedFileRecord]:
     if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
         raise CutoutError("COS 配置不完整", 500)
 
@@ -121,14 +122,42 @@ def _upload_transparent_png(png_bytes: bytes, user) -> dict:
         if base_url
         else f"https://{settings.COS_BUCKET}.cos.{settings.COS_REGION}.myqcloud.com/{key}"
     )
-    UploadedFileRecord.objects.create(
+    record = UploadedFileRecord.objects.create(
         user=user,
         key=key,
         url=url,
         content_type="image/png",
         size=len(png_bytes),
     )
-    return {"url": url, "key": key, "content_type": "image/png", "size": len(png_bytes)}
+    return {"url": url, "key": key, "content_type": "image/png", "size": len(png_bytes)}, record
+
+
+def _serialize_sticker_asset(asset: PositionStickerAsset) -> dict:
+    record = asset.file_record
+    return {
+        "id": asset.id,
+        "name": asset.name,
+        "key": record.key,
+        "url": record.url,
+        "content_type": record.content_type,
+        "size": record.size,
+        "width": asset.width,
+        "height": asset.height,
+        "mode": asset.cutout_mode,
+        "created_at": asset.created_at,
+    }
+
+
+def list_sticker_assets(user) -> list[dict]:
+    assets = PositionStickerAsset.objects.filter(user=user).select_related("file_record")[:100]
+    return [_serialize_sticker_asset(asset) for asset in assets]
+
+
+def remove_sticker_asset(asset_id: int, user):
+    asset = PositionStickerAsset.objects.filter(id=asset_id, user=user).first()
+    if not asset:
+        raise CutoutError("资产不存在", 404)
+    asset.delete()
 
 
 def get_cutout_asset(key: str, user) -> bytes:
@@ -156,7 +185,7 @@ def get_cutout_asset(key: str, user) -> bytes:
         raise CutoutError("透明图片读取失败", 502) from exc
 
 
-def cutout_character(file_obj, mode: str, user) -> dict:
+def cutout_character(file_obj, mode: str, user, *, save_to_library: bool = False) -> dict:
     normalized_mode = str(mode or "fast").strip().lower()
     if normalized_mode not in {"fast", "ai"}:
         raise CutoutError("抠图模式不支持")
@@ -175,11 +204,23 @@ def cutout_character(file_obj, mode: str, user) -> dict:
         png_bytes, width, height = _fast_white_background_cutout(raw)
     else:
         png_bytes, width, height = _remove_bg_cutout(raw, filename, content_type)
-    uploaded = _upload_transparent_png(png_bytes, user)
-    return {
+    uploaded, record = _upload_transparent_png(png_bytes, user)
+    result = {
         **uploaded,
         "width": width,
         "height": height,
         "mode": normalized_mode,
         "filename": filename,
     }
+    if save_to_library:
+        name = os.path.splitext(filename)[0].strip()[:100] or "透明角色"
+        asset = PositionStickerAsset.objects.create(
+            user=user,
+            file_record=record,
+            name=name,
+            cutout_mode=normalized_mode,
+            width=width,
+            height=height,
+        )
+        result["library_asset"] = _serialize_sticker_asset(asset)
+    return result

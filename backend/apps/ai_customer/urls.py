@@ -3,6 +3,8 @@ from django.urls import path
 from apps.ai_customer.views import (
     ai_image_cutout,
     ai_image_cutout_asset,
+    ai_image_cutout_asset_delete,
+    ai_image_cutout_assets,
     ai_image_config,
     ai_image_generate,
     ai_image_task,
@@ -21,5 +23,7 @@ urlpatterns = [
     path("ai-image/generate", ai_image_generate),
     path("ai-image/cutout", ai_image_cutout),
     path("ai-image/cutout-asset", ai_image_cutout_asset),
+    path("ai-image/cutout-assets", ai_image_cutout_assets),
+    path("ai-image/cutout-assets/<int:asset_id>", ai_image_cutout_asset_delete),
     path("ai-image/tasks/<str:task_id>", ai_image_task),
 ]

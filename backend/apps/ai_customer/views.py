@@ -16,7 +16,13 @@ from apps.ai_customer.manga_services import (
     prepare_reference_images,
     submit_ai_image_generation,
 )
-from apps.ai_customer.cutout_services import CutoutError, cutout_character, get_cutout_asset
+from apps.ai_customer.cutout_services import (
+    CutoutError,
+    cutout_character,
+    get_cutout_asset,
+    list_sticker_assets,
+    remove_sticker_asset,
+)
 from apps.ai_customer.position_services import (
     generate_reverse_prompt,
     recognize_position_image,
@@ -172,6 +178,7 @@ def ai_image_cutout(request):
                 request.FILES.get("file"),
                 str(request.data.get("mode", "fast") or "fast"),
                 request.user,
+                save_to_library=str(request.data.get("save_to_library", "") or "").strip().lower() in {"1", "true", "yes", "on"},
             )
         )
     except CutoutError as exc:
@@ -186,6 +193,26 @@ def ai_image_cutout_asset(request):
     try:
         content = get_cutout_asset(request.query_params.get("key", ""), request.user)
         return HttpResponse(content, content_type="image/png")
+    except CutoutError as exc:
+        return bad(str(exc), exc.status)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def ai_image_cutout_assets(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    return ok({"list": list_sticker_assets(request.user)})
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def ai_image_cutout_asset_delete(request, asset_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    try:
+        remove_sticker_asset(asset_id, request.user)
+        return ok()
     except CutoutError as exc:
         return bad(str(exc), exc.status)
 

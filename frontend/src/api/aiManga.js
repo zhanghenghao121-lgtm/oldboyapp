@@ -38,3 +38,7 @@ export const cutoutAiImageCharacter = (formData, config = {}) =>
   })
 
 export const aiImageCutoutAssetUrl = (key) => `/api/v1/ai-image/cutout-asset?key=${encodeURIComponent(key)}`
+
+export const getAiImageCutoutAssets = () => http.get('/ai-image/cutout-assets')
+
+export const deleteAiImageCutoutAsset = (assetId) => http.delete(`/ai-image/cutout-assets/${encodeURIComponent(assetId)}`)

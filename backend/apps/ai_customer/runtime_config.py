@@ -163,6 +163,13 @@ def get_ai_image_config(model: str = ""):
     return options[0]
 
 
+def get_remove_bg_api_key():
+    return _read_config_value(
+        SiteConfig.KEY_REMOVE_BG_API_KEY,
+        getattr(settings, "REMOVE_BG_API_KEY", ""),
+    )
+
+
 def get_runtime_llm_config(preset: str = "assistant"):
     if str(preset or "").strip().lower() == "manga":
         return get_manga_llm_config()

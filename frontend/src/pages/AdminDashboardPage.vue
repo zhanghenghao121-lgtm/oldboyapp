@@ -107,6 +107,16 @@
                 </el-form-item>
               </el-form>
             </div>
+
+            <div class="model-box">
+              <h4>AI 精细抠图 · remove.bg</h4>
+              <el-form label-width="92px">
+                <el-form-item label="API Key">
+                  <el-input v-model="forms.remove_bg_api_key" show-password placeholder="请输入 remove.bg API Key" />
+                </el-form-item>
+                <p class="model-note">用于站位贴图的复杂背景抠图；免费白底抠图不会调用该服务。</p>
+              </el-form>
+            </div>
           </div>
         </section>
 
@@ -292,6 +302,7 @@ const forms = reactive({
   ai_image_doubao_base_url: '',
   ai_image_doubao_api_key: '',
   ai_image_doubao_model: '',
+  remove_bg_api_key: '',
   ai_image_reverse_prompt: '',
   ai_manga_storyboard_prompt: '',
   ai_manga_3d_style_prompt: '',
@@ -370,6 +381,7 @@ const saveModelConfigs = async () => {
       'ai_image_doubao_base_url',
       'ai_image_doubao_api_key',
       'ai_image_doubao_model',
+      'remove_bg_api_key',
     ])
     ElMessage.success('模型配置已保存')
   } catch (e) {
@@ -554,6 +566,13 @@ onMounted(async () => {
 
 .model-box h4 {
   margin-bottom: 14px;
+}
+
+.model-note {
+  margin: 0;
+  color: #94a8c2;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .main-btn {

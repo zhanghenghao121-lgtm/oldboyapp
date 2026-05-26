@@ -51,6 +51,7 @@ def _config_defaults():
         SiteConfig.KEY_AI_IMAGE_DOUBAO_BASE_URL: "https://ark.cn-beijing.volces.com/api/v3",
         SiteConfig.KEY_AI_IMAGE_DOUBAO_API_KEY: "",
         SiteConfig.KEY_AI_IMAGE_DOUBAO_MODEL: "doubao-seedream-5-0-260128",
+        SiteConfig.KEY_REMOVE_BG_API_KEY: getattr(settings, "REMOVE_BG_API_KEY", ""),
         SiteConfig.KEY_AI_IMAGE_REVERSE_PROMPT: DEFAULT_AI_IMAGE_REVERSE_PROMPT,
         SiteConfig.KEY_AI_MANGA_STORYBOARD_PROMPT: DEFAULT_MANGA_STORYBOARD_PROMPT,
         SiteConfig.KEY_AI_MANGA_3D_STYLE_PROMPT: DEFAULT_MANGA_3D_STYLE_PROMPT,

@@ -1,5 +1,6 @@
 import json
 
+from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -15,6 +16,7 @@ from apps.ai_customer.manga_services import (
     prepare_reference_images,
     submit_ai_image_generation,
 )
+from apps.ai_customer.cutout_services import CutoutError, cutout_character, get_cutout_asset
 from apps.ai_customer.position_services import (
     generate_reverse_prompt,
     recognize_position_image,
@@ -155,6 +157,36 @@ def ai_image_task(request, task_id):
     try:
         return ok(get_ai_image_task_result(task_id))
     except MangaScriptError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def ai_image_cutout(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    try:
+        return ok(
+            cutout_character(
+                request.FILES.get("file"),
+                str(request.data.get("mode", "fast") or "fast"),
+                request.user,
+            )
+        )
+    except CutoutError as exc:
+        return bad(str(exc), exc.status)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def ai_image_cutout_asset(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    try:
+        content = get_cutout_asset(request.query_params.get("key", ""), request.user)
+        return HttpResponse(content, content_type="image/png")
+    except CutoutError as exc:
         return bad(str(exc), exc.status)
 
 

@@ -6,6 +6,8 @@ django-redis==5.4.0
 redis==5.2.1
 celery==5.4.0
 Pillow==11.1.0
+numpy==2.2.6
+opencv-python-headless==4.11.0.86
 cos-python-sdk-v5==1.9.38
 requests==2.32.3
 PyMySQL==1.1.1

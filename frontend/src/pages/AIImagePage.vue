@@ -13,16 +13,20 @@
         <strong>生出反打画面</strong>
         <span>@角色/物品推理站位</span>
       </button>
+      <button class="mode-btn" :class="{ active: mode === 'sticker' }" type="button" @click="mode = 'sticker'">
+        <strong>站位贴图</strong>
+        <span>抠图角色自由摆放合成</span>
+      </button>
       <el-button plain class="back-btn" @click="$router.push('/ai-manga')">返回剧本创作</el-button>
     </aside>
 
     <main class="studio">
       <header class="studio-head">
         <div>
-          <p class="eyebrow">{{ mode === 'reverse_shot' ? 'REVERSE SHOT' : 'TEXT TO IMAGE' }}</p>
-          <h2>{{ mode === 'reverse_shot' ? '反打镜头生成' : 'AI 图像生成' }}</h2>
+          <p class="eyebrow">{{ mode === 'sticker' ? 'LAYER COMPOSER' : mode === 'reverse_shot' ? 'REVERSE SHOT' : 'TEXT TO IMAGE' }}</p>
+          <h2>{{ mode === 'sticker' ? '场景站位贴图' : mode === 'reverse_shot' ? '反打镜头生成' : 'AI 图像生成' }}</h2>
         </div>
-        <div class="preset-row">
+        <div v-if="mode !== 'sticker'" class="preset-row">
           <el-button plain @click="settingsDialogRef?.open()">设置</el-button>
           <el-select v-model="selectedModel" class="model-select" placeholder="选择模型">
             <el-option
@@ -39,7 +43,7 @@
         </div>
       </header>
 
-      <section class="work-grid">
+      <section v-if="mode !== 'sticker'" class="work-grid">
         <div class="control-panel">
           <div class="panel-head">
             <h3>{{ mode === 'reverse_shot' ? '镜头参考' : '画面描述' }}</h3>
@@ -122,18 +126,20 @@
           </div>
         </div>
       </section>
+      <StickerComposer v-else />
     </main>
     <UserSettingsDialog ref="settingsDialogRef" />
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { generateAiImage, getAiImageConfig, getAiImageTask } from '../api/aiManga'
 import UserSettingsDialog from '../components/UserSettingsDialog.vue'
 
+const StickerComposer = defineAsyncComponent(() => import('../components/StickerComposer.vue'))
 const mode = ref('text')
 const prompt = ref('')
 const promptInputRef = ref(null)

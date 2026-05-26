@@ -29,3 +29,12 @@ export const generateAiImage = (formData, config = {}) =>
   })
 
 export const getAiImageTask = (taskId) => http.get(`/ai-image/tasks/${encodeURIComponent(taskId)}`, { timeout: 45000 })
+
+export const cutoutAiImageCharacter = (formData, config = {}) =>
+  http.post('/ai-image/cutout', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000,
+    ...config,
+  })
+
+export const aiImageCutoutAssetUrl = (key) => `/api/v1/ai-image/cutout-asset?key=${encodeURIComponent(key)}`

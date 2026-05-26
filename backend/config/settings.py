@@ -159,6 +159,7 @@ COS_SECRET_KEY = env("COS_SECRET_KEY", default="")
 COS_BUCKET = env("COS_BUCKET", default="")
 COS_REGION = env("COS_REGION", default="")
 COS_BASE_URL = env("COS_BASE_URL", default="")
+REMOVE_BG_API_KEY = env("REMOVE_BG_API_KEY", default="")
 
 UPLOAD_LIMIT_10MB = 10 * 1024 * 1024
 MAX_UPLOAD_SIZE = min(env.int("MAX_UPLOAD_SIZE", default=UPLOAD_LIMIT_10MB), UPLOAD_LIMIT_10MB)

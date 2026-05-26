@@ -47,6 +47,11 @@ def chat_completion(runtime: dict, payload: dict, *, service_name: str = "模型
     if resp.status_code >= 400:
         detail = _error_detail(resp)
         logger.error("%s返回错误 status=%s detail=%s", service_name, resp.status_code, detail)
+        if resp.status_code in {401, 403}:
+            raise LLMClientError(
+                f"{service_name}认证失败，请在后台“AI模型配置”检查该模型的 API 地址和 API Key",
+                502,
+            )
         raise LLMClientError(f"{service_name}服务错误({resp.status_code})：{detail}" if detail else f"{service_name}服务错误({resp.status_code})", 502)
     try:
         return resp.json()

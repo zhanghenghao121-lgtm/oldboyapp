@@ -3,6 +3,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
+from apps.ai_customer.llm_clients import LLMClientError, chat_completion
 from apps.ai_customer.models import StoryboardProject, StorySegment
 from apps.ai_customer.storyboard_services import analyze_project, generate_panels
 
@@ -70,3 +71,17 @@ class StoryboardServicesTests(TestCase):
         self.assertEqual(len(result), 9)
         self.assertEqual(segment.panels.count(), 9)
         self.assertEqual(segment.panels.get(panel_no=9).image_prompt, "提示词 9")
+
+
+class LLMClientErrorTests(TestCase):
+    @patch("apps.ai_customer.llm_clients.requests.post")
+    def test_authentication_failure_returns_actionable_message(self, post):
+        post.return_value.status_code = 401
+        post.return_value.json.return_value = {"error": {"message": "Authentication Fails"}}
+
+        with self.assertRaisesMessage(LLMClientError, "认证失败，请在后台“AI模型配置”检查该模型的 API 地址和 API Key"):
+            chat_completion(
+                {"base_url": "https://api.example.com/v1", "api_key": "invalid"},
+                {"model": "deepseek-v4-pro", "messages": []},
+                service_name="故事板场景拆解模型（DeepSeek V4 Pro / deepseek-v4-pro）",
+            )

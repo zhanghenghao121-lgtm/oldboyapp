@@ -72,6 +72,7 @@ def _json_content(body: dict, label: str) -> dict:
 
 def _call_storyboard_json(system_prompt: str, user_content: str, model: str, label: str) -> dict:
     runtime = get_storyboard_llm_config(model)
+    service_name = f"{label}（{runtime.get('label') or runtime.get('model') or '未命名模型'} / {runtime.get('model') or '-'}）"
     payload = {
         "model": runtime.get("model"),
         "temperature": 0.25,
@@ -82,7 +83,7 @@ def _call_storyboard_json(system_prompt: str, user_content: str, model: str, lab
         ],
     }
     try:
-        body = chat_completion(runtime, payload, service_name=label)
+        body = chat_completion(runtime, payload, service_name=service_name)
     except LLMClientError as exc:
         logger.exception("%s调用失败 model=%s", label, runtime.get("model"))
         raise StoryboardError(str(exc), exc.status) from exc

@@ -5,8 +5,8 @@
         <h2>用户信息</h2>
         <div class="header-actions">
           <el-button class="top-neon-btn" @click="$router.push('/change-password')">修改密码</el-button>
-          <el-button class="top-neon-btn" :disabled="!form.feature_allowed" @click="$router.push('/ai-manga')">
-            {{ form.feature_allowed ? '返回剧本创作' : '功能未开通' }}
+          <el-button class="top-neon-btn" :disabled="!form.feature_allowed" @click="$router.push('/storyboard')">
+            {{ form.feature_allowed ? '返回故事板' : '功能未开通' }}
           </el-button>
         </div>
       </header>

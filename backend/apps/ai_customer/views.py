@@ -6,14 +6,10 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.ai_customer.manga_services import (
-    MangaScriptError,
-    extract_story_source_text,
-    generate_manga_storyboard,
+from apps.ai_customer.ai_image_services import (
+    AIImageError,
     get_ai_image_task_result,
-    normalize_manga_style,
     prepare_ai_image_references,
-    prepare_reference_images,
     submit_ai_image_generation,
 )
 from apps.ai_customer.cutout_services import (
@@ -23,18 +19,23 @@ from apps.ai_customer.cutout_services import (
     list_sticker_assets,
     remove_sticker_asset,
 )
-from apps.ai_customer.position_services import (
-    generate_reverse_prompt,
-    recognize_position_image,
-)
+from apps.ai_customer.models import StoryboardProject, StorySegment
 from apps.ai_customer.runtime_config import (
-    get_ai_image_config,
     get_ai_image_configs,
     get_ai_image_reverse_prompt,
-    get_assistant_llm_config,
-    get_manga_llm_config,
-    get_manga_storyboard_prompt,
-    get_manga_style_prompt,
+    get_storyboard_llm_configs,
+)
+from apps.ai_customer.storyboard_services import (
+    StoryboardError,
+    analyze_project,
+    compose_grid,
+    create_project,
+    generate_panel_images,
+    generate_panels,
+    refresh_panel_images,
+    save_asset,
+    serialize_project,
+    serialize_segment,
 )
 
 
@@ -66,24 +67,22 @@ def _serialize_model_option(option_id: str, label: str, runtime: dict):
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def ai_manga_config(request):
+def storyboard_config(request):
     if not _feature_allowed(request):
         return _feature_denied()
-    assistant = get_assistant_llm_config()
-    manga = get_manga_llm_config()
     return ok(
         {
-            "default_model_preset": "assistant",
-            "default_style": "3d",
-            "storyboard_prompt": get_manga_storyboard_prompt(),
-            "style_options": [
-                {"id": "3d", "label": "3D风格", "prompt": get_manga_style_prompt("3d")},
-                {"id": "real", "label": "真人风格", "prompt": get_manga_style_prompt("real")},
+            "default_analysis_model": "deepseek-v4-pro",
+            "default_image_model": "gpt-image-2",
+            "analysis_models": [
+                _serialize_model_option(item["id"], item["label"], item)
+                for item in get_storyboard_llm_configs()
             ],
-            "model_options": [
-                _serialize_model_option("assistant", "助手模型", assistant),
-                _serialize_model_option("manga", "剧本模型", manga),
+            "image_models": [
+                {"id": item["id"], "label": item["label"], "model": item["model"]}
+                for item in get_ai_image_configs()
             ],
+            "style_options": ["电影写实", "3D动漫", "国风水墨", "赛博朋克"],
         }
     )
 
@@ -151,7 +150,7 @@ def ai_image_generate(request):
             reference_images=references,
         )
         return ok(result)
-    except MangaScriptError as exc:
+    except AIImageError as exc:
         return bad(str(exc), exc.status)
 
 
@@ -162,7 +161,7 @@ def ai_image_task(request, task_id):
         return _feature_denied()
     try:
         return ok(get_ai_image_task_result(task_id))
-    except MangaScriptError as exc:
+    except AIImageError as exc:
         return bad(str(exc), exc.status)
 
 
@@ -218,69 +217,132 @@ def ai_image_cutout_asset_delete(request, asset_id):
 
 
 @csrf_exempt
-@api_view(["POST"])
+@api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
-def ai_manga_position_recognize(request):
+def storyboard_projects(request):
     if not _feature_allowed(request):
         return _feature_denied()
     try:
-        return ok(recognize_position_image(request.FILES))
-    except MangaScriptError as exc:
+        if request.method == "GET":
+            projects = StoryboardProject.objects.filter(user=request.user)[:30]
+            return ok({"list": [serialize_project(project) for project in projects]})
+        project = create_project(request.user, request.data)
+        return ok(serialize_project(project))
+    except StoryboardError as exc:
         return bad(str(exc), exc.status)
 
 
 @csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def ai_manga_position_reverse_prompt(request):
+def storyboard_project_analyze(request, project_id):
     if not _feature_allowed(request):
         return _feature_denied()
+    project = StoryboardProject.objects.filter(id=project_id, user=request.user).first()
+    if not project:
+        return bad("故事板项目不存在", 404)
     try:
-        try:
-            bindings = json.loads(str(request.data.get("bindings", "[]") or "[]"))
-        except Exception:
-            bindings = []
-        if not isinstance(bindings, list):
-            bindings = []
-        try:
-            recognition = json.loads(str(request.data.get("recognition", "{}") or "{}"))
-        except Exception:
-            recognition = {}
-        if not isinstance(recognition, dict):
-            recognition = {}
-        result = generate_reverse_prompt(
-            str(request.data.get("position_description", "") or ""),
-            bindings=bindings,
-            recognition=recognition,
-        )
-        return ok(result)
-    except MangaScriptError as exc:
+        return ok(analyze_project(project))
+    except StoryboardError as exc:
+        return bad(str(exc), exc.status)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def storyboard_project_segments(request, project_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    project = StoryboardProject.objects.filter(id=project_id, user=request.user).first()
+    if not project:
+        return bad("故事板项目不存在", 404)
+    roots = project.segments.filter(parent__isnull=True).prefetch_related("children", "assets", "panels")
+    return ok({"project": serialize_project(project), "segments": [serialize_segment(segment) for segment in roots]})
+
+
+def _owned_segment(request, segment_id):
+    return StorySegment.objects.filter(id=segment_id, project__user=request.user).select_related("project").first()
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def storyboard_segment_assets_required(request, segment_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    segment = _owned_segment(request, segment_id)
+    if not segment:
+        return bad("剧情小段不存在", 404)
+    return ok({"required_assets": segment.required_assets_json, "assets": [asset for asset in serialize_segment(segment, False)["assets"]]})
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def storyboard_segment_assets(request, segment_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    segment = _owned_segment(request, segment_id)
+    if not segment:
+        return bad("剧情小段不存在", 404)
+    try:
+        return ok(save_asset(segment, request.data))
+    except StoryboardError as exc:
         return bad(str(exc), exc.status)
 
 
 @csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def ai_manga_storyboard(request):
+def storyboard_segment_generate_panels(request, segment_id):
     if not _feature_allowed(request):
         return _feature_denied()
-    file_obj = request.FILES.get("file")
-    text = str(request.data.get("text", "")).strip()
-    model_preset = str(request.data.get("model_preset", "assistant")).strip().lower() or "assistant"
-    style = normalize_manga_style(request.data.get("style", "3d"))
-    if model_preset not in {"assistant", "manga"}:
-        return bad("模型选项不支持")
+    segment = _owned_segment(request, segment_id)
+    if not segment:
+        return bad("剧情小段不存在", 404)
     try:
-        source_text = extract_story_source_text(file_obj=file_obj, text=text)
-        reference_images = prepare_reference_images(request.FILES)
-        position_description = str(request.data.get("position_description", "") or "").strip()[:2000]
-        result = generate_manga_storyboard(
-            source_text,
-            model_preset=model_preset,
-            style=style,
-            reference_images=reference_images,
-            position_description=position_description,
-        )
-        return ok(result)
-    except MangaScriptError as exc:
+        return ok({"panels": generate_panels(segment)})
+    except StoryboardError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def storyboard_segment_generate_images(request, segment_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    segment = _owned_segment(request, segment_id)
+    if not segment:
+        return bad("剧情小段不存在", 404)
+    try:
+        return ok({"panels": generate_panel_images(segment, str(request.data.get("model") or ""))})
+    except StoryboardError as exc:
+        return bad(str(exc), exc.status)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def storyboard_segment_refresh_images(request, segment_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    segment = _owned_segment(request, segment_id)
+    if not segment:
+        return bad("剧情小段不存在", 404)
+    try:
+        return ok({"panels": refresh_panel_images(segment)})
+    except StoryboardError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def storyboard_segment_compose_grid(request, segment_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    segment = _owned_segment(request, segment_id)
+    if not segment:
+        return bad("剧情小段不存在", 404)
+    try:
+        return ok({"grid_image_url": compose_grid(segment, request.user)})
+    except StoryboardError as exc:
         return bad(str(exc), exc.status)

@@ -17,7 +17,7 @@
         <strong>站位贴图</strong>
         <span>抠图角色自由摆放合成</span>
       </button>
-      <el-button plain class="back-btn" @click="$router.push('/ai-manga')">返回剧本创作</el-button>
+      <el-button plain class="back-btn" @click="$router.push('/storyboard')">返回故事板</el-button>
     </aside>
 
     <main class="studio">
@@ -136,7 +136,7 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { generateAiImage, getAiImageConfig, getAiImageTask } from '../api/aiManga'
+import { generateAiImage, getAiImageConfig, getAiImageTask } from '../api/aiImage'
 import UserSettingsDialog from '../components/UserSettingsDialog.vue'
 
 const StickerComposer = defineAsyncComponent(() => import('../components/StickerComposer.vue'))

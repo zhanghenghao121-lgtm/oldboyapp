@@ -106,7 +106,7 @@ import {
   cutoutAiImageCharacter,
   deleteAiImageCutoutAsset,
   getAiImageCutoutAssets,
-} from '../api/aiManga'
+} from '../api/aiImage'
 import { uploadToCos } from '../api/storage'
 
 const canvasElement = ref(null)

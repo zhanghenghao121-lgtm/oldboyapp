@@ -32,15 +32,12 @@ class SiteBackground(models.Model):
 
 class SiteConfig(models.Model):
     KEY_DEFAULT_AVATAR = "default_avatar_url"
-    KEY_AI_ASSISTANT_BASE_URL = "ai_assistant_base_url"
-    KEY_AI_ASSISTANT_API_KEY = "ai_assistant_api_key"
-    KEY_AI_ASSISTANT_MODEL = "ai_assistant_model"
-    KEY_AI_MANGA_BASE_URL = "ai_manga_base_url"
-    KEY_AI_MANGA_API_KEY = "ai_manga_api_key"
-    KEY_AI_MANGA_MODEL = "ai_manga_model"
-    KEY_AI_MANGA_VISION_BASE_URL = "ai_manga_vision_base_url"
-    KEY_AI_MANGA_VISION_API_KEY = "ai_manga_vision_api_key"
-    KEY_AI_MANGA_VISION_MODEL = "ai_manga_vision_model"
+    KEY_STORYBOARD_DEEPSEEK_BASE_URL = "storyboard_deepseek_base_url"
+    KEY_STORYBOARD_DEEPSEEK_API_KEY = "storyboard_deepseek_api_key"
+    KEY_STORYBOARD_DEEPSEEK_MODEL = "storyboard_deepseek_model"
+    KEY_STORYBOARD_DOUBAO_BASE_URL = "storyboard_doubao_base_url"
+    KEY_STORYBOARD_DOUBAO_API_KEY = "storyboard_doubao_api_key"
+    KEY_STORYBOARD_DOUBAO_MODEL = "storyboard_doubao_model"
     KEY_AI_IMAGE_BASE_URL = "ai_image_base_url"
     KEY_AI_IMAGE_API_KEY = "ai_image_api_key"
     KEY_AI_IMAGE_MODEL = "ai_image_model"
@@ -49,20 +46,18 @@ class SiteConfig(models.Model):
     KEY_AI_IMAGE_DOUBAO_MODEL = "ai_image_doubao_model"
     KEY_REMOVE_BG_API_KEY = "remove_bg_api_key"
     KEY_AI_IMAGE_REVERSE_PROMPT = "ai_image_reverse_prompt"
-    KEY_AI_MANGA_STORYBOARD_PROMPT = "ai_manga_storyboard_prompt"
-    KEY_AI_MANGA_3D_STYLE_PROMPT = "ai_manga_3d_style_prompt"
-    KEY_AI_MANGA_REAL_STYLE_PROMPT = "ai_manga_real_style_prompt"
+    KEY_STORYBOARD_SCENE_SPLIT_PROMPT = "storyboard_scene_split_prompt"
+    KEY_STORYBOARD_LEAF_SPLIT_PROMPT = "storyboard_leaf_split_prompt"
+    KEY_STORYBOARD_ASSET_PROMPT = "storyboard_asset_prompt"
+    KEY_STORYBOARD_PANEL_PROMPT = "storyboard_panel_prompt"
     KEY_CHOICES = [
         (KEY_DEFAULT_AVATAR, "默认头像URL"),
-        (KEY_AI_ASSISTANT_BASE_URL, "助手模型API地址"),
-        (KEY_AI_ASSISTANT_API_KEY, "助手模型API Key"),
-        (KEY_AI_ASSISTANT_MODEL, "助手模型名称"),
-        (KEY_AI_MANGA_BASE_URL, "剧本模型API地址"),
-        (KEY_AI_MANGA_API_KEY, "剧本模型API Key"),
-        (KEY_AI_MANGA_MODEL, "剧本模型名称"),
-        (KEY_AI_MANGA_VISION_BASE_URL, "图文模型API地址"),
-        (KEY_AI_MANGA_VISION_API_KEY, "图文模型API Key"),
-        (KEY_AI_MANGA_VISION_MODEL, "图文模型名称"),
+        (KEY_STORYBOARD_DEEPSEEK_BASE_URL, "故事板 DeepSeek API地址"),
+        (KEY_STORYBOARD_DEEPSEEK_API_KEY, "故事板 DeepSeek API Key"),
+        (KEY_STORYBOARD_DEEPSEEK_MODEL, "故事板 DeepSeek 模型名称"),
+        (KEY_STORYBOARD_DOUBAO_BASE_URL, "故事板 Doubao API地址"),
+        (KEY_STORYBOARD_DOUBAO_API_KEY, "故事板 Doubao API Key"),
+        (KEY_STORYBOARD_DOUBAO_MODEL, "故事板 Doubao 模型名称"),
         (KEY_AI_IMAGE_BASE_URL, "生图模型API地址"),
         (KEY_AI_IMAGE_API_KEY, "生图模型API Key"),
         (KEY_AI_IMAGE_MODEL, "生图模型名称"),
@@ -71,9 +66,10 @@ class SiteConfig(models.Model):
         (KEY_AI_IMAGE_DOUBAO_MODEL, "豆包生图模型名称"),
         (KEY_REMOVE_BG_API_KEY, "remove.bg API Key"),
         (KEY_AI_IMAGE_REVERSE_PROMPT, "反打画面提示词"),
-        (KEY_AI_MANGA_STORYBOARD_PROMPT, "AI剧本解析规则"),
-        (KEY_AI_MANGA_3D_STYLE_PROMPT, "3D风格提示词"),
-        (KEY_AI_MANGA_REAL_STYLE_PROMPT, "真人风格提示词"),
+        (KEY_STORYBOARD_SCENE_SPLIT_PROMPT, "故事板场景拆分提示词"),
+        (KEY_STORYBOARD_LEAF_SPLIT_PROMPT, "故事板九宫格判断提示词"),
+        (KEY_STORYBOARD_ASSET_PROMPT, "故事板素材提取提示词"),
+        (KEY_STORYBOARD_PANEL_PROMPT, "故事板九宫格分镜提示词"),
     ]
 
     key = models.CharField(max_length=64, choices=KEY_CHOICES, unique=True)

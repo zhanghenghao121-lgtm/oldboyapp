@@ -82,7 +82,7 @@ const submit = async () => {
   try {
     await login(form)
     ElMessage.success('登录成功')
-    router.push('/ai-manga')
+    router.push('/storyboard')
   } catch (e) {
     ElMessage.error(e)
   }

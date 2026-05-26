@@ -4,7 +4,7 @@ import RegisterPage from '../pages/RegisterPage.vue'
 import ForgotPage from '../pages/ForgotPage.vue'
 import ProfilePage from '../pages/ProfilePage.vue'
 import ChangePasswordPage from '../pages/ChangePasswordPage.vue'
-import AIMangaPage from '../pages/AIMangaPage.vue'
+import StoryboardPage from '../pages/StoryboardPage.vue'
 import AIImagePage from '../pages/AIImagePage.vue'
 import AdminLoginPage from '../pages/AdminLoginPage.vue'
 import AdminDashboardPage from '../pages/AdminDashboardPage.vue'
@@ -14,17 +14,18 @@ import { consoleMe } from '../api/console'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/ai-manga' },
+    { path: '/', redirect: '/storyboard' },
     { path: '/login', component: LoginPage },
     { path: '/register', component: RegisterPage },
     { path: '/forgot', component: ForgotPage },
     { path: '/profile', component: ProfilePage, meta: { requiresAuth: true } },
     { path: '/change-password', component: ChangePasswordPage, meta: { requiresAuth: true } },
-    { path: '/ai-manga', component: AIMangaPage, meta: { requiresAuth: true, requiresWhitelist: true } },
+    { path: '/storyboard', component: StoryboardPage, meta: { requiresAuth: true, requiresWhitelist: true } },
+    { path: '/ai-manga', redirect: '/storyboard' },
     { path: '/ai-image', component: AIImagePage, meta: { requiresAuth: true, requiresWhitelist: true } },
     { path: '/admin/login', component: AdminLoginPage },
     { path: '/admin/dashboard', component: AdminDashboardPage, meta: { requiresConsoleAuth: true } },
-    { path: '/:pathMatch(.*)*', redirect: '/ai-manga' },
+    { path: '/:pathMatch(.*)*', redirect: '/storyboard' },
   ],
 })
 

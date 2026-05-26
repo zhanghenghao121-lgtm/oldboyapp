@@ -17,9 +17,12 @@ from apps.console.serializers import (
 )
 from apps.ai_customer.runtime_config import (
     DEFAULT_AI_IMAGE_REVERSE_PROMPT,
-    DEFAULT_MANGA_3D_STYLE_PROMPT,
-    DEFAULT_MANGA_REAL_STYLE_PROMPT,
-    DEFAULT_MANGA_STORYBOARD_PROMPT,
+)
+from apps.ai_customer.storyboard_prompts import (
+    DEFAULT_STORYBOARD_ASSET_PROMPT,
+    DEFAULT_STORYBOARD_LEAF_SPLIT_PROMPT,
+    DEFAULT_STORYBOARD_PANEL_PROMPT,
+    DEFAULT_STORYBOARD_SCENE_SPLIT_PROMPT,
 )
 
 User = get_user_model()
@@ -36,15 +39,12 @@ def bad(message, status=400):
 def _config_defaults():
     return {
         SiteConfig.KEY_DEFAULT_AVATAR: getattr(settings, "DEFAULT_AVATAR_URL", "/octopus-avatar.svg") or "/octopus-avatar.svg",
-        SiteConfig.KEY_AI_ASSISTANT_BASE_URL: getattr(settings, "AI_CS_LLM_BASE_URL", ""),
-        SiteConfig.KEY_AI_ASSISTANT_API_KEY: getattr(settings, "AI_CS_LLM_API_KEY", ""),
-        SiteConfig.KEY_AI_ASSISTANT_MODEL: getattr(settings, "AI_CS_LLM_MODEL", ""),
-        SiteConfig.KEY_AI_MANGA_BASE_URL: getattr(settings, "AI_CS_LLM_BASE_URL", ""),
-        SiteConfig.KEY_AI_MANGA_API_KEY: getattr(settings, "AI_CS_LLM_API_KEY", ""),
-        SiteConfig.KEY_AI_MANGA_MODEL: getattr(settings, "AI_CS_LLM_MODEL", ""),
-        SiteConfig.KEY_AI_MANGA_VISION_BASE_URL: "https://ark.cn-beijing.volces.com/api/v3",
-        SiteConfig.KEY_AI_MANGA_VISION_API_KEY: "",
-        SiteConfig.KEY_AI_MANGA_VISION_MODEL: "doubao-seed-2-0-mini-260428",
+        SiteConfig.KEY_STORYBOARD_DEEPSEEK_BASE_URL: getattr(settings, "AI_CS_LLM_BASE_URL", ""),
+        SiteConfig.KEY_STORYBOARD_DEEPSEEK_API_KEY: getattr(settings, "AI_CS_LLM_API_KEY", ""),
+        SiteConfig.KEY_STORYBOARD_DEEPSEEK_MODEL: "deepseek-v4-pro",
+        SiteConfig.KEY_STORYBOARD_DOUBAO_BASE_URL: "https://ark.cn-beijing.volces.com/api/v3",
+        SiteConfig.KEY_STORYBOARD_DOUBAO_API_KEY: "",
+        SiteConfig.KEY_STORYBOARD_DOUBAO_MODEL: "doubao-seed-2-0-pro-260215",
         SiteConfig.KEY_AI_IMAGE_BASE_URL: "https://api.apimart.ai/v1",
         SiteConfig.KEY_AI_IMAGE_API_KEY: "",
         SiteConfig.KEY_AI_IMAGE_MODEL: "gpt-image-2",
@@ -53,9 +53,10 @@ def _config_defaults():
         SiteConfig.KEY_AI_IMAGE_DOUBAO_MODEL: "doubao-seedream-5-0-260128",
         SiteConfig.KEY_REMOVE_BG_API_KEY: getattr(settings, "REMOVE_BG_API_KEY", ""),
         SiteConfig.KEY_AI_IMAGE_REVERSE_PROMPT: DEFAULT_AI_IMAGE_REVERSE_PROMPT,
-        SiteConfig.KEY_AI_MANGA_STORYBOARD_PROMPT: DEFAULT_MANGA_STORYBOARD_PROMPT,
-        SiteConfig.KEY_AI_MANGA_3D_STYLE_PROMPT: DEFAULT_MANGA_3D_STYLE_PROMPT,
-        SiteConfig.KEY_AI_MANGA_REAL_STYLE_PROMPT: DEFAULT_MANGA_REAL_STYLE_PROMPT,
+        SiteConfig.KEY_STORYBOARD_SCENE_SPLIT_PROMPT: DEFAULT_STORYBOARD_SCENE_SPLIT_PROMPT,
+        SiteConfig.KEY_STORYBOARD_LEAF_SPLIT_PROMPT: DEFAULT_STORYBOARD_LEAF_SPLIT_PROMPT,
+        SiteConfig.KEY_STORYBOARD_ASSET_PROMPT: DEFAULT_STORYBOARD_ASSET_PROMPT,
+        SiteConfig.KEY_STORYBOARD_PANEL_PROMPT: DEFAULT_STORYBOARD_PANEL_PROMPT,
     }
 
 

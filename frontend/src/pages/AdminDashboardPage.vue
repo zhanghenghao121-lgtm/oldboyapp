@@ -6,7 +6,7 @@
         <p v-if="adminUser">{{ adminUser.username }}</p>
       </div>
       <button class="side-btn" :class="{ active: activeSection === 'configs' }" type="button" @click="selectSection('configs')">
-        AI剧本配置
+        AI模型配置
       </button>
       <button class="side-btn" :class="{ active: activeSection === 'users' }" type="button" @click="selectSection('users')">
         用户信息
@@ -16,8 +16,8 @@
     <main class="main">
       <header class="main-head">
         <div>
-          <p class="eyebrow">{{ activeSection === 'configs' ? 'SCRIPT PROMPT SETTINGS' : 'USER MANAGEMENT' }}</p>
-          <h2>{{ activeSection === 'configs' ? 'AI剧本创作配置' : '用户信息管理' }}</h2>
+          <p class="eyebrow">{{ activeSection === 'configs' ? 'MODEL & STORYBOARD SETTINGS' : 'USER MANAGEMENT' }}</p>
+          <h2>{{ activeSection === 'configs' ? 'AI模型配置' : '用户信息管理' }}</h2>
         </div>
         <el-button type="danger" plain @click="handleLogout">退出后台</el-button>
       </header>
@@ -27,53 +27,38 @@
           <div class="panel-head">
             <div>
               <h3>模型设置</h3>
-              <p>保留现有 AI 配置结构，前台可选择剧本模型，并可独立配置生图模型。</p>
+              <p>统一管理故事板拆解与生图所使用的模型，前台可以按任务选择模型。</p>
             </div>
             <el-button class="main-btn" type="primary" :loading="savingModels" @click="saveModelConfigs">保存模型配置</el-button>
           </div>
 
           <div class="model-grid">
             <div class="model-box">
-              <h4>助手模型</h4>
+              <h4>故事板拆解 · DeepSeek</h4>
               <el-form label-width="92px">
                 <el-form-item label="API地址">
-                  <el-input v-model="forms.ai_assistant_base_url" placeholder="https://api.deepseek.com/v1" />
+                  <el-input v-model="forms.storyboard_deepseek_base_url" placeholder="https://api.deepseek.com/v1" />
                 </el-form-item>
                 <el-form-item label="API Key">
-                  <el-input v-model="forms.ai_assistant_api_key" show-password placeholder="请输入 API Key" />
+                  <el-input v-model="forms.storyboard_deepseek_api_key" show-password placeholder="请输入 API Key" />
                 </el-form-item>
                 <el-form-item label="模型名称">
-                  <el-input v-model="forms.ai_assistant_model" placeholder="deepseek-reasoner" />
+                  <el-input v-model="forms.storyboard_deepseek_model" placeholder="deepseek-v4-pro" />
                 </el-form-item>
               </el-form>
             </div>
 
             <div class="model-box">
-              <h4>剧本模型</h4>
+              <h4>故事板拆解 · Doubao</h4>
               <el-form label-width="92px">
                 <el-form-item label="API地址">
-                  <el-input v-model="forms.ai_manga_base_url" placeholder="默认可复用助手模型 API 地址" />
+                  <el-input v-model="forms.storyboard_doubao_base_url" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
                 </el-form-item>
                 <el-form-item label="API Key">
-                  <el-input v-model="forms.ai_manga_api_key" show-password placeholder="默认可复用助手模型 API Key" />
+                  <el-input v-model="forms.storyboard_doubao_api_key" show-password placeholder="请输入 ARK API Key" />
                 </el-form-item>
                 <el-form-item label="模型名称">
-                  <el-input v-model="forms.ai_manga_model" placeholder="deepseek-reasoner" />
-                </el-form-item>
-              </el-form>
-            </div>
-
-            <div class="model-box">
-              <h4>图文识别模型</h4>
-              <el-form label-width="92px">
-                <el-form-item label="API地址">
-                  <el-input v-model="forms.ai_manga_vision_base_url" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
-                </el-form-item>
-                <el-form-item label="API Key">
-                  <el-input v-model="forms.ai_manga_vision_api_key" show-password placeholder="请输入 ARK API Key" />
-                </el-form-item>
-                <el-form-item label="模型名称">
-                  <el-input v-model="forms.ai_manga_vision_model" placeholder="doubao-seed-2-0-mini-260428" />
+                  <el-input v-model="forms.storyboard_doubao_model" placeholder="doubao-seed-2-0-pro-260215" />
                 </el-form-item>
               </el-form>
             </div>
@@ -123,47 +108,55 @@
         <section class="panel">
           <div class="panel-head">
             <div>
-              <h3>解析规则与风格提示词</h3>
-              <p>前台识别剧本时，会把解析规则和所选风格提示词一起发送给模型。</p>
+              <h3>故事板提示词</h3>
+              <p>分别控制场景拆分、九格适配判断、素材提取和九宫格镜头生成。</p>
             </div>
             <el-button class="main-btn" type="primary" :loading="savingPrompts" @click="savePromptConfigs">保存提示词</el-button>
           </div>
 
           <el-form label-position="top">
-            <el-form-item label="剧本解析规则">
+            <el-form-item label="场景拆分提示词">
               <el-input
-                v-model="forms.ai_manga_storyboard_prompt"
+                v-model="forms.storyboard_scene_split_prompt"
                 type="textarea"
                 :rows="9"
-                placeholder="设置剧本文档解析、提示词分组和每组时长规则"
+                placeholder="设置按场景拆分大段内容的规则及 JSON 输出结构"
               />
             </el-form-item>
             <div class="prompt-grid">
-              <el-form-item label="3D风格提示词">
+              <el-form-item label="九格适配与递归拆分提示词">
                 <el-input
-                  v-model="forms.ai_manga_3d_style_prompt"
+                  v-model="forms.storyboard_leaf_split_prompt"
                   type="textarea"
                   :rows="8"
-                  placeholder="设置 3D 风格专用提示词"
+                  placeholder="设置是否可用九宫格表现以及继续拆分的规则"
                 />
               </el-form-item>
-              <el-form-item label="真人风格提示词">
+              <el-form-item label="素材提取提示词">
                 <el-input
-                  v-model="forms.ai_manga_real_style_prompt"
+                  v-model="forms.storyboard_asset_prompt"
                   type="textarea"
                   :rows="8"
-                  placeholder="设置真人风格专用提示词"
+                  placeholder="设置人物、场景和道具素材识别规则"
                 />
               </el-form-item>
-              <el-form-item label="反打画面提示词">
+              <el-form-item label="九宫格分镜提示词">
                 <el-input
-                  v-model="forms.ai_image_reverse_prompt"
+                  v-model="forms.storyboard_panel_prompt"
                   type="textarea"
                   :rows="12"
-                  placeholder="设置生出反打画面的默认提示词"
+                  placeholder="设置九格画面描述与单格生图提示词规则"
                 />
               </el-form-item>
             </div>
+            <el-form-item label="独立 AI生图反打提示词">
+              <el-input
+                v-model="forms.ai_image_reverse_prompt"
+                type="textarea"
+                :rows="8"
+                placeholder="设置 AI生图工具中的反打画面默认提示词"
+              />
+            </el-form-item>
           </el-form>
         </section>
       </template>
@@ -287,15 +280,12 @@ const users = ref([])
 const editDialogVisible = ref(false)
 
 const forms = reactive({
-  ai_assistant_base_url: '',
-  ai_assistant_api_key: '',
-  ai_assistant_model: '',
-  ai_manga_base_url: '',
-  ai_manga_api_key: '',
-  ai_manga_model: '',
-  ai_manga_vision_base_url: '',
-  ai_manga_vision_api_key: '',
-  ai_manga_vision_model: '',
+  storyboard_deepseek_base_url: '',
+  storyboard_deepseek_api_key: '',
+  storyboard_deepseek_model: '',
+  storyboard_doubao_base_url: '',
+  storyboard_doubao_api_key: '',
+  storyboard_doubao_model: '',
   ai_image_base_url: '',
   ai_image_api_key: '',
   ai_image_model: '',
@@ -304,9 +294,10 @@ const forms = reactive({
   ai_image_doubao_model: '',
   remove_bg_api_key: '',
   ai_image_reverse_prompt: '',
-  ai_manga_storyboard_prompt: '',
-  ai_manga_3d_style_prompt: '',
-  ai_manga_real_style_prompt: '',
+  storyboard_scene_split_prompt: '',
+  storyboard_leaf_split_prompt: '',
+  storyboard_asset_prompt: '',
+  storyboard_panel_prompt: '',
 })
 
 const userForm = reactive({
@@ -366,15 +357,12 @@ const saveModelConfigs = async () => {
   savingModels.value = true
   try {
     await saveKeys([
-      'ai_assistant_base_url',
-      'ai_assistant_api_key',
-      'ai_assistant_model',
-      'ai_manga_base_url',
-      'ai_manga_api_key',
-      'ai_manga_model',
-      'ai_manga_vision_base_url',
-      'ai_manga_vision_api_key',
-      'ai_manga_vision_model',
+      'storyboard_deepseek_base_url',
+      'storyboard_deepseek_api_key',
+      'storyboard_deepseek_model',
+      'storyboard_doubao_base_url',
+      'storyboard_doubao_api_key',
+      'storyboard_doubao_model',
       'ai_image_base_url',
       'ai_image_api_key',
       'ai_image_model',
@@ -394,7 +382,7 @@ const saveModelConfigs = async () => {
 const savePromptConfigs = async () => {
   savingPrompts.value = true
   try {
-    await saveKeys(['ai_manga_storyboard_prompt', 'ai_manga_3d_style_prompt', 'ai_manga_real_style_prompt', 'ai_image_reverse_prompt'])
+    await saveKeys(['storyboard_scene_split_prompt', 'storyboard_leaf_split_prompt', 'storyboard_asset_prompt', 'storyboard_panel_prompt', 'ai_image_reverse_prompt'])
     ElMessage.success('提示词配置已保存')
   } catch (e) {
     ElMessage.error(String(e || '提示词配置保存失败'))

@@ -19,7 +19,7 @@ from apps.ai_customer.cutout_services import (
     list_sticker_assets,
     remove_sticker_asset,
 )
-from apps.ai_customer.models import StoryboardProject, StorySegment
+from apps.ai_customer.models import StoryboardPanel, StoryboardProject, StorySegment
 from apps.ai_customer.runtime_config import (
     get_ai_image_configs,
     get_ai_image_reverse_prompt,
@@ -30,12 +30,15 @@ from apps.ai_customer.storyboard_services import (
     analyze_project,
     compose_grid,
     create_project,
+    delete_asset,
     generate_panel_images,
-    generate_panels,
+    generate_panels_and_images,
+    regenerate_panel,
     refresh_panel_images,
     save_asset,
     serialize_project,
     serialize_segment,
+    update_panel,
 )
 
 
@@ -289,6 +292,21 @@ def storyboard_segment_assets(request, segment_id):
         return bad(str(exc), exc.status)
 
 
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def storyboard_segment_asset_delete(request, segment_id, asset_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    segment = _owned_segment(request, segment_id)
+    if not segment:
+        return bad("剧情小段不存在", 404)
+    try:
+        delete_asset(segment, asset_id)
+        return ok()
+    except StoryboardError as exc:
+        return bad(str(exc), exc.status)
+
+
 @csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -299,7 +317,7 @@ def storyboard_segment_generate_panels(request, segment_id):
     if not segment:
         return bad("剧情小段不存在", 404)
     try:
-        return ok({"panels": generate_panels(segment)})
+        return ok({"panels": generate_panels_and_images(segment, str(request.data.get("model") or ""))})
     except StoryboardError as exc:
         return bad(str(exc), exc.status)
 
@@ -344,5 +362,36 @@ def storyboard_segment_compose_grid(request, segment_id):
         return bad("剧情小段不存在", 404)
     try:
         return ok({"grid_image_url": compose_grid(segment, request.user)})
+    except StoryboardError as exc:
+        return bad(str(exc), exc.status)
+
+
+def _owned_panel(request, panel_id):
+    return StoryboardPanel.objects.filter(id=panel_id, segment__project__user=request.user).select_related("segment__project").first()
+
+
+@csrf_exempt
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+def storyboard_panel_update(request, panel_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    panel = _owned_panel(request, panel_id)
+    if not panel:
+        return bad("分镜不存在", 404)
+    return ok(update_panel(panel, request.data))
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def storyboard_panel_regenerate(request, panel_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    panel = _owned_panel(request, panel_id)
+    if not panel:
+        return bad("分镜不存在", 404)
+    try:
+        return ok(regenerate_panel(panel, request.data))
     except StoryboardError as exc:
         return bad(str(exc), exc.status)

@@ -50,6 +50,7 @@ class SiteConfig(models.Model):
     KEY_STORYBOARD_LEAF_SPLIT_PROMPT = "storyboard_leaf_split_prompt"
     KEY_STORYBOARD_ASSET_PROMPT = "storyboard_asset_prompt"
     KEY_STORYBOARD_PANEL_PROMPT = "storyboard_panel_prompt"
+    KEY_STORYBOARD_SINGLE_PANEL_PROMPT = "storyboard_single_panel_prompt"
     KEY_CHOICES = [
         (KEY_DEFAULT_AVATAR, "默认头像URL"),
         (KEY_STORYBOARD_DEEPSEEK_BASE_URL, "故事板 DeepSeek API地址"),
@@ -70,6 +71,7 @@ class SiteConfig(models.Model):
         (KEY_STORYBOARD_LEAF_SPLIT_PROMPT, "故事板九宫格判断提示词"),
         (KEY_STORYBOARD_ASSET_PROMPT, "故事板素材提取提示词"),
         (KEY_STORYBOARD_PANEL_PROMPT, "故事板九宫格分镜提示词"),
+        (KEY_STORYBOARD_SINGLE_PANEL_PROMPT, "故事板单格重生成提示词"),
     ]
 
     key = models.CharField(max_length=64, choices=KEY_CHOICES, unique=True)

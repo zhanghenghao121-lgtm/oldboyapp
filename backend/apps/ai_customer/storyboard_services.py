@@ -30,6 +30,7 @@ from apps.ai_customer.runtime_config import (
     get_storyboard_llm_config,
     get_storyboard_panel_prompt,
     get_storyboard_scene_split_prompt,
+    get_storyboard_single_panel_prompt,
 )
 from apps.storage.models import UploadedFileRecord
 
@@ -40,9 +41,8 @@ ASSET_TYPE_BY_GROUP = {
     "characters": StoryboardAsset.TYPE_CHARACTER,
     "scenes": StoryboardAsset.TYPE_SCENE,
     "props": StoryboardAsset.TYPE_PROP,
-    "costumes": StoryboardAsset.TYPE_COSTUME,
-    "style_refs": StoryboardAsset.TYPE_STYLE,
 }
+ALLOWED_ASSET_TYPES = set(ASSET_TYPE_BY_GROUP.values())
 
 
 class StoryboardError(Exception):
@@ -191,6 +191,21 @@ def _leaf_assets(segment: StorySegment, model: str) -> dict:
     }
 
 
+def _create_asset_slots(segment: StorySegment, required_assets: dict) -> None:
+    for group, asset_type in ASSET_TYPE_BY_GROUP.items():
+        for item in required_assets.get(group) or []:
+            name = str(item.get("name") or "").strip()[:255]
+            if not name:
+                continue
+            StoryboardAsset.objects.get_or_create(
+                project=segment.project,
+                segment=segment,
+                asset_type=asset_type,
+                name=name,
+                defaults={"description": str(item.get("description") or "").strip()},
+            )
+
+
 def _split_segment(segment: StorySegment, model: str, depth: int) -> None:
     judgment = _call_storyboard_json(
         get_storyboard_leaf_split_prompt(),
@@ -207,6 +222,7 @@ def _split_segment(segment: StorySegment, model: str, depth: int) -> None:
         segment.required_assets_json = _leaf_assets(segment, model)
     segment.save(update_fields=["grid_feasibility_score", "analysis_json", "is_leaf", "required_assets_json"])
     if is_leaf:
+        _create_asset_slots(segment, segment.required_assets_json)
         return
     for index, item in enumerate(children, start=1):
         child = StorySegment.objects.create(
@@ -262,12 +278,12 @@ def save_asset(segment: StorySegment, payload: dict) -> dict:
     if not segment.is_leaf:
         raise StoryboardError("只能为可生成九宫格的剧情小段上传素材")
     asset_type = str(payload.get("asset_type") or "").strip()
-    if asset_type not in {item[0] for item in StoryboardAsset.TYPE_CHOICES}:
+    if asset_type not in ALLOWED_ASSET_TYPES:
         raise StoryboardError("素材类型不支持")
     name = str(payload.get("name") or "").strip()[:255]
     image_url = str(payload.get("image_url") or "").strip()
-    if not name or not image_url:
-        raise StoryboardError("素材名称和图片地址不能为空")
+    if not name:
+        raise StoryboardError("素材名称不能为空")
     asset, _ = StoryboardAsset.objects.update_or_create(
         segment=segment,
         asset_type=asset_type,
@@ -279,6 +295,13 @@ def save_asset(segment: StorySegment, payload: dict) -> dict:
         },
     )
     return serialize_asset(asset)
+
+
+def delete_asset(segment: StorySegment, asset_id: int) -> None:
+    asset = segment.assets.filter(id=asset_id).first()
+    if not asset:
+        raise StoryboardError("素材不存在", 404)
+    asset.delete()
 
 
 @transaction.atomic
@@ -321,39 +344,120 @@ def generate_panels(segment: StorySegment) -> list[dict]:
     return [serialize_panel(row) for row in rows]
 
 
-def generate_panel_images(segment: StorySegment, model: str = "") -> list[dict]:
-    panels = list(segment.panels.all())
-    if len(panels) != 9:
-        raise StoryboardError("请先生成完整九宫格分镜提示词")
-    references = [
+def _panel_references(segment: StorySegment, asset_ids: list[int] | None = None) -> list[dict]:
+    assets = segment.assets.exclude(image_url="")
+    if asset_ids is not None:
+        assets = assets.filter(id__in=asset_ids)
+    return [
         {
             "field": "storyboard_asset",
             "label": f"{asset.get_asset_type_display()}：{asset.name}",
             "name": asset.name,
             "data_url": asset.image_url,
         }
-        for asset in segment.assets.all()
+        for asset in assets
     ]
+
+
+def _submit_panel_image(panel: StoryboardPanel, model: str, references: list[dict]) -> None:
+    try:
+        result = submit_ai_image_generation(
+            mode="text",
+            prompt=panel.image_prompt,
+            model=model,
+            size=panel.segment.project.aspect_ratio,
+            resolution="1k",
+            reference_images=references,
+        )
+    except AIImageError as exc:
+        logger.exception("九宫格生图失败 segment=%s panel=%s", panel.segment_id, panel.panel_no)
+        raise StoryboardError(f"第 {panel.panel_no} 格生成失败：{exc}", exc.status) from exc
+    panel.generation_task_id = str(result.get("task_id") or "")
+    panel.image_url = str((result.get("images") or [""])[0] or "")
+    panel.save(update_fields=["generation_task_id", "image_url"])
+
+
+def generate_panel_images(segment: StorySegment, model: str = "", asset_ids: list[int] | None = None) -> list[dict]:
+    panels = list(segment.panels.select_related("segment__project").all())
+    if len(panels) != 9:
+        raise StoryboardError("请先生成完整九宫格分镜提示词")
+    references = _panel_references(segment, asset_ids)
     image_model = str(model or segment.project.image_model).strip()
     for panel in panels:
         if panel.image_url or panel.generation_task_id:
             continue
-        try:
-            result = submit_ai_image_generation(
-                mode="text",
-                prompt=panel.image_prompt,
-                model=image_model,
-                size=segment.project.aspect_ratio,
-                resolution="1k",
-                reference_images=references,
-            )
-        except AIImageError as exc:
-            logger.exception("九宫格生图失败 segment=%s panel=%s", segment.id, panel.panel_no)
-            raise StoryboardError(f"第 {panel.panel_no} 格生成失败：{exc}", exc.status) from exc
-        panel.generation_task_id = str(result.get("task_id") or "")
-        panel.image_url = str((result.get("images") or [""])[0] or "")
-        panel.save(update_fields=["generation_task_id", "image_url"])
+        _submit_panel_image(panel, image_model, references)
     return [serialize_panel(panel) for panel in segment.panels.all()]
+
+
+def generate_panels_and_images(segment: StorySegment, model: str = "") -> list[dict]:
+    generate_panels(segment)
+    return generate_panel_images(segment, model)
+
+
+def update_panel(panel: StoryboardPanel, payload: dict) -> dict:
+    update_fields = []
+    for field in ["screen_description", "image_prompt"]:
+        if field in payload:
+            setattr(panel, field, str(payload.get(field) or "").strip())
+            update_fields.append(field)
+    if "image_url" in payload:
+        panel.image_url = str(payload.get("image_url") or "").strip()
+        panel.generation_task_id = ""
+        update_fields.extend(["image_url", "generation_task_id"])
+    if update_fields:
+        panel.save(update_fields=update_fields)
+        panel.segment.grid_image_url = ""
+        panel.segment.save(update_fields=["grid_image_url"])
+    return serialize_panel(panel)
+
+
+def regenerate_panel(panel: StoryboardPanel, payload: dict) -> dict:
+    segment = panel.segment
+    raw_ids = payload.get("asset_ids") or []
+    if not isinstance(raw_ids, list):
+        raise StoryboardError("参考素材参数格式错误")
+    asset_ids = []
+    for value in raw_ids:
+        try:
+            asset_ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    chosen_assets = [serialize_asset(asset) for asset in segment.assets.filter(id__in=asset_ids)]
+    data = _call_storyboard_json(
+        get_storyboard_single_panel_prompt(),
+        (
+            f"剧情段：{segment.original_text or segment.summary}\n"
+            f"当前格编号：{panel.panel_no}\n当前画面描述：{panel.screen_description}\n"
+            f"当前生图提示词：{panel.image_prompt}\n"
+            f"本次选用参考素材：{json.dumps(chosen_assets, ensure_ascii=False)}"
+        ),
+        segment.project.analysis_model,
+        "单格分镜重生成模型",
+    )
+    for field in [
+        "shot_type",
+        "camera_angle",
+        "camera_movement",
+        "screen_description",
+        "image_prompt",
+        "video_prompt",
+        "emotion",
+    ]:
+        setattr(panel, field, str(data.get(field) or getattr(panel, field)))
+    panel.characters = data.get("characters") if isinstance(data.get("characters"), list) else panel.characters
+    panel.props = data.get("props") if isinstance(data.get("props"), list) else panel.props
+    panel.image_url = ""
+    panel.generation_task_id = ""
+    panel.save()
+    segment.grid_image_url = ""
+    segment.save(update_fields=["grid_image_url"])
+    _submit_panel_image(
+        panel,
+        str(payload.get("model") or segment.project.image_model).strip(),
+        _panel_references(segment, asset_ids),
+    )
+    return serialize_panel(panel)
 
 
 def refresh_panel_images(segment: StorySegment) -> list[dict]:

@@ -4,8 +4,14 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from apps.ai_customer.llm_clients import LLMClientError, chat_completion
-from apps.ai_customer.models import StoryboardProject, StorySegment
-from apps.ai_customer.storyboard_services import analyze_project, generate_panels
+from apps.ai_customer.models import StoryboardAsset, StoryboardPanel, StoryboardProject, StorySegment
+from apps.ai_customer.storyboard_services import (
+    analyze_project,
+    delete_asset,
+    generate_panels,
+    regenerate_panel,
+    save_asset,
+)
 
 
 class StoryboardServicesTests(TestCase):
@@ -37,7 +43,7 @@ class StoryboardServicesTests(TestCase):
                 ],
             },
             {"can_be_9_grid": True, "score": 91, "reason": "动作连续", "analysis": "一次重逢", "children": []},
-            {"characters": [{"name": "林初", "description": "女主"}], "scenes": [], "props": [], "costumes": [], "style_refs": []},
+            {"characters": [{"name": "林初", "description": "女主"}], "scenes": [], "props": []},
         ]
 
         result = analyze_project(self.project)
@@ -48,6 +54,8 @@ class StoryboardServicesTests(TestCase):
         self.assertTrue(segment.is_leaf)
         self.assertEqual(segment.grid_feasibility_score, 91)
         self.assertEqual(segment.required_assets_json["characters"][0]["name"], "林初")
+        self.assertEqual(segment.assets.get().name, "林初")
+        self.assertEqual(segment.assets.get().image_url, "")
         self.assertEqual(len(result["segments"]), 1)
 
     @patch("apps.ai_customer.storyboard_services._call_storyboard_json")
@@ -71,6 +79,30 @@ class StoryboardServicesTests(TestCase):
         self.assertEqual(len(result), 9)
         self.assertEqual(segment.panels.count(), 9)
         self.assertEqual(segment.panels.get(panel_no=9).image_prompt, "提示词 9")
+
+    def test_asset_can_be_created_without_image_then_deleted(self):
+        segment = StorySegment.objects.create(project=self.project, title="站台", is_leaf=True)
+
+        saved = save_asset(segment, {"asset_type": "scene", "name": "雨夜站台", "description": "潮湿地面"})
+
+        self.assertEqual(saved["image_url"], "")
+        delete_asset(segment, saved["id"])
+        self.assertFalse(segment.assets.exists())
+
+    @patch("apps.ai_customer.storyboard_services._submit_panel_image")
+    @patch("apps.ai_customer.storyboard_services._call_storyboard_json")
+    def test_regenerate_one_panel_uses_selected_asset_and_updates_description(self, call_model, submit_image):
+        segment = StorySegment.objects.create(project=self.project, title="站台", is_leaf=True)
+        panel = StoryboardPanel.objects.create(segment=segment, panel_no=1, screen_description="旧画面", image_prompt="旧提示词")
+        asset = StoryboardAsset.objects.create(project=self.project, segment=segment, asset_type="character", name="林初", image_url="https://example.com/lin.jpg")
+        call_model.return_value = {"screen_description": "新画面", "image_prompt": "新提示词", "characters": ["林初"], "props": []}
+
+        result = regenerate_panel(panel, {"asset_ids": [asset.id], "model": "gpt-image-2"})
+
+        self.assertEqual(result["screen_description"], "新画面")
+        self.assertEqual(result["image_prompt"], "新提示词")
+        references = submit_image.call_args.args[2]
+        self.assertEqual(references[0]["name"], "林初")
 
 
 class LLMClientErrorTests(TestCase):

@@ -89,32 +89,37 @@
             <div class="section-title">
               <div>
                 <h3>素材参考</h3>
-                <p>上传模型识别出的场景、人物和关键道具，九格镜头会保持参考一致。</p>
+                <p>人物、场景、道具均可增删和上传参考图，九格生成将保持所选素材一致。</p>
               </div>
-              <span>{{ uploadedCount }} / {{ requiredAssets.length }}</span>
+              <div class="asset-tools">
+                <span>{{ uploadedCount }} / {{ storyboardAssets.length }} 已上传</span>
+                <el-button size="small" plain @click="assetDialogVisible = true">添加素材</el-button>
+              </div>
             </div>
-            <div v-if="requiredAssets.length" class="asset-grid">
-              <label v-for="asset in requiredAssets" :key="asset.key" class="asset-card" :class="{ uploaded: savedAsset(asset) }">
-                <input type="file" accept="image/*" @change="(event) => uploadAsset(event, asset)" />
-                <img v-if="savedAsset(asset)" :src="savedAsset(asset).image_url" :alt="asset.name" />
+            <div v-if="storyboardAssets.length" class="asset-grid">
+              <article v-for="asset in storyboardAssets" :key="asset.id" class="asset-card" :class="{ uploaded: asset.image_url }">
+                <button class="delete-mini" type="button" title="删除素材" @click="removeAsset(asset)">×</button>
+                <img v-if="asset.image_url" :src="asset.image_url" :alt="asset.name" />
                 <div v-else class="asset-placeholder">{{ asset.typeLabel }}</div>
                 <strong>{{ asset.name }}</strong>
                 <p>{{ asset.description }}</p>
-                <span>{{ uploadingKey === asset.key ? '上传中...' : savedAsset(asset) ? '替换图片' : '上传参考图' }}</span>
-              </label>
+                <label class="asset-upload">
+                  <input type="file" accept="image/*" @change="(event) => uploadAsset(event, asset)" />
+                  <span>{{ uploadingKey === asset.id ? '上传中...' : asset.image_url ? '替换图片' : '上传参考图' }}</span>
+                </label>
+              </article>
             </div>
-            <div v-else class="empty-inline">该段落没有识别到必须上传的参考素材，可以直接生成分镜。</div>
-            <el-button type="primary" :loading="generatingPanels" @click="createPanels">生成九格分镜提示词</el-button>
+            <div v-else class="empty-inline">该段落没有素材。可添加人物、场景或道具，也可以直接生成画面。</div>
+            <el-button type="primary" :loading="generatingPanels" @click="createPanels">生成九格分镜与图片</el-button>
           </section>
 
           <section v-if="panels.length" class="panel-board">
             <div class="section-title board-title">
               <div>
                 <h3>九格分镜</h3>
-                <p>每格独立生成，最终由系统稳定排版合成为一张故事板图。</p>
+                <p>画面描述可直接修改；每格可以选择素材重新生成，也可以上传本地图片替换。</p>
               </div>
               <div class="board-actions">
-                <el-button type="primary" :loading="generatingImages" @click="createImages">生成九张分镜图</el-button>
                 <el-button plain :disabled="!imagesReady" :loading="composing" @click="composeGrid">合成九宫格</el-button>
               </div>
             </div>
@@ -125,8 +130,21 @@
                   <span v-else>{{ panel.generation_task_id ? '生成中' : panel.shot_type || '待生成' }}</span>
                   <strong>{{ panel.panel_no }}</strong>
                 </div>
-                <h4>{{ panel.screen_description }}</h4>
-                <p>{{ panel.image_prompt }}</p>
+                <el-input
+                  v-model="panel.screen_description"
+                  class="shot-description"
+                  type="textarea"
+                  resize="none"
+                  :rows="3"
+                  @blur="savePanelDescription(panel)"
+                />
+                <div class="shot-actions">
+                  <el-button size="small" plain :loading="regeneratingPanelId === panel.id" @click="openRegenerate(panel)">重新生成</el-button>
+                  <label class="replace-button">
+                    <input type="file" accept="image/*" @change="(event) => replacePanelImage(event, panel)" />
+                    {{ replacingPanelId === panel.id ? '上传中' : '上传替换' }}
+                  </label>
+                </div>
               </article>
             </div>
           </section>
@@ -141,23 +159,56 @@
         </template>
       </section>
     </main>
+    <el-dialog v-model="assetDialogVisible" title="添加素材参考" width="440px">
+      <el-form label-position="top">
+        <el-form-item label="素材类型">
+          <el-segmented v-model="newAsset.asset_type" :options="assetTypeOptions" />
+        </el-form-item>
+        <el-form-item label="素材名称">
+          <el-input v-model="newAsset.name" maxlength="40" placeholder="例如：林初 / 雨夜站台 / 旧车票" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="newAsset.description" type="textarea" :rows="3" placeholder="外形、空间或需要保持的特征" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="assetDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingAsset" @click="addAsset">添加</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="regenerateDialogVisible" :title="`重新生成分镜 ${activePanel?.panel_no || ''}`" width="500px">
+      <p class="dialog-note">勾选本次生成要参考的人物、场景和道具，画面描述与分镜图将一起更新。</p>
+      <el-checkbox-group v-model="regenerateAssetIds" class="reference-options">
+        <el-checkbox v-for="asset in uploadedAssets" :key="asset.id" :value="asset.id">
+          {{ asset.typeLabel }} · {{ asset.name }}
+        </el-checkbox>
+      </el-checkbox-group>
+      <div v-if="!uploadedAssets.length" class="empty-inline">当前没有已上传图片的素材，可直接按提示词重新生成。</div>
+      <template #footer>
+        <el-button @click="regenerateDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="Boolean(regeneratingPanelId)" @click="regenerateActivePanel">重新生成</el-button>
+      </template>
+    </el-dialog>
     <UserSettingsDialog ref="settingsDialogRef" />
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
   analyzeStoryboardProject,
   composeStoryboardGrid,
   createStoryboardProject,
-  generateStoryboardImages,
+  deleteStoryboardAsset,
   generateStoryboardPanels,
   getStoryboardConfig,
+  regenerateStoryboardPanel,
   refreshStoryboardImages,
   saveStoryboardAsset,
+  updateStoryboardPanel,
 } from '../api/storyboard'
 import { uploadToCos } from '../api/storage'
 import UserSettingsDialog from '../components/UserSettingsDialog.vue'
@@ -180,6 +231,14 @@ const uploadingKey = ref('')
 const generatingPanels = ref(false)
 const generatingImages = ref(false)
 const composing = ref(false)
+const assetDialogVisible = ref(false)
+const savingAsset = ref(false)
+const newAsset = ref({ asset_type: 'character', name: '', description: '' })
+const regenerateDialogVisible = ref(false)
+const activePanel = ref(null)
+const regenerateAssetIds = ref([])
+const regeneratingPanelId = ref('')
+const replacingPanelId = ref('')
 let pollTimer = null
 
 const collectLeaves = (segment) => {
@@ -189,25 +248,19 @@ const collectLeaves = (segment) => {
 const leavesOf = (scene) => collectLeaves(scene)
 const leafSegments = computed(() => segments.value.flatMap(collectLeaves))
 const panels = computed(() => selectedLeaf.value?.panels || [])
-const assetGroups = {
-  characters: { type: 'character', label: '人物' },
-  scenes: { type: 'scene', label: '场景' },
-  props: { type: 'prop', label: '道具' },
-  costumes: { type: 'costume', label: '服装' },
-  style_refs: { type: 'style', label: '风格' },
-}
-const requiredAssets = computed(() =>
-  Object.entries(assetGroups).flatMap(([key, config]) =>
-    (selectedLeaf.value?.required_assets?.[key] || []).map((item) => ({
-      ...item,
-      key: `${config.type}:${item.name}`,
-      asset_type: config.type,
-      typeLabel: config.label,
-    }))
-  )
+const assetTypeLabels = { character: '人物', scene: '场景', prop: '道具' }
+const assetTypeOptions = [
+  { label: '人物', value: 'character' },
+  { label: '场景', value: 'scene' },
+  { label: '道具', value: 'prop' },
+]
+const storyboardAssets = computed(() =>
+  (selectedLeaf.value?.assets || [])
+    .filter((asset) => assetTypeLabels[asset.asset_type])
+    .map((asset) => ({ ...asset, typeLabel: assetTypeLabels[asset.asset_type] }))
 )
-const savedAsset = (item) => (selectedLeaf.value?.assets || []).find((asset) => asset.asset_type === item.asset_type && asset.name === item.name)
-const uploadedCount = computed(() => requiredAssets.value.filter(savedAsset).length)
+const uploadedAssets = computed(() => storyboardAssets.value.filter((asset) => asset.image_url))
+const uploadedCount = computed(() => uploadedAssets.value.length)
 const imagesReady = computed(() => panels.value.length === 9 && panels.value.every((panel) => panel.image_url))
 
 watch(selectedLeaf, () => stopPolling())
@@ -264,7 +317,7 @@ const uploadAsset = async (event, asset) => {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file || !file.type.startsWith('image/')) return
-  uploadingKey.value = asset.key
+  uploadingKey.value = asset.id
   try {
     const uploaded = await uploadToCos(file, 'images/storyboards/assets', { timeout: 120000 })
     const saved = await saveStoryboardAsset(selectedLeaf.value.id, {
@@ -277,7 +330,7 @@ const uploadAsset = async (event, asset) => {
     const index = assets.findIndex((item) => item.id === saved.data.id)
     if (index >= 0) assets.splice(index, 1, saved.data)
     else assets.push(saved.data)
-    ElMessage.success(`${asset.name} 已上传`)
+    ElMessage.success(uploaded.data.compressed ? `${asset.name} 已自动压缩并上传` : `${asset.name} 已上传`)
   } catch (error) {
     ElMessage.error(String(error || '素材上传失败'))
   } finally {
@@ -285,15 +338,55 @@ const uploadAsset = async (event, asset) => {
   }
 }
 
+const addAsset = async () => {
+  if (!newAsset.value.name.trim()) {
+    ElMessage.warning('请输入素材名称')
+    return
+  }
+  savingAsset.value = true
+  try {
+    const res = await saveStoryboardAsset(selectedLeaf.value.id, newAsset.value)
+    const index = selectedLeaf.value.assets.findIndex((asset) => asset.id === res.data.id)
+    if (index >= 0) selectedLeaf.value.assets.splice(index, 1, res.data)
+    else selectedLeaf.value.assets.push(res.data)
+    newAsset.value = { asset_type: 'character', name: '', description: '' }
+    assetDialogVisible.value = false
+    ElMessage.success('素材已添加，请上传参考图')
+  } catch (error) {
+    ElMessage.error(String(error || '素材添加失败'))
+  } finally {
+    savingAsset.value = false
+  }
+}
+
+const removeAsset = async (asset) => {
+  try {
+    await ElMessageBox.confirm(`删除素材“${asset.name}”？`, '删除素材', { type: 'warning' })
+    await deleteStoryboardAsset(selectedLeaf.value.id, asset.id)
+    selectedLeaf.value.assets = selectedLeaf.value.assets.filter((item) => item.id !== asset.id)
+    ElMessage.success('素材已删除')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(String(error || '素材删除失败'))
+  }
+}
+
 const createPanels = async () => {
   generatingPanels.value = true
+  generatingImages.value = true
   stopPolling()
   try {
-    const res = await generateStoryboardPanels(selectedLeaf.value.id)
+    const res = await generateStoryboardPanels(selectedLeaf.value.id, imageModel.value)
     selectedLeaf.value.panels = res.data.panels || []
     selectedLeaf.value.grid_image_url = ''
-    ElMessage.success('九格分镜提示词已生成')
+    if (imagesReady.value) {
+      generatingImages.value = false
+      ElMessage.success('九格分镜与图片已生成')
+    } else {
+      pollTimer = window.setTimeout(pollImages, 4000)
+      ElMessage.success('九格分镜已生成，图片正在生成')
+    }
   } catch (error) {
+    generatingImages.value = false
     ElMessage.error(String(error || '分镜生成失败'))
   } finally {
     generatingPanels.value = false
@@ -320,24 +413,6 @@ const pollImages = async () => {
   }
 }
 
-const createImages = async () => {
-  generatingImages.value = true
-  stopPolling()
-  try {
-    const res = await generateStoryboardImages(selectedLeaf.value.id, imageModel.value)
-    selectedLeaf.value.panels = res.data.panels || []
-    if (imagesReady.value) {
-      ElMessage.success('九张分镜图已生成')
-      generatingImages.value = false
-    } else {
-      pollTimer = window.setTimeout(pollImages, 4000)
-    }
-  } catch (error) {
-    generatingImages.value = false
-    ElMessage.error(String(error || '分镜图片生成失败'))
-  }
-}
-
 const composeGrid = async () => {
   composing.value = true
   try {
@@ -348,6 +423,67 @@ const composeGrid = async () => {
     ElMessage.error(String(error || '九宫格合成失败'))
   } finally {
     composing.value = false
+  }
+}
+
+const replacePanel = (updated) => {
+  const index = selectedLeaf.value.panels.findIndex((panel) => panel.id === updated.id)
+  if (index >= 0) selectedLeaf.value.panels.splice(index, 1, updated)
+  selectedLeaf.value.grid_image_url = ''
+}
+
+const savePanelDescription = async (panel) => {
+  try {
+    const res = await updateStoryboardPanel(panel.id, { screen_description: panel.screen_description })
+    replacePanel(res.data)
+  } catch (error) {
+    ElMessage.error(String(error || '画面描述保存失败'))
+  }
+}
+
+const openRegenerate = (panel) => {
+  activePanel.value = panel
+  regenerateAssetIds.value = uploadedAssets.value.map((asset) => asset.id)
+  regenerateDialogVisible.value = true
+}
+
+const regenerateActivePanel = async () => {
+  if (!activePanel.value) return
+  regeneratingPanelId.value = activePanel.value.id
+  try {
+    const res = await regenerateStoryboardPanel(activePanel.value.id, {
+      model: imageModel.value,
+      asset_ids: regenerateAssetIds.value,
+    })
+    replacePanel(res.data)
+    regenerateDialogVisible.value = false
+    if (!res.data.image_url && res.data.generation_task_id) {
+      generatingImages.value = true
+      stopPolling()
+      pollTimer = window.setTimeout(pollImages, 4000)
+    }
+    ElMessage.success('该分镜已重新提交生成')
+  } catch (error) {
+    ElMessage.error(String(error || '单格重新生成失败'))
+  } finally {
+    regeneratingPanelId.value = ''
+  }
+}
+
+const replacePanelImage = async (event, panel) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || !file.type.startsWith('image/')) return
+  replacingPanelId.value = panel.id
+  try {
+    const uploaded = await uploadToCos(file, 'images/storyboards/panels', { timeout: 120000 })
+    const res = await updateStoryboardPanel(panel.id, { image_url: uploaded.data.url })
+    replacePanel(res.data)
+    ElMessage.success(uploaded.data.compressed ? '分镜图已自动压缩并替换' : '分镜图已替换')
+  } catch (error) {
+    ElMessage.error(String(error || '分镜图替换失败'))
+  } finally {
+    replacingPanelId.value = ''
   }
 }
 
@@ -392,15 +528,19 @@ onBeforeUnmount(stopPolling)
 .score { flex: none; min-width: 96px; height: 82px; border-left: 2px solid #177264; padding-left: 16px; color: #177264; font-size: 34px; display: flex; flex-direction: column; }
 .score small { color: #66706b; font-size: 12px; font-weight: 500; }
 .asset-panel, .panel-board, .grid-result { border-top: 1px solid #d8d5cc; padding: 22px 0; }
+.asset-tools { display: flex; align-items: center; gap: 12px; color: #177264; font-size: 13px; font-weight: 700; }
 .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 12px; margin-bottom: 18px; }
-.asset-card { position: relative; min-height: 236px; padding: 9px; border: 1px dashed #bbb7ac; border-radius: 6px; background: #fff; cursor: pointer; display: flex; flex-direction: column; gap: 7px; }
+.asset-card { position: relative; min-height: 236px; padding: 9px; border: 1px dashed #bbb7ac; border-radius: 6px; background: #fff; display: flex; flex-direction: column; gap: 7px; }
 .asset-card.uploaded { border-style: solid; border-color: #73a89e; }
-.asset-card input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .asset-card img, .asset-placeholder { width: 100%; height: 98px; object-fit: cover; border-radius: 4px; }
 .asset-placeholder { display: grid; place-items: center; background: #eef1ed; color: #65706a; font-weight: 600; }
 .asset-card strong { font-size: 14px; }
 .asset-card p { margin: 0; min-height: 35px; color: #66706b; font-size: 12px; line-height: 1.45; overflow: hidden; }
-.asset-card span { color: #177264; font-size: 12px; font-weight: 600; }
+.asset-upload { margin-top: auto; position: relative; border-top: 1px solid #ece7dc; padding-top: 7px; cursor: pointer; }
+.asset-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.asset-upload span { color: #177264; font-size: 12px; font-weight: 600; }
+.delete-mini { position: absolute; z-index: 2; top: 5px; right: 5px; width: 25px; height: 25px; padding: 0; border: 1px solid #ddd5c8; border-radius: 4px; background: rgba(255, 255, 255, 0.95); color: #776d65; cursor: pointer; }
+.delete-mini:hover { border-color: #c55a4c; color: #c34738; }
 .empty-inline { padding: 18px; background: #efede7; color: #646b68; margin-bottom: 18px; border-radius: 6px; }
 .board-title { align-items: center; }
 .board-actions { display: flex; gap: 10px; }
@@ -409,8 +549,13 @@ onBeforeUnmount(stopPolling)
 .shot-image { position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; background: #e7e4dc; color: #69706c; margin-bottom: 9px; overflow: hidden; }
 .shot-image img { width: 100%; height: 100%; object-fit: cover; }
 .shot-image strong { position: absolute; top: 7px; left: 7px; width: 26px; height: 26px; display: grid; place-items: center; background: #111a19; color: #fff; font-size: 13px; }
-.shot-card h4 { height: 40px; margin: 0 0 7px; overflow: hidden; font-size: 13px; line-height: 1.45; }
-.shot-card p { height: 52px; overflow: hidden; margin: 0; color: #65706b; font-size: 12px; line-height: 1.45; }
+.shot-description { margin-bottom: 9px; }
+.shot-description :deep(.el-textarea__inner) { min-height: 62px !important; padding: 8px; border-radius: 4px; box-shadow: 0 0 0 1px #e2ded2 inset; font-size: 12px; line-height: 1.45; }
+.shot-actions { display: flex; align-items: center; gap: 7px; }
+.replace-button { height: 24px; padding: 0 9px; display: inline-flex; align-items: center; border: 1px solid #cfcabe; border-radius: 4px; color: #4c5753; background: #fff; cursor: pointer; font-size: 12px; }
+.replace-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.dialog-note { margin: 0 0 16px; color: #68716d; line-height: 1.55; }
+.reference-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .grid-result img { display: block; width: min(100%, 1100px); border: 1px solid #d6d2c8; background: #111; }
 @media (max-width: 980px) {
   .workspace { display: block; }

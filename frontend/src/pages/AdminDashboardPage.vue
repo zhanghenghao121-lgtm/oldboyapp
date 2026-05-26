@@ -148,6 +148,14 @@
                   placeholder="设置九格画面描述与单格生图提示词规则"
                 />
               </el-form-item>
+              <el-form-item label="单格重生成提示词">
+                <el-input
+                  v-model="forms.storyboard_single_panel_prompt"
+                  type="textarea"
+                  :rows="12"
+                  placeholder="设置单个分镜重新生成画面描述与图片提示词的规则"
+                />
+              </el-form-item>
             </div>
             <el-form-item label="独立 AI生图反打提示词">
               <el-input
@@ -298,6 +306,7 @@ const forms = reactive({
   storyboard_leaf_split_prompt: '',
   storyboard_asset_prompt: '',
   storyboard_panel_prompt: '',
+  storyboard_single_panel_prompt: '',
 })
 
 const userForm = reactive({
@@ -382,7 +391,7 @@ const saveModelConfigs = async () => {
 const savePromptConfigs = async () => {
   savingPrompts.value = true
   try {
-    await saveKeys(['storyboard_scene_split_prompt', 'storyboard_leaf_split_prompt', 'storyboard_asset_prompt', 'storyboard_panel_prompt', 'ai_image_reverse_prompt'])
+    await saveKeys(['storyboard_scene_split_prompt', 'storyboard_leaf_split_prompt', 'storyboard_asset_prompt', 'storyboard_panel_prompt', 'storyboard_single_panel_prompt', 'ai_image_reverse_prompt'])
     ElMessage.success('提示词配置已保存')
   } catch (e) {
     ElMessage.error(String(e || '提示词配置保存失败'))

@@ -147,7 +147,9 @@ def upload(request):
         )
         return bad("目录格式不合法")
 
-    if file_obj.size > settings.MAX_UPLOAD_SIZE:
+    is_image = content_type.startswith("image/")
+    source_limit = settings.IMAGE_SOURCE_MAX_UPLOAD_SIZE if is_image else settings.MAX_UPLOAD_SIZE
+    if file_obj.size > source_limit:
         _audit(
             request,
             status=UploadAuditLog.STATUS_REJECTED,
@@ -157,7 +159,7 @@ def upload(request):
             content_type=content_type,
             size=size,
         )
-        return bad("文件超过大小限制（最大10MB）", 413)
+        return bad("图片原文件超过可压缩大小限制" if is_image else "文件超过大小限制（最大10MB）", 413)
 
     if (not any(content_type.startswith(prefix) for prefix in ALLOWED_CONTENT_PREFIXES)) and (content_type not in ALLOWED_CONTENT_TYPES):
         _audit(
@@ -188,7 +190,7 @@ def upload(request):
     body = file_obj.file
     final_size = file_obj.size
     final_content_type = content_type
-    if content_type.startswith("image/"):
+    if is_image:
         raw = file_obj.read()
         file_obj.seek(0)
         compressed, final_content_type, new_ext = _compress_image_bytes(raw, content_type)
@@ -196,6 +198,17 @@ def upload(request):
         final_size = len(compressed)
         if new_ext:
             ext = new_ext
+        if final_size > settings.MAX_UPLOAD_SIZE:
+            _audit(
+                request,
+                status=UploadAuditLog.STATUS_REJECTED,
+                message="图片压缩后仍超过大小限制",
+                folder=folder,
+                filename=filename,
+                content_type=final_content_type,
+                size=final_size,
+            )
+            return bad("图片压缩后仍超过大小限制，请更换分辨率更小的图片", 413)
 
     key = f"{folder}/{date_path}/{uuid.uuid4().hex}{ext}"
 

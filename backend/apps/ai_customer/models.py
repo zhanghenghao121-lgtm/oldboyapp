@@ -95,14 +95,10 @@ class StoryboardAsset(models.Model):
     TYPE_CHARACTER = "character"
     TYPE_SCENE = "scene"
     TYPE_PROP = "prop"
-    TYPE_STYLE = "style"
-    TYPE_COSTUME = "costume"
     TYPE_CHOICES = [
         (TYPE_CHARACTER, "人物"),
         (TYPE_SCENE, "场景"),
         (TYPE_PROP, "道具"),
-        (TYPE_STYLE, "风格参考"),
-        (TYPE_COSTUME, "服装/妆容"),
     ]
 
     project = models.ForeignKey(StoryboardProject, on_delete=models.CASCADE, related_name="assets")
@@ -110,7 +106,7 @@ class StoryboardAsset(models.Model):
     asset_type = models.CharField(max_length=50, choices=TYPE_CHOICES)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
-    image_url = models.URLField(max_length=1000)
+    image_url = models.URLField(max_length=1000, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

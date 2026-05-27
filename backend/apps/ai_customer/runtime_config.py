@@ -7,6 +7,7 @@ from apps.ai_customer.storyboard_prompts import (
     DEFAULT_STORYBOARD_PANEL_PROMPT,
     DEFAULT_STORYBOARD_SCENE_SPLIT_PROMPT,
     DEFAULT_STORYBOARD_SINGLE_PANEL_PROMPT,
+    DEFAULT_STORYBOARD_VIDEO_PROMPT,
 )
 
 DEFAULT_AI_IMAGE_REVERSE_PROMPT = (
@@ -168,4 +169,11 @@ def get_storyboard_single_panel_prompt():
     return _read_config_value(
         SiteConfig.KEY_STORYBOARD_SINGLE_PANEL_PROMPT,
         DEFAULT_STORYBOARD_SINGLE_PANEL_PROMPT,
+    )
+
+
+def get_storyboard_video_prompt():
+    return _read_config_value(
+        SiteConfig.KEY_STORYBOARD_VIDEO_PROMPT,
+        DEFAULT_STORYBOARD_VIDEO_PROMPT,
     )

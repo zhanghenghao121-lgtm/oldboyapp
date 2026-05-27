@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 
 import requests
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageOps
 from django.conf import settings
 from django.db import transaction
 from qcloud_cos import CosConfig, CosS3Client
@@ -31,6 +31,7 @@ from apps.ai_customer.runtime_config import (
     get_storyboard_panel_prompt,
     get_storyboard_scene_split_prompt,
     get_storyboard_single_panel_prompt,
+    get_storyboard_video_prompt,
 )
 from apps.storage.models import UploadedFileRecord
 
@@ -42,7 +43,8 @@ ASSET_TYPE_BY_GROUP = {
     "scenes": StoryboardAsset.TYPE_SCENE,
     "props": StoryboardAsset.TYPE_PROP,
 }
-ALLOWED_ASSET_TYPES = set(ASSET_TYPE_BY_GROUP.values())
+ALLOWED_ASSET_TYPES = {*ASSET_TYPE_BY_GROUP.values(), StoryboardAsset.TYPE_POSITION}
+ALLOWED_PANEL_COUNTS = {6, 9, 12}
 
 
 class StoryboardError(Exception):
@@ -135,6 +137,8 @@ def serialize_segment(segment: StorySegment, include_children: bool = True) -> d
         "grid_feasibility_score": segment.grid_feasibility_score,
         "analysis": segment.analysis_json,
         "required_assets": segment.required_assets_json,
+        "panel_count": segment.panel_count,
+        "supplementary_description": segment.supplementary_description,
         "assets": [serialize_asset(asset) for asset in segment.assets.all()],
         "panels": [serialize_panel(panel) for panel in segment.panels.all()],
         "grid_image_url": segment.grid_image_url,
@@ -276,7 +280,7 @@ def analyze_project(project: StoryboardProject) -> dict:
 
 def save_asset(segment: StorySegment, payload: dict) -> dict:
     if not segment.is_leaf:
-        raise StoryboardError("只能为可生成九宫格的剧情小段上传素材")
+        raise StoryboardError("只能为可生成分镜板的剧情小段上传素材")
     asset_type = str(payload.get("asset_type") or "").strip()
     if asset_type not in ALLOWED_ASSET_TYPES:
         raise StoryboardError("素材类型不支持")
@@ -304,25 +308,47 @@ def delete_asset(segment: StorySegment, asset_id: int) -> None:
     asset.delete()
 
 
+def _panel_count(value, fallback: int = 9) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        count = fallback
+    if count not in ALLOWED_PANEL_COUNTS:
+        raise StoryboardError("分镜数量仅支持 6、9 或 12 张")
+    return count
+
+
 @transaction.atomic
-def generate_panels(segment: StorySegment) -> list[dict]:
+def generate_panels(segment: StorySegment, panel_count=None, supplementary_description=None) -> list[dict]:
     if not segment.is_leaf:
         raise StoryboardError("请选择已拆解完成的剧情小段")
+    count = _panel_count(panel_count, segment.panel_count)
+    description = (
+        str(supplementary_description).strip()
+        if supplementary_description is not None
+        else segment.supplementary_description
+    )
+    segment.panel_count = count
+    segment.supplementary_description = description
+    segment.grid_image_url = ""
+    segment.save(update_fields=["panel_count", "supplementary_description", "grid_image_url"])
     assets = [serialize_asset(asset) for asset in segment.assets.all()]
     result = _call_storyboard_json(
         get_storyboard_panel_prompt(),
         (
             f"剧情段标题：{segment.title}\n场景：{segment.scene_name}\n情绪：{segment.mood}\n"
             f"项目画面风格：{segment.project.style_preset or '未指定'}\n"
+            f"需要生成的分镜数量：{count} 张\n"
             f"剧情内容：\n{segment.original_text or segment.summary}\n\n"
+            f"用户补充描述：\n{description or '无'}\n\n"
             f"已上传素材参考：\n{json.dumps(assets, ensure_ascii=False)}"
         ),
         segment.project.analysis_model,
-        "九宫格分镜规划模型",
+        "分镜板规划模型",
     )
     panels = [item for item in (result.get("panels") or []) if isinstance(item, dict)]
-    if len(panels) != 9:
-        raise StoryboardError("模型未返回完整的 9 个分镜，请重试或调整提示词", 502)
+    if len(panels) != count:
+        raise StoryboardError(f"模型未返回完整的 {count} 个分镜，请重试或调整提示词", 502)
     segment.panels.all().delete()
     rows = []
     for panel_no, item in enumerate(sorted(panels, key=lambda row: int(row.get("panel_no") or 99)), start=1):
@@ -370,7 +396,7 @@ def _submit_panel_image(panel: StoryboardPanel, model: str, references: list[dic
             reference_images=references,
         )
     except AIImageError as exc:
-        logger.exception("九宫格生图失败 segment=%s panel=%s", panel.segment_id, panel.panel_no)
+        logger.exception("分镜板生图失败 segment=%s panel=%s", panel.segment_id, panel.panel_no)
         raise StoryboardError(f"第 {panel.panel_no} 格生成失败：{exc}", exc.status) from exc
     panel.generation_task_id = str(result.get("task_id") or "")
     panel.image_url = str((result.get("images") or [""])[0] or "")
@@ -379,8 +405,8 @@ def _submit_panel_image(panel: StoryboardPanel, model: str, references: list[dic
 
 def generate_panel_images(segment: StorySegment, model: str = "", asset_ids: list[int] | None = None) -> list[dict]:
     panels = list(segment.panels.select_related("segment__project").all())
-    if len(panels) != 9:
-        raise StoryboardError("请先生成完整九宫格分镜提示词")
+    if len(panels) != segment.panel_count:
+        raise StoryboardError("请先生成完整分镜板提示词")
     references = _panel_references(segment, asset_ids)
     image_model = str(model or segment.project.image_model).strip()
     for panel in panels:
@@ -390,8 +416,8 @@ def generate_panel_images(segment: StorySegment, model: str = "", asset_ids: lis
     return [serialize_panel(panel) for panel in segment.panels.all()]
 
 
-def generate_panels_and_images(segment: StorySegment, model: str = "") -> list[dict]:
-    generate_panels(segment)
+def generate_panels_and_images(segment: StorySegment, model: str = "", panel_count=None, supplementary_description=None) -> list[dict]:
+    generate_panels(segment, panel_count, supplementary_description)
     return generate_panel_images(segment, model)
 
 
@@ -467,7 +493,7 @@ def refresh_panel_images(segment: StorySegment) -> list[dict]:
         try:
             result = get_ai_image_task_result(panel.generation_task_id)
         except AIImageError as exc:
-            logger.exception("九宫格任务查询失败 segment=%s panel=%s", segment.id, panel.panel_no)
+            logger.exception("分镜图任务查询失败 segment=%s panel=%s", segment.id, panel.panel_no)
             raise StoryboardError(f"第 {panel.panel_no} 格任务查询失败：{exc}", exc.status) from exc
         images = result.get("images") or []
         if images:
@@ -497,14 +523,14 @@ def _download_image(url: str) -> Image.Image:
 
 def _upload_grid(image_bytes: bytes, user) -> str:
     if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
-        raise StoryboardError("COS 配置不完整，无法保存九宫格成图", 500)
+        raise StoryboardError("COS 配置不完整，无法保存分镜板成图", 500)
     key = f"images/storyboards/grids/{datetime.now().strftime('%Y/%m/%d')}/{uuid.uuid4().hex}.jpg"
     client = CosS3Client(CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY))
     try:
         client.put_object(Bucket=settings.COS_BUCKET, Body=image_bytes, Key=key, ContentType="image/jpeg")
     except Exception as exc:
-        logger.exception("九宫格上传 COS 失败")
-        raise StoryboardError("九宫格图片保存失败，请稍后重试", 502) from exc
+        logger.exception("分镜板上传 COS 失败")
+        raise StoryboardError("分镜板图片保存失败，请稍后重试", 502) from exc
     base_url = str(settings.COS_BASE_URL or "").rstrip("/")
     url = f"{base_url}/{key}" if base_url else f"https://{settings.COS_BUCKET}.cos.{settings.COS_REGION}.myqcloud.com/{key}"
     UploadedFileRecord.objects.create(user=user, key=key, url=url, content_type="image/jpeg", size=len(image_bytes))
@@ -513,21 +539,70 @@ def _upload_grid(image_bytes: bytes, user) -> str:
 
 def compose_grid(segment: StorySegment, user) -> str:
     panels = list(segment.panels.all())
-    if len(panels) != 9 or any(not panel.image_url for panel in panels):
-        raise StoryboardError("九张分镜图全部生成完成后才能合成")
-    tile_width, tile_height, footer = 640, 360, 40
-    canvas = Image.new("RGB", (tile_width * 3, (tile_height + footer) * 3), "#111111")
-    draw = ImageDraw.Draw(canvas)
+    if len(panels) != segment.panel_count or any(not panel.image_url for panel in panels):
+        raise StoryboardError(f"{segment.panel_count} 张分镜图全部生成完成后才能合成")
+    columns = 4 if segment.panel_count == 12 else 3
+    rows = (segment.panel_count + columns - 1) // columns
+    tile_width, tile_height = 640, 360
+    canvas = Image.new("RGB", (tile_width * columns, tile_height * rows), "#111111")
     for index, panel in enumerate(panels):
         image = ImageOps.fit(_download_image(panel.image_url), (tile_width, tile_height), method=Image.Resampling.LANCZOS)
-        x = (index % 3) * tile_width
-        y = (index // 3) * (tile_height + footer)
+        x = (index % columns) * tile_width
+        y = (index // columns) * tile_height
         canvas.paste(image, (x, y))
-        draw.rectangle((x, y + tile_height, x + tile_width, y + tile_height + footer), fill="#111111")
-        draw.text((x + 16, y + tile_height + 13), f"#{panel.panel_no:02d}", fill="#ffffff")
     output = io.BytesIO()
     canvas.save(output, "JPEG", quality=92, optimize=True)
     url = _upload_grid(output.getvalue(), user)
     segment.grid_image_url = url
     segment.save(update_fields=["grid_image_url"])
     return url
+
+
+def generate_video_prompts(segment: StorySegment) -> list[dict]:
+    panels = list(segment.panels.all())
+    if len(panels) != segment.panel_count:
+        raise StoryboardError("请先生成完整分镜板")
+    storyboard = [
+        {
+            "panel_no": panel.panel_no,
+            "shot_type": panel.shot_type,
+            "screen_description": panel.screen_description,
+            "image_url": panel.image_url,
+        }
+        for panel in panels
+    ]
+    result = _call_storyboard_json(
+        get_storyboard_video_prompt(),
+        (
+            f"故事剧情：\n{segment.original_text or segment.summary}\n\n"
+            f"用户补充描述：\n{segment.supplementary_description or '无'}\n\n"
+            f"分镜板图片：{segment.grid_image_url or '尚未合成，请依据逐格图片和描述'}\n"
+            f"分镜逐格信息：\n{json.dumps(storyboard, ensure_ascii=False)}"
+        ),
+        segment.project.analysis_model,
+        "视频分镜提示词模型",
+    )
+    prompts = [item for item in (result.get("panels") or []) if isinstance(item, dict)]
+    prompt_by_no = {}
+    for item in prompts:
+        try:
+            panel_no = int(item.get("panel_no"))
+        except (TypeError, ValueError):
+            continue
+        text = str(item.get("video_prompt") or "").strip()
+        if text:
+            prompt_by_no[panel_no] = text
+    if len(prompt_by_no) != segment.panel_count:
+        raise StoryboardError(f"模型未返回完整的 {segment.panel_count} 条视频分镜提示词，请重试", 502)
+    durations = []
+    for text in prompt_by_no.values():
+        match = re.search(r"[（(]\s*(\d+(?:\.\d+)?)\s*秒\s*[）)]", text)
+        if not match or not text.startswith("【") or "】【" not in text:
+            raise StoryboardError("视频分镜提示词格式不正确，请重试", 502)
+        durations.append(float(match.group(1)))
+    if abs(sum(durations) - 15) > 0.01:
+        raise StoryboardError("视频分镜总时长必须为 15 秒，请重试", 502)
+    for panel in panels:
+        panel.video_prompt = prompt_by_no[panel.panel_no]
+        panel.save(update_fields=["video_prompt"])
+    return [serialize_panel(panel) for panel in segment.panels.all()]

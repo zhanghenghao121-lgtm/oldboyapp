@@ -20,6 +20,7 @@ from apps.ai_customer.views import (
     storyboard_segment_compose_grid,
     storyboard_segment_generate_images,
     storyboard_segment_generate_panels,
+    storyboard_segment_generate_video_prompts,
     storyboard_segment_refresh_images,
 )
 
@@ -33,6 +34,7 @@ urlpatterns = [
     path("storyboard/segments/<int:segment_id>/assets/<int:asset_id>", storyboard_segment_asset_delete),
     path("storyboard/segments/<int:segment_id>/generate-panels", storyboard_segment_generate_panels),
     path("storyboard/segments/<int:segment_id>/generate-panel-images", storyboard_segment_generate_images),
+    path("storyboard/segments/<int:segment_id>/generate-video-prompts", storyboard_segment_generate_video_prompts),
     path("storyboard/segments/<int:segment_id>/panel-images/refresh", storyboard_segment_refresh_images),
     path("storyboard/segments/<int:segment_id>/compose-grid", storyboard_segment_compose_grid),
     path("storyboard/panels/<int:panel_id>", storyboard_panel_update),

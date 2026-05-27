@@ -33,6 +33,7 @@ from apps.ai_customer.storyboard_services import (
     delete_asset,
     generate_panel_images,
     generate_panels_and_images,
+    generate_video_prompts,
     regenerate_panel,
     refresh_panel_images,
     save_asset,
@@ -317,7 +318,18 @@ def storyboard_segment_generate_panels(request, segment_id):
     if not segment:
         return bad("剧情小段不存在", 404)
     try:
-        return ok({"panels": generate_panels_and_images(segment, str(request.data.get("model") or ""))})
+        return ok(
+            {
+                "panels": generate_panels_and_images(
+                    segment,
+                    str(request.data.get("model") or ""),
+                    request.data.get("panel_count"),
+                    request.data.get("supplementary_description"),
+                ),
+                "panel_count": segment.panel_count,
+                "supplementary_description": segment.supplementary_description,
+            }
+        )
     except StoryboardError as exc:
         return bad(str(exc), exc.status)
 
@@ -362,6 +374,21 @@ def storyboard_segment_compose_grid(request, segment_id):
         return bad("剧情小段不存在", 404)
     try:
         return ok({"grid_image_url": compose_grid(segment, request.user)})
+    except StoryboardError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def storyboard_segment_generate_video_prompts(request, segment_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    segment = _owned_segment(request, segment_id)
+    if not segment:
+        return bad("剧情小段不存在", 404)
+    try:
+        return ok({"panels": generate_video_prompts(segment)})
     except StoryboardError as exc:
         return bad(str(exc), exc.status)
 

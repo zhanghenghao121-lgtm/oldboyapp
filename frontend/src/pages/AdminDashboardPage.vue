@@ -109,7 +109,7 @@
           <div class="panel-head">
             <div>
               <h3>故事板提示词</h3>
-              <p>分别控制场景拆分、九格适配判断、素材提取和九宫格镜头生成。</p>
+              <p>分别控制场景拆分、素材提取、分镜画面生成和 15 秒视频分镜提示词。</p>
             </div>
             <el-button class="main-btn" type="primary" :loading="savingPrompts" @click="savePromptConfigs">保存提示词</el-button>
           </div>
@@ -124,12 +124,12 @@
               />
             </el-form-item>
             <div class="prompt-grid">
-              <el-form-item label="九格适配与递归拆分提示词">
+              <el-form-item label="分镜适配与递归拆分提示词">
                 <el-input
                   v-model="forms.storyboard_leaf_split_prompt"
                   type="textarea"
                   :rows="8"
-                  placeholder="设置是否可用九宫格表现以及继续拆分的规则"
+                  placeholder="设置是否可用分镜板表现以及继续拆分的规则"
                 />
               </el-form-item>
               <el-form-item label="素材提取提示词">
@@ -140,12 +140,20 @@
                   placeholder="设置人物、场景和道具素材识别规则"
                 />
               </el-form-item>
-              <el-form-item label="九宫格分镜提示词">
+              <el-form-item label="分镜板生图提示词">
                 <el-input
                   v-model="forms.storyboard_panel_prompt"
                   type="textarea"
                   :rows="12"
-                  placeholder="设置九格画面描述与单格生图提示词规则"
+                  placeholder="设置 6 / 9 / 12 格画面描述与单格生图提示词规则"
+                />
+              </el-form-item>
+              <el-form-item label="视频分镜提示词">
+                <el-input
+                  v-model="forms.storyboard_video_prompt"
+                  type="textarea"
+                  :rows="12"
+                  placeholder="设置根据完整分镜板生成总时长 15 秒视频提示词的规则"
                 />
               </el-form-item>
               <el-form-item label="单格重生成提示词">
@@ -307,6 +315,7 @@ const forms = reactive({
   storyboard_asset_prompt: '',
   storyboard_panel_prompt: '',
   storyboard_single_panel_prompt: '',
+  storyboard_video_prompt: '',
 })
 
 const userForm = reactive({
@@ -391,7 +400,7 @@ const saveModelConfigs = async () => {
 const savePromptConfigs = async () => {
   savingPrompts.value = true
   try {
-    await saveKeys(['storyboard_scene_split_prompt', 'storyboard_leaf_split_prompt', 'storyboard_asset_prompt', 'storyboard_panel_prompt', 'storyboard_single_panel_prompt', 'ai_image_reverse_prompt'])
+    await saveKeys(['storyboard_scene_split_prompt', 'storyboard_leaf_split_prompt', 'storyboard_asset_prompt', 'storyboard_panel_prompt', 'storyboard_single_panel_prompt', 'storyboard_video_prompt', 'ai_image_reverse_prompt'])
     ElMessage.success('提示词配置已保存')
   } catch (e) {
     ElMessage.error(String(e || '提示词配置保存失败'))

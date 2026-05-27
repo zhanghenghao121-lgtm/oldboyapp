@@ -9,6 +9,7 @@ from apps.ai_customer.storyboard_services import (
     analyze_project,
     delete_asset,
     generate_panels,
+    generate_video_prompts,
     regenerate_panel,
     save_asset,
 )
@@ -88,6 +89,48 @@ class StoryboardServicesTests(TestCase):
         self.assertEqual(saved["image_url"], "")
         delete_asset(segment, saved["id"])
         self.assertFalse(segment.assets.exists())
+
+    def test_position_reference_asset_can_be_named_and_saved(self):
+        segment = StorySegment.objects.create(project=self.project, title="站台", is_leaf=True)
+
+        saved = save_asset(segment, {"asset_type": "position", "name": "父女对望站位", "image_url": "https://example.com/position.jpg"})
+
+        self.assertEqual(saved["asset_type"], "position")
+        self.assertEqual(segment.assets.get().name, "父女对望站位")
+
+    @patch("apps.ai_customer.storyboard_services._call_storyboard_json")
+    def test_generate_panels_accepts_six_shots_and_supplementary_description(self, call_model):
+        segment = StorySegment.objects.create(project=self.project, title="站台重逢", original_text=self.project.original_story, is_leaf=True)
+        call_model.return_value = {
+            "panels": [
+                {"panel_no": number, "screen_description": f"画面 {number}", "image_prompt": f"提示词 {number}"}
+                for number in range(1, 7)
+            ]
+        }
+
+        result = generate_panels(segment, 6, "强调父女之间隔着列车窗")
+
+        segment.refresh_from_db()
+        self.assertEqual(len(result), 6)
+        self.assertEqual(segment.panel_count, 6)
+        self.assertEqual(segment.supplementary_description, "强调父女之间隔着列车窗")
+
+    @patch("apps.ai_customer.storyboard_services._call_storyboard_json")
+    def test_generate_video_prompts_updates_every_panel(self, call_model):
+        segment = StorySegment.objects.create(project=self.project, title="站台重逢", is_leaf=True, panel_count=6)
+        for number in range(1, 7):
+            StoryboardPanel.objects.create(segment=segment, panel_no=number, screen_description=f"画面 {number}")
+        call_model.return_value = {
+            "panels": [
+                {"panel_no": number, "video_prompt": f"【中景】【画面 {number}】（{5 if number == 6 else 2}秒）"}
+                for number in range(1, 7)
+            ]
+        }
+
+        result = generate_video_prompts(segment)
+
+        self.assertEqual(len(result), 6)
+        self.assertIn("【中景】", segment.panels.get(panel_no=1).video_prompt)
 
     @patch("apps.ai_customer.storyboard_services._submit_panel_image")
     @patch("apps.ai_customer.storyboard_services._call_storyboard_json")

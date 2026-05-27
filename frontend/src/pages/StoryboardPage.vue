@@ -21,7 +21,7 @@
             type="textarea"
             resize="none"
             :rows="12"
-            placeholder="输入一段剧情，AI 将先按场景拆分，再递归拆成可由一张九宫格故事板表达的小段。"
+            placeholder="输入一段剧情，AI 将解析场景、角色与道具，并拆成可制作连续分镜板的小段。"
           />
           <div class="select-grid">
             <el-select v-model="analysisModel" placeholder="拆解模型">
@@ -71,8 +71,8 @@
 
       <section class="production-column">
         <div v-if="!selectedLeaf" class="blank-state">
-          <h2>从剧情开始制作九宫格</h2>
-          <p>完成拆解后，选择一个剧情小段，为场景、人物与道具上传参考图片，再生成连续九格分镜。</p>
+          <h2>从剧情开始制作分镜板</h2>
+          <p>完成解析后，上传场景、角色、道具及站位参考，生成可编辑的连续镜头。</p>
         </div>
 
         <template v-else>
@@ -82,18 +82,33 @@
               <h2>{{ selectedLeaf.title }}</h2>
               <p>{{ selectedLeaf.summary || selectedLeaf.original_text }}</p>
             </div>
-            <strong class="score">{{ selectedLeaf.grid_feasibility_score }}<small>九格适配度</small></strong>
+            <strong class="score">{{ selectedLeaf.grid_feasibility_score }}<small>分镜适配度</small></strong>
           </header>
 
           <section class="asset-panel">
             <div class="section-title">
               <div>
                 <h3>素材参考</h3>
-                <p>人物、场景、道具均可增删和上传参考图，九格生成将保持所选素材一致。</p>
+                <p>上传一张或多张场景、角色、道具与站位参考图，分镜生成将保持素材和空间关系一致。</p>
               </div>
               <div class="asset-tools">
                 <span>{{ uploadedCount }} / {{ storyboardAssets.length }} 已上传</span>
                 <el-button size="small" plain @click="assetDialogVisible = true">添加素材</el-button>
+              </div>
+            </div>
+            <div class="direction-panel">
+              <div>
+                <label>分镜数量</label>
+                <el-segmented v-model="selectedLeaf.panel_count" :options="panelCountOptions" />
+              </div>
+              <div class="brief-field">
+                <label>补充描述</label>
+                <el-input
+                  v-model="selectedLeaf.supplementary_description"
+                  type="textarea"
+                  :rows="2"
+                  placeholder="补充表演、光线、构图、镜头连续性或需强调的站位要求"
+                />
               </div>
             </div>
             <div v-if="storyboardAssets.length" class="asset-grid">
@@ -110,23 +125,24 @@
               </article>
             </div>
             <div v-else class="empty-inline">该段落没有素材。可添加人物、场景或道具，也可以直接生成画面。</div>
-            <el-button type="primary" :loading="generatingPanels" @click="createPanels">生成九格分镜与图片</el-button>
+            <el-button type="primary" :loading="generatingPanels" @click="createPanels">生成 {{ activePanelCount }} 张分镜图</el-button>
           </section>
 
           <section v-if="panels.length" class="panel-board">
             <div class="section-title board-title">
               <div>
-                <h3>九格分镜</h3>
+                <h3>{{ activePanelCount }} 格分镜板</h3>
                 <p>画面描述可直接修改；每格可以选择素材重新生成，也可以上传本地图片替换。</p>
               </div>
               <div class="board-actions">
-                <el-button plain :disabled="!imagesReady" :loading="composing" @click="composeGrid">合成九宫格</el-button>
+                <el-button plain :disabled="!imagesReady" :loading="composing" @click="composeGrid">合成 {{ activePanelCount }} 宫格</el-button>
+                <el-button type="primary" plain :disabled="!selectedLeaf.grid_image_url" :loading="generatingVideoPrompts" @click="createVideoPrompts">生成视频分镜提示词</el-button>
               </div>
             </div>
-            <div class="nine-grid">
+            <div class="shot-grid" :class="`grid-${activePanelCount}`">
               <article v-for="panel in panels" :key="panel.panel_no" class="shot-card">
                 <div class="shot-image">
-                  <img v-if="panel.image_url" :src="panel.image_url" :alt="`分镜 ${panel.panel_no}`" />
+                  <img v-if="panel.image_url" :src="panel.image_url" :alt="`分镜 ${panel.panel_no}`" @click="previewImage(panel.image_url)" />
                   <span v-else>{{ panel.generation_task_id ? '生成中' : panel.shot_type || '待生成' }}</span>
                   <strong>{{ panel.panel_no }}</strong>
                 </div>
@@ -139,11 +155,17 @@
                   @blur="savePanelDescription(panel)"
                 />
                 <div class="shot-actions">
+                  <el-button v-if="panel.image_url" size="small" text @click="previewImage(panel.image_url)">预览</el-button>
+                  <a v-if="panel.image_url" class="download-link" :href="panel.image_url" target="_blank" download>下载</a>
                   <el-button size="small" plain :loading="regeneratingPanelId === panel.id" @click="openRegenerate(panel)">重新生成</el-button>
                   <label class="replace-button">
                     <input type="file" accept="image/*" @change="(event) => replacePanelImage(event, panel)" />
                     {{ replacingPanelId === panel.id ? '上传中' : '上传替换' }}
                   </label>
+                </div>
+                <div v-if="panel.video_prompt" class="video-prompt">
+                  <strong>视频提示词</strong>
+                  <p>{{ panel.video_prompt }}</p>
                 </div>
               </article>
             </div>
@@ -151,10 +173,13 @@
 
           <section v-if="selectedLeaf.grid_image_url" class="grid-result">
             <div class="section-title">
-              <h3>最终九宫格故事板</h3>
-              <el-button type="primary" plain @click="openGrid">打开大图</el-button>
+              <h3>最终 {{ activePanelCount }} 宫格分镜板</h3>
+              <div class="board-actions">
+                <el-button type="primary" plain @click="openGrid">预览大图</el-button>
+                <a class="result-download" :href="selectedLeaf.grid_image_url" target="_blank" download>下载完整图</a>
+              </div>
             </div>
-            <img :src="selectedLeaf.grid_image_url" alt="九宫格故事板成图" />
+            <img :src="selectedLeaf.grid_image_url" alt="分镜板完整成图" @click="openGrid" />
           </section>
         </template>
       </section>
@@ -165,7 +190,7 @@
           <el-segmented v-model="newAsset.asset_type" :options="assetTypeOptions" />
         </el-form-item>
         <el-form-item label="素材名称">
-          <el-input v-model="newAsset.name" maxlength="40" placeholder="例如：林初 / 雨夜站台 / 旧车票" />
+          <el-input v-model="newAsset.name" maxlength="40" placeholder="例如：林初 / 雨夜站台 / 旧车票 / 对话站位" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="newAsset.description" type="textarea" :rows="3" placeholder="外形、空间或需要保持的特征" />
@@ -204,6 +229,7 @@ import {
   createStoryboardProject,
   deleteStoryboardAsset,
   generateStoryboardPanels,
+  generateStoryboardVideoPrompts,
   getStoryboardConfig,
   regenerateStoryboardPanel,
   refreshStoryboardImages,
@@ -230,6 +256,7 @@ const analyzing = ref(false)
 const uploadingKey = ref('')
 const generatingPanels = ref(false)
 const generatingImages = ref(false)
+const generatingVideoPrompts = ref(false)
 const composing = ref(false)
 const assetDialogVisible = ref(false)
 const savingAsset = ref(false)
@@ -248,11 +275,17 @@ const collectLeaves = (segment) => {
 const leavesOf = (scene) => collectLeaves(scene)
 const leafSegments = computed(() => segments.value.flatMap(collectLeaves))
 const panels = computed(() => selectedLeaf.value?.panels || [])
-const assetTypeLabels = { character: '人物', scene: '场景', prop: '道具' }
+const assetTypeLabels = { character: '人物', scene: '场景', prop: '道具', position: '站位参考' }
 const assetTypeOptions = [
   { label: '人物', value: 'character' },
   { label: '场景', value: 'scene' },
   { label: '道具', value: 'prop' },
+  { label: '站位', value: 'position' },
+]
+const panelCountOptions = [
+  { label: '6 格', value: 6 },
+  { label: '9 格', value: 9 },
+  { label: '12 格', value: 12 },
 ]
 const storyboardAssets = computed(() =>
   (selectedLeaf.value?.assets || [])
@@ -261,7 +294,8 @@ const storyboardAssets = computed(() =>
 )
 const uploadedAssets = computed(() => storyboardAssets.value.filter((asset) => asset.image_url))
 const uploadedCount = computed(() => uploadedAssets.value.length)
-const imagesReady = computed(() => panels.value.length === 9 && panels.value.every((panel) => panel.image_url))
+const activePanelCount = computed(() => Number(selectedLeaf.value?.panel_count || 9))
+const imagesReady = computed(() => panels.value.length === activePanelCount.value && panels.value.every((panel) => panel.image_url))
 
 watch(selectedLeaf, () => stopPolling())
 
@@ -375,15 +409,21 @@ const createPanels = async () => {
   generatingImages.value = true
   stopPolling()
   try {
-    const res = await generateStoryboardPanels(selectedLeaf.value.id, imageModel.value)
+    const res = await generateStoryboardPanels(selectedLeaf.value.id, {
+      model: imageModel.value,
+      panel_count: activePanelCount.value,
+      supplementary_description: selectedLeaf.value.supplementary_description || '',
+    })
     selectedLeaf.value.panels = res.data.panels || []
+    selectedLeaf.value.panel_count = res.data.panel_count || activePanelCount.value
+    selectedLeaf.value.supplementary_description = res.data.supplementary_description || ''
     selectedLeaf.value.grid_image_url = ''
     if (imagesReady.value) {
       generatingImages.value = false
-      ElMessage.success('九格分镜与图片已生成')
+      ElMessage.success(`${activePanelCount.value} 格分镜与图片已生成`)
     } else {
       pollTimer = window.setTimeout(pollImages, 4000)
-      ElMessage.success('九格分镜已生成，图片正在生成')
+      ElMessage.success(`${activePanelCount.value} 格分镜已生成，图片正在生成`)
     }
   } catch (error) {
     generatingImages.value = false
@@ -403,7 +443,7 @@ const pollImages = async () => {
     selectedLeaf.value.panels = res.data.panels || []
     if (imagesReady.value) {
       generatingImages.value = false
-      ElMessage.success('九张分镜图已生成')
+      ElMessage.success(`${activePanelCount.value} 张分镜图已生成`)
       return
     }
     pollTimer = window.setTimeout(pollImages, 4500)
@@ -418,9 +458,9 @@ const composeGrid = async () => {
   try {
     const res = await composeStoryboardGrid(selectedLeaf.value.id)
     selectedLeaf.value.grid_image_url = res.data.grid_image_url
-    ElMessage.success('九宫格故事板已合成')
+    ElMessage.success(`${activePanelCount.value} 宫格分镜板已合成`)
   } catch (error) {
-    ElMessage.error(String(error || '九宫格合成失败'))
+    ElMessage.error(String(error || '分镜板合成失败'))
   } finally {
     composing.value = false
   }
@@ -430,6 +470,20 @@ const replacePanel = (updated) => {
   const index = selectedLeaf.value.panels.findIndex((panel) => panel.id === updated.id)
   if (index >= 0) selectedLeaf.value.panels.splice(index, 1, updated)
   selectedLeaf.value.grid_image_url = ''
+}
+
+const createVideoPrompts = async () => {
+  if (!panels.value.length) return
+  generatingVideoPrompts.value = true
+  try {
+    const res = await generateStoryboardVideoPrompts(selectedLeaf.value.id)
+    selectedLeaf.value.panels = res.data.panels || []
+    ElMessage.success('15 秒视频分镜提示词已生成')
+  } catch (error) {
+    ElMessage.error(String(error || '视频分镜提示词生成失败'))
+  } finally {
+    generatingVideoPrompts.value = false
+  }
 }
 
 const savePanelDescription = async (panel) => {
@@ -488,6 +542,7 @@ const replacePanelImage = async (event, panel) => {
 }
 
 const openGrid = () => window.open(selectedLeaf.value.grid_image_url, '_blank', 'noopener,noreferrer')
+const previewImage = (url) => window.open(url, '_blank', 'noopener,noreferrer')
 
 onMounted(loadConfig)
 onBeforeUnmount(stopPolling)
@@ -529,6 +584,10 @@ onBeforeUnmount(stopPolling)
 .score small { color: #66706b; font-size: 12px; font-weight: 500; }
 .asset-panel, .panel-board, .grid-result { border-top: 1px solid #d8d5cc; padding: 22px 0; }
 .asset-tools { display: flex; align-items: center; gap: 12px; color: #177264; font-size: 13px; font-weight: 700; }
+.direction-panel { display: grid; grid-template-columns: 230px 1fr; gap: 18px; align-items: start; padding: 15px; margin-bottom: 18px; border: 1px solid #d8d5cc; border-radius: 6px; background: #fff; }
+.direction-panel label { display: block; margin-bottom: 9px; color: #43504b; font-size: 13px; font-weight: 700; }
+.direction-panel :deep(.el-segmented) { --el-segmented-item-selected-bg-color: #177264; --el-segmented-item-selected-color: #fff; }
+.brief-field :deep(.el-textarea__inner) { box-shadow: 0 0 0 1px #e0dbcf inset; }
 .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .asset-card { position: relative; min-height: 236px; padding: 9px; border: 1px dashed #bbb7ac; border-radius: 6px; background: #fff; display: flex; flex-direction: column; gap: 7px; }
 .asset-card.uploaded { border-style: solid; border-color: #73a89e; }
@@ -544,23 +603,31 @@ onBeforeUnmount(stopPolling)
 .empty-inline { padding: 18px; background: #efede7; color: #646b68; margin-bottom: 18px; border-radius: 6px; }
 .board-title { align-items: center; }
 .board-actions { display: flex; gap: 10px; }
-.nine-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; }
+.shot-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; }
+.shot-grid.grid-12 { grid-template-columns: repeat(4, minmax(170px, 1fr)); }
 .shot-card { background: #fff; border: 1px solid #d8d5cc; border-radius: 6px; padding: 9px; min-width: 0; }
 .shot-image { position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; background: #e7e4dc; color: #69706c; margin-bottom: 9px; overflow: hidden; }
-.shot-image img { width: 100%; height: 100%; object-fit: cover; }
+.shot-image img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
 .shot-image strong { position: absolute; top: 7px; left: 7px; width: 26px; height: 26px; display: grid; place-items: center; background: #111a19; color: #fff; font-size: 13px; }
 .shot-description { margin-bottom: 9px; }
 .shot-description :deep(.el-textarea__inner) { min-height: 62px !important; padding: 8px; border-radius: 4px; box-shadow: 0 0 0 1px #e2ded2 inset; font-size: 12px; line-height: 1.45; }
-.shot-actions { display: flex; align-items: center; gap: 7px; }
+.shot-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.download-link { color: #177264; font-size: 12px; font-weight: 600; text-decoration: none; }
+.download-link:hover { text-decoration: underline; }
 .replace-button { height: 24px; padding: 0 9px; display: inline-flex; align-items: center; border: 1px solid #cfcabe; border-radius: 4px; color: #4c5753; background: #fff; cursor: pointer; font-size: 12px; }
 .replace-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.video-prompt { padding: 9px; margin-top: 10px; border-radius: 4px; background: #edf4f1; color: #36433e; }
+.video-prompt strong { color: #177264; font-size: 12px; }
+.video-prompt p { margin: 5px 0 0; font-size: 12px; line-height: 1.5; }
 .dialog-note { margin: 0 0 16px; color: #68716d; line-height: 1.55; }
 .reference-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
-.grid-result img { display: block; width: min(100%, 1100px); border: 1px solid #d6d2c8; background: #111; }
+.grid-result img { display: block; width: min(100%, 1100px); border: 1px solid #d6d2c8; background: #111; cursor: zoom-in; }
+.result-download { height: 32px; padding: 0 14px; display: inline-flex; align-items: center; border-radius: 4px; color: #177264; border: 1px solid #9bc0b8; background: #fff; text-decoration: none; font-size: 14px; }
 @media (max-width: 980px) {
   .workspace { display: block; }
   .story-column { border-right: 0; border-bottom: 1px solid #d8d5cc; }
   .production-column { padding: 20px; }
-  .nine-grid { grid-template-columns: 1fr; }
+  .direction-panel { grid-template-columns: 1fr; }
+  .shot-grid, .shot-grid.grid-12 { grid-template-columns: 1fr; }
 }
 </style>

@@ -61,6 +61,8 @@ class StorySegment(models.Model):
     grid_feasibility_score = models.IntegerField(default=0)
     analysis_json = models.JSONField(default=dict)
     required_assets_json = models.JSONField(default=dict)
+    panel_count = models.PositiveIntegerField(default=9)
+    supplementary_description = models.TextField(blank=True, default="")
     grid_image_url = models.URLField(max_length=1000, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -95,10 +97,12 @@ class StoryboardAsset(models.Model):
     TYPE_CHARACTER = "character"
     TYPE_SCENE = "scene"
     TYPE_PROP = "prop"
+    TYPE_POSITION = "position"
     TYPE_CHOICES = [
         (TYPE_CHARACTER, "人物"),
         (TYPE_SCENE, "场景"),
         (TYPE_PROP, "道具"),
+        (TYPE_POSITION, "站位参考"),
     ]
 
     project = models.ForeignKey(StoryboardProject, on_delete=models.CASCADE, related_name="assets")

@@ -63,3 +63,13 @@ export const uploadToCos = async (file, folder = 'uploads', options = {}) => {
     },
   }
 }
+
+export const storageFileUrl = (value, options = {}) => {
+  if (!value) return ''
+  if (String(value).startsWith('data:')) return value
+  const params = new URLSearchParams()
+  if (/^https?:\/\//i.test(value)) params.set('url', value)
+  else params.set('key', value)
+  if (options.download) params.set('download', '1')
+  return `/api/v1/storage/file?${params.toString()}`
+}

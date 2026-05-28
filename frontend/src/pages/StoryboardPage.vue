@@ -114,7 +114,7 @@
             <div v-if="storyboardAssets.length" class="asset-grid">
               <article v-for="asset in storyboardAssets" :key="asset.id" class="asset-card" :class="{ uploaded: asset.image_url }">
                 <button class="delete-mini" type="button" title="删除素材" @click="removeAsset(asset)">×</button>
-                <img v-if="asset.image_url" :src="asset.image_url" :alt="asset.name" />
+                <img v-if="asset.image_url" :src="storageFileUrl(asset.image_url)" :alt="asset.name" />
                 <div v-else class="asset-placeholder">{{ asset.typeLabel }}</div>
                 <strong>{{ asset.name }}</strong>
                 <p>{{ asset.description }}</p>
@@ -142,7 +142,7 @@
             <div class="shot-grid" :class="`grid-${activePanelCount}`">
               <article v-for="panel in panels" :key="panel.panel_no" class="shot-card">
                 <div class="shot-image">
-                  <img v-if="panel.image_url" :src="panel.image_url" :alt="`分镜 ${panel.panel_no}`" @click="previewImage(panel.image_url)" />
+                  <img v-if="panel.image_url" :src="storageFileUrl(panel.image_url)" :alt="`分镜 ${panel.panel_no}`" @click="previewImage(panel.image_url)" />
                   <span v-else>{{ panel.generation_task_id ? '生成中' : panel.shot_type || '待生成' }}</span>
                   <strong>{{ panel.panel_no }}</strong>
                 </div>
@@ -156,7 +156,7 @@
                 />
                 <div class="shot-actions">
                   <el-button v-if="panel.image_url" size="small" text @click="previewImage(panel.image_url)">预览</el-button>
-                  <a v-if="panel.image_url" class="download-link" :href="panel.image_url" target="_blank" download>下载</a>
+                  <a v-if="panel.image_url" class="download-link" :href="storageFileUrl(panel.image_url, { download: true })" target="_blank" download>下载</a>
                   <el-button size="small" plain :loading="regeneratingPanelId === panel.id" @click="openRegenerate(panel)">重新生成</el-button>
                   <label class="replace-button">
                     <input type="file" accept="image/*" @change="(event) => replacePanelImage(event, panel)" />
@@ -176,10 +176,10 @@
               <h3>最终 {{ activePanelCount }} 宫格分镜板</h3>
               <div class="board-actions">
                 <el-button type="primary" plain @click="openGrid">预览大图</el-button>
-                <a class="result-download" :href="selectedLeaf.grid_image_url" target="_blank" download>下载完整图</a>
+                <a class="result-download" :href="storageFileUrl(selectedLeaf.grid_image_url, { download: true })" target="_blank" download>下载完整图</a>
               </div>
             </div>
-            <img :src="selectedLeaf.grid_image_url" alt="分镜板完整成图" @click="openGrid" />
+            <img :src="storageFileUrl(selectedLeaf.grid_image_url)" alt="分镜板完整成图" @click="openGrid" />
           </section>
         </template>
       </section>
@@ -236,7 +236,7 @@ import {
   saveStoryboardAsset,
   updateStoryboardPanel,
 } from '../api/storyboard'
-import { uploadToCos } from '../api/storage'
+import { storageFileUrl, uploadToCos } from '../api/storage'
 import UserSettingsDialog from '../components/UserSettingsDialog.vue'
 
 const settingsDialogRef = ref(null)
@@ -541,8 +541,8 @@ const replacePanelImage = async (event, panel) => {
   }
 }
 
-const openGrid = () => window.open(selectedLeaf.value.grid_image_url, '_blank', 'noopener,noreferrer')
-const previewImage = (url) => window.open(url, '_blank', 'noopener,noreferrer')
+const openGrid = () => window.open(storageFileUrl(selectedLeaf.value.grid_image_url), '_blank', 'noopener,noreferrer')
+const previewImage = (url) => window.open(storageFileUrl(url), '_blank', 'noopener,noreferrer')
 
 onMounted(loadConfig)
 onBeforeUnmount(stopPolling)

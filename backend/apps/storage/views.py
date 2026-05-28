@@ -2,11 +2,14 @@ import os
 import uuid
 import re
 import io
+from urllib.parse import quote
 from datetime import datetime
+import requests
 from PIL import Image, UnidentifiedImageError
 from qcloud_cos import CosConfig, CosS3Client
 from django.conf import settings
 from django.core.cache import cache
+from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -35,6 +38,49 @@ def ok(data=None):
 
 def bad(message, status=400):
     return Response({"ok": False, "message": message}, status=status)
+
+
+def _cos_client():
+    return CosS3Client(
+        CosConfig(
+            Region=settings.COS_REGION,
+            SecretId=settings.COS_SECRET_ID,
+            SecretKey=settings.COS_SECRET_KEY,
+        )
+    )
+
+
+def _cos_ready():
+    return all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION])
+
+
+def _user_storyboard_owns_url(user, url: str) -> bool:
+    if not url:
+        return False
+    from apps.ai_customer.models import StoryboardAsset, StoryboardPanel, StorySegment
+
+    return (
+        StoryboardAsset.objects.filter(project__user=user, image_url=url).exists()
+        or StoryboardPanel.objects.filter(segment__project__user=user, image_url=url).exists()
+        or StorySegment.objects.filter(project__user=user, grid_image_url=url).exists()
+    )
+
+
+def _fetch_owned_remote_image(user, url: str):
+    if not _user_storyboard_owns_url(user, url):
+        return None
+    try:
+        response = requests.get(url, headers={"Accept": "image/*"}, timeout=30)
+        response.raise_for_status()
+        raw = response.content
+        image = Image.open(io.BytesIO(raw))
+        image.verify()
+    except Exception:
+        return None
+    content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip()
+    if not content_type.startswith("image/"):
+        content_type = Image.MIME.get(image.format) or "image/png"
+    return raw, content_type, os.path.basename(url.split("?", 1)[0]) or "image.png"
 
 
 def _client_ip(request):
@@ -212,8 +258,7 @@ def upload(request):
 
     key = f"{folder}/{date_path}/{uuid.uuid4().hex}{ext}"
 
-    config = CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY)
-    client = CosS3Client(config)
+    client = _cos_client()
     try:
         client.put_object(
             Bucket=settings.COS_BUCKET,
@@ -260,3 +305,36 @@ def upload(request):
         "content_type": final_content_type,
         "size": final_size,
     })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def file(request):
+    key = str(request.query_params.get("key") or "").strip()
+    url = str(request.query_params.get("url") or "").strip()
+    record = None
+    if key:
+        record = UploadedFileRecord.objects.filter(user=request.user, key=key).first()
+    elif url:
+        record = UploadedFileRecord.objects.filter(user=request.user, url=url).first()
+    if not record:
+        remote = _fetch_owned_remote_image(request.user, url)
+        if not remote:
+            return bad("文件不存在或无权访问", 404)
+        raw, content_type, filename = remote
+    else:
+        if not _cos_ready():
+            return bad("COS配置不完整", 500)
+        try:
+            response = _cos_client().get_object(Bucket=settings.COS_BUCKET, Key=record.key)
+            raw = response["Body"].get_raw_stream().read()
+        except Exception:
+            return bad("文件读取失败，请稍后重试", 502)
+        content_type = record.content_type or "application/octet-stream"
+        filename = os.path.basename(record.key) or "download"
+    result = HttpResponse(raw, content_type=content_type)
+    result["Cache-Control"] = "private, max-age=300"
+    disposition = "attachment" if str(request.query_params.get("download") or "").lower() in {"1", "true", "yes"} else "inline"
+    result["Content-Disposition"] = f"{disposition}; filename*=UTF-8''{quote(filename)}"
+    result["Content-Length"] = str(len(raw))
+    return result

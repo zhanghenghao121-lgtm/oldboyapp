@@ -379,10 +379,78 @@ def _panel_references(segment: StorySegment, asset_ids: list[int] | None = None)
             "field": "storyboard_asset",
             "label": f"{asset.get_asset_type_display()}：{asset.name}",
             "name": asset.name,
-            "data_url": asset.image_url,
+            "data_url": _reference_image_data_url(asset.image_url, segment.project.user),
         }
         for asset in assets
     ]
+
+
+def _stored_image_bytes(image_ref: str, user) -> tuple[bytes, str] | None:
+    if not user or not image_ref:
+        return None
+    record = UploadedFileRecord.objects.filter(user=user, url=image_ref).first()
+    if not record:
+        record = UploadedFileRecord.objects.filter(user=user, key=image_ref).first()
+    if not record:
+        return None
+    try:
+        client = CosS3Client(CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY))
+        response = client.get_object(Bucket=settings.COS_BUCKET, Key=record.key)
+        return response["Body"].get_raw_stream().read(), record.content_type or "image/png"
+    except Exception as exc:
+        logger.exception("COS 图片读取失败 key=%s", record.key)
+        raise StoryboardError("图片读取失败，请稍后重试", 502) from exc
+
+
+def _reference_image_data_url(image_ref: str, user) -> str:
+    stored = _stored_image_bytes(image_ref, user)
+    if not stored:
+        return image_ref
+    raw, content_type = stored
+    return f"data:{content_type};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
+def _upload_storyboard_png(image_bytes: bytes, user, folder: str) -> str:
+    if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
+        raise StoryboardError("COS 配置不完整，无法保存分镜图片", 500)
+    safe_folder = re.sub(r"[^a-zA-Z0-9_-]", "", str(folder or "images")) or "images"
+    key = f"images/storyboards/{safe_folder}/{datetime.now().strftime('%Y/%m/%d')}/{uuid.uuid4().hex}.png"
+    client = CosS3Client(CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY))
+    try:
+        client.put_object(Bucket=settings.COS_BUCKET, Body=image_bytes, Key=key, ContentType="image/png")
+    except Exception as exc:
+        logger.exception("分镜图片上传 COS 失败")
+        raise StoryboardError("分镜图片保存失败，请稍后重试", 502) from exc
+    base_url = str(settings.COS_BASE_URL or "").rstrip("/")
+    url = f"{base_url}/{key}" if base_url else f"https://{settings.COS_BUCKET}.cos.{settings.COS_REGION}.myqcloud.com/{key}"
+    UploadedFileRecord.objects.create(user=user, key=key, url=url, content_type="image/png", size=len(image_bytes))
+    return url
+
+
+def _persist_storyboard_png(image_ref: str, user, folder: str) -> str:
+    if not image_ref:
+        return ""
+    stored = _stored_image_bytes(image_ref, user)
+    if stored:
+        raw = stored[0]
+    elif image_ref.startswith("data:image/"):
+        raw = base64.b64decode(image_ref.split(",", 1)[1])
+    else:
+        try:
+            response = requests.get(image_ref, headers={"Accept": "image/*"}, timeout=30)
+            response.raise_for_status()
+            raw = response.content
+        except Exception as exc:
+            logger.exception("生成图下载失败 url=%s", image_ref)
+            raise StoryboardError("生成图下载失败，请稍后重试", 502) from exc
+    try:
+        image = ImageOps.exif_transpose(Image.open(io.BytesIO(raw)))
+        image.load()
+    except Exception as exc:
+        raise StoryboardError("生成图不是有效图片，请检查生图服务返回内容", 502) from exc
+    output = io.BytesIO()
+    image.save(output, "PNG", optimize=True)
+    return _upload_storyboard_png(output.getvalue(), user, folder)
 
 
 def _submit_panel_image(panel: StoryboardPanel, model: str, references: list[dict]) -> None:
@@ -399,12 +467,13 @@ def _submit_panel_image(panel: StoryboardPanel, model: str, references: list[dic
         logger.exception("分镜板生图失败 segment=%s panel=%s", panel.segment_id, panel.panel_no)
         raise StoryboardError(f"第 {panel.panel_no} 格生成失败：{exc}", exc.status) from exc
     panel.generation_task_id = str(result.get("task_id") or "")
-    panel.image_url = str((result.get("images") or [""])[0] or "")
+    image_ref = str((result.get("images") or [""])[0] or "")
+    panel.image_url = _persist_storyboard_png(image_ref, panel.segment.project.user, "panels") if image_ref else ""
     panel.save(update_fields=["generation_task_id", "image_url"])
 
 
 def generate_panel_images(segment: StorySegment, model: str = "", asset_ids: list[int] | None = None) -> list[dict]:
-    panels = list(segment.panels.select_related("segment__project").all())
+    panels = list(segment.panels.select_related("segment__project__user").all())
     if len(panels) != segment.panel_count:
         raise StoryboardError("请先生成完整分镜板提示词")
     references = _panel_references(segment, asset_ids)
@@ -497,26 +566,31 @@ def refresh_panel_images(segment: StorySegment) -> list[dict]:
             raise StoryboardError(f"第 {panel.panel_no} 格任务查询失败：{exc}", exc.status) from exc
         images = result.get("images") or []
         if images:
-            panel.image_url = str(images[0])
+            panel.image_url = _persist_storyboard_png(str(images[0]), segment.project.user, "panels")
             panel.save(update_fields=["image_url"])
         elif str(result.get("status") or "").lower() in {"failed", "error"}:
             raise StoryboardError(f"第 {panel.panel_no} 格生成失败：{result.get('error') or '模型任务失败'}", 502)
     return [serialize_panel(panel) for panel in segment.panels.all()]
 
 
-def _download_image(url: str) -> Image.Image:
-    if url.startswith("data:image/"):
+def _download_image(url: str, user=None) -> Image.Image:
+    stored = _stored_image_bytes(url, user)
+    if stored:
+        raw = stored[0]
+    elif url.startswith("data:image/"):
         raw = base64.b64decode(url.split(",", 1)[1])
     else:
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, headers={"Accept": "image/*"}, timeout=30)
             response.raise_for_status()
             raw = response.content
         except Exception as exc:
             logger.exception("分镜图片下载失败 url=%s", url)
             raise StoryboardError("分镜图片下载失败，请稍后重试", 502) from exc
     try:
-        return ImageOps.exif_transpose(Image.open(io.BytesIO(raw))).convert("RGB")
+        image = ImageOps.exif_transpose(Image.open(io.BytesIO(raw)))
+        image.load()
+        return image.convert("RGB")
     except Exception as exc:
         raise StoryboardError("分镜图片格式无法合成", 502) from exc
 
@@ -524,16 +598,16 @@ def _download_image(url: str) -> Image.Image:
 def _upload_grid(image_bytes: bytes, user) -> str:
     if not all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION]):
         raise StoryboardError("COS 配置不完整，无法保存分镜板成图", 500)
-    key = f"images/storyboards/grids/{datetime.now().strftime('%Y/%m/%d')}/{uuid.uuid4().hex}.jpg"
+    key = f"images/storyboards/grids/{datetime.now().strftime('%Y/%m/%d')}/{uuid.uuid4().hex}.png"
     client = CosS3Client(CosConfig(Region=settings.COS_REGION, SecretId=settings.COS_SECRET_ID, SecretKey=settings.COS_SECRET_KEY))
     try:
-        client.put_object(Bucket=settings.COS_BUCKET, Body=image_bytes, Key=key, ContentType="image/jpeg")
+        client.put_object(Bucket=settings.COS_BUCKET, Body=image_bytes, Key=key, ContentType="image/png")
     except Exception as exc:
         logger.exception("分镜板上传 COS 失败")
         raise StoryboardError("分镜板图片保存失败，请稍后重试", 502) from exc
     base_url = str(settings.COS_BASE_URL or "").rstrip("/")
     url = f"{base_url}/{key}" if base_url else f"https://{settings.COS_BUCKET}.cos.{settings.COS_REGION}.myqcloud.com/{key}"
-    UploadedFileRecord.objects.create(user=user, key=key, url=url, content_type="image/jpeg", size=len(image_bytes))
+    UploadedFileRecord.objects.create(user=user, key=key, url=url, content_type="image/png", size=len(image_bytes))
     return url
 
 
@@ -546,12 +620,12 @@ def compose_grid(segment: StorySegment, user) -> str:
     tile_width, tile_height = 640, 360
     canvas = Image.new("RGB", (tile_width * columns, tile_height * rows), "#111111")
     for index, panel in enumerate(panels):
-        image = ImageOps.fit(_download_image(panel.image_url), (tile_width, tile_height), method=Image.Resampling.LANCZOS)
+        image = ImageOps.fit(_download_image(panel.image_url, user), (tile_width, tile_height), method=Image.Resampling.LANCZOS)
         x = (index % columns) * tile_width
         y = (index // columns) * tile_height
         canvas.paste(image, (x, y))
     output = io.BytesIO()
-    canvas.save(output, "JPEG", quality=92, optimize=True)
+    canvas.save(output, "PNG", optimize=True)
     url = _upload_grid(output.getvalue(), user)
     segment.grid_image_url = url
     segment.save(update_fields=["grid_image_url"])

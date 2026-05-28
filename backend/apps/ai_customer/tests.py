@@ -1,13 +1,16 @@
 from unittest.mock import patch
+import io
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from PIL import Image
 
 from apps.ai_customer.llm_clients import LLMClientError, chat_completion
 from apps.ai_customer.ai_image_services import _task_result_images
 from apps.ai_customer.models import StoryboardAsset, StoryboardPanel, StoryboardProject, StorySegment
 from apps.ai_customer.storyboard_services import (
     analyze_project,
+    compose_grid,
     delete_asset,
     generate_panels,
     generate_video_prompts,
@@ -146,6 +149,28 @@ class StoryboardServicesTests(TestCase):
 
         self.assertEqual(result[0]["image_url"], "https://cdn.example.com/panel.png")
         self.assertEqual(segment.panels.get().image_url, "https://cdn.example.com/panel.png")
+
+    @patch("apps.ai_customer.storyboard_services._upload_grid")
+    @patch("apps.ai_customer.storyboard_services._download_image")
+    def test_compose_grid_uses_portrait_tiles_without_cropping(self, download_image, upload_grid):
+        self.project.aspect_ratio = "9:16"
+        self.project.save(update_fields=["aspect_ratio"])
+        segment = StorySegment.objects.create(project=self.project, title="竖屏分镜", is_leaf=True, panel_count=6)
+        for number in range(1, 7):
+            StoryboardPanel.objects.create(segment=segment, panel_no=number, image_url=f"https://example.com/{number}.png")
+        download_image.return_value = Image.new("RGB", (360, 640), "#ffffff")
+
+        def capture_grid(image_bytes, user):
+            image = Image.open(io.BytesIO(image_bytes))
+            self.assertEqual(image.size, (1080, 1280))
+            return "https://assets.example.com/grid.png"
+
+        upload_grid.side_effect = capture_grid
+
+        url = compose_grid(segment, self.user)
+
+        self.assertEqual(url, "https://assets.example.com/grid.png")
+        self.assertEqual(download_image.call_count, 6)
 
     @patch("apps.ai_customer.storyboard_services._submit_panel_image")
     @patch("apps.ai_customer.storyboard_services._call_storyboard_json")

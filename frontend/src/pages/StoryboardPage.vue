@@ -136,10 +136,9 @@
               </div>
               <div class="board-actions">
                 <el-button plain :disabled="!imagesReady" :loading="composing" @click="composeGrid">合成 {{ activePanelCount }} 宫格</el-button>
-                <el-button type="primary" plain :disabled="!selectedLeaf.grid_image_url" :loading="generatingVideoPrompts" @click="createVideoPrompts">生成视频分镜提示词</el-button>
               </div>
             </div>
-            <div class="shot-grid" :class="`grid-${activePanelCount}`">
+            <div class="shot-grid" :class="`grid-${activePanelCount}`" :style="shotFrameStyle">
               <article v-for="panel in panels" :key="panel.panel_no" class="shot-card">
                 <div class="shot-image">
                   <img v-if="panel.image_url" :src="storageFileUrl(panel.image_url)" :alt="`分镜 ${panel.panel_no}`" @click="previewImage(panel.image_url)" />
@@ -163,10 +162,6 @@
                     {{ replacingPanelId === panel.id ? '上传中' : '上传替换' }}
                   </label>
                 </div>
-                <div v-if="panel.video_prompt" class="video-prompt">
-                  <strong>视频提示词</strong>
-                  <p>{{ panel.video_prompt }}</p>
-                </div>
               </article>
             </div>
           </section>
@@ -175,11 +170,22 @@
             <div class="section-title">
               <h3>最终 {{ activePanelCount }} 宫格分镜板</h3>
               <div class="board-actions">
+                <el-button type="primary" plain :loading="generatingVideoPrompts" @click="createVideoPrompts">分镜板提示词</el-button>
                 <el-button type="primary" plain @click="openGrid">预览大图</el-button>
                 <a class="result-download" :href="storageFileUrl(selectedLeaf.grid_image_url, { download: true })" target="_blank" download>下载完整图</a>
               </div>
             </div>
             <img :src="storageFileUrl(selectedLeaf.grid_image_url)" alt="分镜板完整成图" @click="openGrid" />
+            <div v-if="storyboardPromptText" class="storyboard-prompt-panel">
+              <div class="prompt-head">
+                <div>
+                  <strong>分镜板提示词</strong>
+                  <span>根据剧情和 {{ activePanelCount }} 宫格图生成，可直接复制用于视频生成。</span>
+                </div>
+                <el-button size="small" type="primary" plain @click="copyStoryboardPrompt">复制提示词</el-button>
+              </div>
+              <pre>{{ storyboardPromptText }}</pre>
+            </div>
           </section>
         </template>
       </section>
@@ -295,8 +301,17 @@ const storyboardAssets = computed(() =>
 const uploadedAssets = computed(() => storyboardAssets.value.filter((asset) => asset.image_url))
 const uploadedCount = computed(() => uploadedAssets.value.length)
 const activePanelCount = computed(() => Number(selectedLeaf.value?.panel_count || 9))
+const activeAspectRatio = computed(() => project.value?.aspect_ratio || aspectRatio.value || '16:9')
+const shotFrameStyle = computed(() => ({ '--shot-aspect-ratio': activeAspectRatio.value.replace(':', ' / ') }))
 const imagesReady = computed(() => panels.value.length === activePanelCount.value && panels.value.every((panel) => panel.image_url))
 const hasPendingImages = computed(() => panels.value.some((panel) => panel.generation_task_id && !panel.image_url))
+const storyboardPromptText = computed(() =>
+  panels.value
+    .filter((panel) => panel.video_prompt)
+    .sort((a, b) => Number(a.panel_no) - Number(b.panel_no))
+    .map((panel) => `${panel.panel_no}. ${panel.video_prompt}`)
+    .join('\n')
+)
 
 const stopPolling = () => {
   if (pollTimer) window.clearTimeout(pollTimer)
@@ -496,11 +511,21 @@ const createVideoPrompts = async () => {
   try {
     const res = await generateStoryboardVideoPrompts(selectedLeaf.value.id)
     selectedLeaf.value.panels = res.data.panels || []
-    ElMessage.success('15 秒视频分镜提示词已生成')
+    ElMessage.success('分镜板提示词已生成')
   } catch (error) {
-    ElMessage.error(String(error || '视频分镜提示词生成失败'))
+    ElMessage.error(String(error || '分镜板提示词生成失败'))
   } finally {
     generatingVideoPrompts.value = false
+  }
+}
+
+const copyStoryboardPrompt = async () => {
+  if (!storyboardPromptText.value) return
+  try {
+    await navigator.clipboard.writeText(storyboardPromptText.value)
+    ElMessage.success('分镜板提示词已复制')
+  } catch (error) {
+    ElMessage.error(String(error || '复制失败，请手动选择文本复制'))
   }
 }
 
@@ -622,8 +647,8 @@ onBeforeUnmount(stopPolling)
 .shot-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; }
 .shot-grid.grid-12 { grid-template-columns: repeat(4, minmax(170px, 1fr)); }
 .shot-card { background: #fff; border: 1px solid #d8d5cc; border-radius: 6px; padding: 9px; min-width: 0; }
-.shot-image { position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; background: #e7e4dc; color: #69706c; margin-bottom: 9px; overflow: hidden; }
-.shot-image img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+.shot-image { position: relative; aspect-ratio: var(--shot-aspect-ratio, 16 / 9); display: grid; place-items: center; background: #111a19; color: #69706c; margin-bottom: 9px; overflow: hidden; }
+.shot-image img { width: 100%; height: 100%; object-fit: contain; cursor: zoom-in; }
 .shot-image strong { position: absolute; top: 7px; left: 7px; width: 26px; height: 26px; display: grid; place-items: center; background: #111a19; color: #fff; font-size: 13px; }
 .shot-description { margin-bottom: 9px; }
 .shot-description :deep(.el-textarea__inner) { min-height: 62px !important; padding: 8px; border-radius: 4px; box-shadow: 0 0 0 1px #e2ded2 inset; font-size: 12px; line-height: 1.45; }
@@ -632,13 +657,16 @@ onBeforeUnmount(stopPolling)
 .download-link:hover { text-decoration: underline; }
 .replace-button { height: 24px; padding: 0 9px; display: inline-flex; align-items: center; border: 1px solid #cfcabe; border-radius: 4px; color: #4c5753; background: #fff; cursor: pointer; font-size: 12px; }
 .replace-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.video-prompt { padding: 9px; margin-top: 10px; border-radius: 4px; background: #edf4f1; color: #36433e; }
-.video-prompt strong { color: #177264; font-size: 12px; }
-.video-prompt p { margin: 5px 0 0; font-size: 12px; line-height: 1.5; }
 .dialog-note { margin: 0 0 16px; color: #68716d; line-height: 1.55; }
 .reference-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .grid-result img { display: block; width: min(100%, 1100px); border: 1px solid #d6d2c8; background: #111; cursor: zoom-in; }
 .result-download { height: 32px; padding: 0 14px; display: inline-flex; align-items: center; border-radius: 4px; color: #177264; border: 1px solid #9bc0b8; background: #fff; text-decoration: none; font-size: 14px; }
+.storyboard-prompt-panel { width: min(100%, 1100px); margin-top: 16px; border: 1px solid #c8d8d2; border-radius: 8px; background: #fbfffd; overflow: hidden; }
+.prompt-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 14px 16px; border-bottom: 1px solid #dce8e3; background: #edf6f2; }
+.prompt-head div { display: flex; flex-direction: column; gap: 4px; }
+.prompt-head strong { color: #123b34; font-size: 15px; }
+.prompt-head span { color: #66736e; font-size: 12px; }
+.storyboard-prompt-panel pre { margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-word; color: #26332f; font-size: 13px; line-height: 1.7; font-family: inherit; }
 @media (max-width: 980px) {
   .workspace { display: block; }
   .story-column { border-right: 0; border-bottom: 1px solid #d8d5cc; }

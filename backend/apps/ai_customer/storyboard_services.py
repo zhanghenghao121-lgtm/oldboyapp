@@ -681,19 +681,40 @@ def _upload_grid(image_bytes: bytes, user) -> str:
     return url
 
 
+def _storyboard_tile_size(aspect_ratio: str) -> tuple[int, int]:
+    text = str(aspect_ratio or "16:9").strip().lower()
+    match = re.fullmatch(r"(\d{1,3})\s*:\s*(\d{1,3})", text)
+    if not match:
+        return 640, 360
+    width_ratio = max(int(match.group(1)), 1)
+    height_ratio = max(int(match.group(2)), 1)
+    long_edge = 640
+    if width_ratio >= height_ratio:
+        return long_edge, max(round(long_edge * height_ratio / width_ratio), 1)
+    return max(round(long_edge * width_ratio / height_ratio), 1), long_edge
+
+
+def _paste_contained(canvas: Image.Image, image: Image.Image, box: tuple[int, int, int, int]) -> None:
+    x, y, width, height = box
+    contained = ImageOps.contain(image, (width, height), method=Image.Resampling.LANCZOS)
+    offset_x = x + (width - contained.width) // 2
+    offset_y = y + (height - contained.height) // 2
+    canvas.paste(contained, (offset_x, offset_y))
+
+
 def compose_grid(segment: StorySegment, user) -> str:
     panels = list(segment.panels.all())
     if len(panels) != segment.panel_count or any(not panel.image_url for panel in panels):
         raise StoryboardError(f"{segment.panel_count} 张分镜图全部生成完成后才能合成")
     columns = 4 if segment.panel_count == 12 else 3
     rows = (segment.panel_count + columns - 1) // columns
-    tile_width, tile_height = 640, 360
+    tile_width, tile_height = _storyboard_tile_size(segment.project.aspect_ratio)
     canvas = Image.new("RGB", (tile_width * columns, tile_height * rows), "#111111")
     for index, panel in enumerate(panels):
-        image = ImageOps.fit(_download_image(panel.image_url, user), (tile_width, tile_height), method=Image.Resampling.LANCZOS)
+        image = _download_image(panel.image_url, user)
         x = (index % columns) * tile_width
         y = (index // columns) * tile_height
-        canvas.paste(image, (x, y))
+        _paste_contained(canvas, image, (x, y, tile_width, tile_height))
     output = io.BytesIO()
     canvas.save(output, "PNG", optimize=True)
     url = _upload_grid(output.getvalue(), user)

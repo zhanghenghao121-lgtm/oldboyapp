@@ -10,6 +10,7 @@ from apps.ai_customer.storyboard_services import (
     delete_asset,
     generate_panels,
     generate_video_prompts,
+    refresh_panel_images,
     regenerate_panel,
     save_asset,
 )
@@ -131,6 +132,19 @@ class StoryboardServicesTests(TestCase):
 
         self.assertEqual(len(result), 6)
         self.assertIn("【中景】", segment.panels.get(panel_no=1).video_prompt)
+
+    @patch("apps.ai_customer.storyboard_services.requests.get")
+    @patch("apps.ai_customer.storyboard_services.get_ai_image_task_result")
+    def test_refresh_images_keeps_remote_url_when_transfer_download_fails(self, task_result, get):
+        segment = StorySegment.objects.create(project=self.project, title="站台", is_leaf=True, panel_count=1)
+        StoryboardPanel.objects.create(segment=segment, panel_no=1, generation_task_id="task-1")
+        task_result.return_value = {"status": "succeeded", "images": ["https://cdn.example.com/panel.png"]}
+        get.side_effect = Exception("temporary download blocked")
+
+        result = refresh_panel_images(segment)
+
+        self.assertEqual(result[0]["image_url"], "https://cdn.example.com/panel.png")
+        self.assertEqual(segment.panels.get().image_url, "https://cdn.example.com/panel.png")
 
     @patch("apps.ai_customer.storyboard_services._submit_panel_image")
     @patch("apps.ai_customer.storyboard_services._call_storyboard_json")

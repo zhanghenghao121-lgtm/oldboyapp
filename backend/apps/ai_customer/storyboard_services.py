@@ -5,6 +5,7 @@ import logging
 import re
 import uuid
 from datetime import datetime
+from urllib.parse import urljoin, urlparse
 
 import requests
 from PIL import Image, ImageOps
@@ -26,6 +27,7 @@ from apps.ai_customer.models import (
 )
 from apps.ai_customer.runtime_config import (
     get_storyboard_asset_prompt,
+    get_ai_image_config,
     get_storyboard_leaf_split_prompt,
     get_storyboard_llm_config,
     get_storyboard_panel_prompt,
@@ -427,7 +429,50 @@ def _upload_storyboard_png(image_bytes: bytes, user, folder: str) -> str:
     return url
 
 
-def _persist_storyboard_png(image_ref: str, user, folder: str) -> str:
+def _generated_image_candidates(image_ref: str, image_model: str = "") -> list[str]:
+    text = str(image_ref or "").strip()
+    if not text or text.startswith("data:image/"):
+        return [text] if text else []
+    candidates = [text]
+    parsed = urlparse(text)
+    if not parsed.scheme:
+        runtime = get_ai_image_config(image_model)
+        base_url = str(runtime.get("base_url") or "").strip().rstrip("/")
+        if base_url:
+            candidates.insert(0, urljoin(f"{base_url}/", text.lstrip("/")))
+    return list(dict.fromkeys(candidates))
+
+
+def _download_generated_image(image_ref: str, image_model: str = "") -> bytes:
+    runtime = get_ai_image_config(image_model)
+    api_key = str(runtime.get("api_key") or "").strip()
+    base_host = urlparse(str(runtime.get("base_url") or "")).netloc
+    last_exc = None
+    for url in _generated_image_candidates(image_ref, image_model):
+        parsed = urlparse(url)
+        header_options = [
+            {"Accept": "image/*", "User-Agent": "oldboyai-storyboard/1.0"},
+        ]
+        if api_key and (not parsed.netloc or parsed.netloc == base_host):
+            header_options.insert(0, {**header_options[0], "Authorization": f"Bearer {api_key}"})
+        for headers in header_options:
+            try:
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                return response.content
+            except Exception as exc:
+                last_exc = exc
+    raise StoryboardError("生成图下载失败，请稍后重试", 502) from last_exc
+
+
+def _remote_image_fallback(image_ref: str, image_model: str = "") -> str:
+    for candidate in _generated_image_candidates(image_ref, image_model):
+        if urlparse(candidate).scheme in {"http", "https"}:
+            return candidate
+    return ""
+
+
+def _persist_storyboard_png(image_ref: str, user, folder: str, image_model: str = "", allow_remote_fallback: bool = True) -> str:
     if not image_ref:
         return ""
     stored = _stored_image_bytes(image_ref, user)
@@ -437,16 +482,22 @@ def _persist_storyboard_png(image_ref: str, user, folder: str) -> str:
         raw = base64.b64decode(image_ref.split(",", 1)[1])
     else:
         try:
-            response = requests.get(image_ref, headers={"Accept": "image/*"}, timeout=30)
-            response.raise_for_status()
-            raw = response.content
-        except Exception as exc:
+            raw = _download_generated_image(image_ref, image_model)
+        except StoryboardError as exc:
+            fallback = _remote_image_fallback(image_ref, image_model) if allow_remote_fallback else ""
+            if fallback:
+                logger.warning("生成图转存下载失败，保留原始地址 url=%s", image_ref)
+                return fallback
             logger.exception("生成图下载失败 url=%s", image_ref)
-            raise StoryboardError("生成图下载失败，请稍后重试", 502) from exc
+            raise exc
     try:
         image = ImageOps.exif_transpose(Image.open(io.BytesIO(raw)))
         image.load()
     except Exception as exc:
+        fallback = _remote_image_fallback(image_ref, image_model) if allow_remote_fallback else ""
+        if fallback:
+            logger.warning("生成图转存校验失败，保留原始地址 url=%s", image_ref)
+            return fallback
         raise StoryboardError("生成图不是有效图片，请检查生图服务返回内容", 502) from exc
     output = io.BytesIO()
     image.save(output, "PNG", optimize=True)
@@ -468,7 +519,7 @@ def _submit_panel_image(panel: StoryboardPanel, model: str, references: list[dic
         raise StoryboardError(f"第 {panel.panel_no} 格生成失败：{exc}", exc.status) from exc
     panel.generation_task_id = str(result.get("task_id") or "")
     image_ref = str((result.get("images") or [""])[0] or "")
-    panel.image_url = _persist_storyboard_png(image_ref, panel.segment.project.user, "panels") if image_ref else ""
+    panel.image_url = _persist_storyboard_png(image_ref, panel.segment.project.user, "panels", model) if image_ref else ""
     panel.save(update_fields=["generation_task_id", "image_url"])
 
 
@@ -569,7 +620,7 @@ def refresh_panel_images(segment: StorySegment) -> list[dict]:
             raise StoryboardError(f"第 {panel.panel_no} 格任务查询失败：{exc}", exc.status) from exc
         images = result.get("images") or []
         if images:
-            panel.image_url = _persist_storyboard_png(str(images[0]), segment.project.user, "panels")
+            panel.image_url = _persist_storyboard_png(str(images[0]), segment.project.user, "panels", segment.project.image_model)
             panel.save(update_fields=["image_url"])
         elif str(result.get("status") or "").lower() in {"completed", "complete", "succeeded", "success", "done"}:
             raise StoryboardError(f"第 {panel.panel_no} 格生成完成但未返回图片地址，请重新生成", 502)

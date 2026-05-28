@@ -1,3 +1,4 @@
+import ast
 import os
 import uuid
 import re
@@ -54,33 +55,54 @@ def _cos_ready():
     return all([settings.COS_SECRET_ID, settings.COS_SECRET_KEY, settings.COS_BUCKET, settings.COS_REGION])
 
 
+def _image_url_candidates(url: str):
+    text = str(url or "").strip()
+    if not text:
+        return []
+    candidates = [text]
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            value = ast.literal_eval(text)
+            if isinstance(value, list):
+                for item in value:
+                    candidates.extend(_image_url_candidates(str(item)))
+        except (ValueError, SyntaxError):
+            pass
+    candidates.extend(re.findall(r"https?://[^\s'\"\[\]]+", text))
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
 def _user_storyboard_owns_url(user, url: str) -> bool:
     if not url:
         return False
     from apps.ai_customer.models import StoryboardAsset, StoryboardPanel, StorySegment
 
+    candidates = _image_url_candidates(url)
     return (
-        StoryboardAsset.objects.filter(project__user=user, image_url=url).exists()
-        or StoryboardPanel.objects.filter(segment__project__user=user, image_url=url).exists()
-        or StorySegment.objects.filter(project__user=user, grid_image_url=url).exists()
+        StoryboardAsset.objects.filter(project__user=user, image_url__in=candidates).exists()
+        or StoryboardPanel.objects.filter(segment__project__user=user, image_url__in=candidates).exists()
+        or StorySegment.objects.filter(project__user=user, grid_image_url__in=candidates).exists()
     )
 
 
 def _fetch_owned_remote_image(user, url: str):
     if not _user_storyboard_owns_url(user, url):
         return None
-    try:
-        response = requests.get(url, headers={"Accept": "image/*"}, timeout=30)
-        response.raise_for_status()
-        raw = response.content
-        image = Image.open(io.BytesIO(raw))
-        image.verify()
-    except Exception:
-        return None
-    content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip()
-    if not content_type.startswith("image/"):
-        content_type = Image.MIME.get(image.format) or "image/png"
-    return raw, content_type, os.path.basename(url.split("?", 1)[0]) or "image.png"
+    urls = [candidate for candidate in _image_url_candidates(url) if candidate.startswith(("http://", "https://"))]
+    for remote_url in urls:
+        try:
+            response = requests.get(remote_url, headers={"Accept": "image/*"}, timeout=30)
+            response.raise_for_status()
+            raw = response.content
+            image = Image.open(io.BytesIO(raw))
+            image.verify()
+            content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip()
+            if not content_type.startswith("image/"):
+                content_type = Image.MIME.get(image.format) or "image/png"
+            return raw, content_type, os.path.basename(remote_url.split("?", 1)[0]) or "image.png"
+        except Exception:
+            continue
+    return None
 
 
 def _client_ip(request):
@@ -316,7 +338,7 @@ def file(request):
     if key:
         record = UploadedFileRecord.objects.filter(user=request.user, key=key).first()
     elif url:
-        record = UploadedFileRecord.objects.filter(user=request.user, url=url).first()
+        record = UploadedFileRecord.objects.filter(user=request.user, url__in=_image_url_candidates(url)).first()
     if not record:
         remote = _fetch_owned_remote_image(request.user, url)
         if not remote:

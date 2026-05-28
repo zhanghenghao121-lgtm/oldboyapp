@@ -7,6 +7,7 @@ from django.test import override_settings
 from rest_framework.test import APIClient, APITestCase
 
 from apps.storage.models import UploadedFileRecord
+from apps.ai_customer.models import StoryboardPanel, StoryboardProject, StorySegment
 
 
 @override_settings(
@@ -63,3 +64,32 @@ class UploadCompressionTests(APITestCase):
         self.assertEqual(response["Content-Type"], "image/png")
         self.assertIn("attachment", response["Content-Disposition"])
         self.assertEqual(response.content, b"pngdata")
+
+    @patch("apps.storage.views.requests.get")
+    def test_file_endpoint_extracts_real_url_from_malformed_storyboard_url(self, get):
+        project = StoryboardProject.objects.create(user=self.user, title="故事板", original_story="一段足够长的测试剧情内容")
+        segment = StorySegment.objects.create(project=project, title="片段", is_leaf=True)
+        malformed = "https://api.apimart.ai/v1/['https://upload.apimart.ai/f/image/example.png']"
+        StoryboardPanel.objects.create(segment=segment, panel_no=1, image_url=malformed)
+        image_bytes = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+            b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        bad_response = type("Response", (), {"raise_for_status": lambda self: (_ for _ in ()).throw(Exception("bad url"))})()
+        good_response = type(
+            "Response",
+            (),
+            {
+                "content": image_bytes,
+                "headers": {"Content-Type": "image/png"},
+                "raise_for_status": lambda self: None,
+            },
+        )()
+        get.side_effect = [bad_response, bad_response, good_response]
+
+        response = self.client.get("/api/v1/storage/file", {"url": malformed})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
+        self.assertEqual(response.content, image_bytes)

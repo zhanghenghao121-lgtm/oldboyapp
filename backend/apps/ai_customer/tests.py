@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from apps.ai_customer.llm_clients import LLMClientError, chat_completion
+from apps.ai_customer.ai_image_services import _task_result_images
 from apps.ai_customer.models import StoryboardAsset, StoryboardPanel, StoryboardProject, StorySegment
 from apps.ai_customer.storyboard_services import (
     analyze_project,
@@ -174,3 +175,16 @@ class LLMClientErrorTests(TestCase):
                 {"model": "deepseek-v4-pro", "messages": []},
                 service_name="故事板场景拆解模型（DeepSeek V4 Pro / deepseek-v4-pro）",
             )
+
+
+class AIImageResultParsingTests(TestCase):
+    def test_task_result_images_extracts_url_from_stringified_list(self):
+        result = _task_result_images(
+            {
+                "result": {
+                    "images": "['https://upload.apimart.ai/f/image/example.png']",
+                }
+            }
+        )
+
+        self.assertEqual(result, ["https://upload.apimart.ai/f/image/example.png"])

@@ -1,3 +1,4 @@
+import ast
 import base64
 import io
 import mimetypes
@@ -120,6 +121,30 @@ def _prompt(mode: str, prompt: str) -> str:
     return f"{get_ai_image_reverse_prompt()}\n\n用户站位描述：\n{text[:3000]}"
 
 
+def _image_ref_values(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        refs = []
+        for item in value:
+            refs.extend(_image_ref_values(item))
+        return refs
+    if isinstance(value, dict):
+        if value.get("b64_json"):
+            return [f"data:image/png;base64,{value['b64_json']}"]
+        return _image_ref_values(value.get("url") or value.get("image_url"))
+    text = str(value).strip()
+    if not text:
+        return []
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            return _image_ref_values(ast.literal_eval(text))
+        except (ValueError, SyntaxError):
+            pass
+    urls = re.findall(r"https?://[^\s'\"\[\]]+", text)
+    return urls or [text]
+
+
 def _image_urls(body: dict) -> list[str]:
     urls = []
     data = body.get("data") or []
@@ -127,12 +152,7 @@ def _image_urls(body: dict) -> list[str]:
         if not isinstance(item, dict):
             continue
         value = (item or {}).get("url") or (item or {}).get("image_url")
-        if isinstance(value, list):
-            urls.extend(str(url) for url in value if url)
-        elif value:
-            urls.append(str(value))
-        elif (item or {}).get("b64_json"):
-            urls.append(f"data:image/png;base64,{item['b64_json']}")
+        urls.extend(_image_ref_values(value or item))
     return urls
 
 
@@ -190,18 +210,7 @@ def _task_result_images(data: dict) -> list[str]:
     ]
     images = []
     for candidate in candidates:
-        if isinstance(candidate, str):
-            images.append(candidate)
-        elif isinstance(candidate, list):
-            for item in candidate:
-                if isinstance(item, str):
-                    images.append(item)
-                elif isinstance(item, dict):
-                    value = item.get("url") or item.get("image_url")
-                    if value:
-                        images.append(str(value))
-                    elif item.get("b64_json"):
-                        images.append(f"data:image/png;base64,{item['b64_json']}")
+        images.extend(_image_ref_values(candidate))
     return images
 
 

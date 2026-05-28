@@ -1,3 +1,4 @@
+import ast
 import base64
 import io
 import json
@@ -433,6 +434,19 @@ def _generated_image_candidates(image_ref: str, image_model: str = "") -> list[s
     text = str(image_ref or "").strip()
     if not text or text.startswith("data:image/"):
         return [text] if text else []
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            values = ast.literal_eval(text)
+            if isinstance(values, list):
+                nested = []
+                for value in values:
+                    nested.extend(_generated_image_candidates(str(value), image_model))
+                return list(dict.fromkeys(nested))
+        except (ValueError, SyntaxError):
+            pass
+    embedded_urls = re.findall(r"https?://[^\s'\"\[\]]+", text)
+    if embedded_urls:
+        return list(dict.fromkeys(embedded_urls))
     candidates = [text]
     parsed = urlparse(text)
     if not parsed.scheme:

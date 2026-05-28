@@ -180,8 +180,33 @@ def submit_ai_image_generation(*, mode="text", prompt="", model="", size="16:9",
     return {"task_id": task_id, "status": "submitted", "model": runtime["model"], "mode": mode}
 
 
-def get_ai_image_task_result(task_id: str) -> dict:
-    runtime = get_ai_image_config()
+def _task_result_images(data: dict) -> list[str]:
+    candidates = [
+        ((data.get("result") or {}).get("images") if isinstance(data.get("result"), dict) else None),
+        data.get("images"),
+        data.get("image_urls"),
+        data.get("url"),
+        data.get("image_url"),
+    ]
+    images = []
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            images.append(candidate)
+        elif isinstance(candidate, list):
+            for item in candidate:
+                if isinstance(item, str):
+                    images.append(item)
+                elif isinstance(item, dict):
+                    value = item.get("url") or item.get("image_url")
+                    if value:
+                        images.append(str(value))
+                    elif item.get("b64_json"):
+                        images.append(f"data:image/png;base64,{item['b64_json']}")
+    return images
+
+
+def get_ai_image_task_result(task_id: str, model: str = "") -> dict:
+    runtime = get_ai_image_config(model)
     if not task_id:
         raise AIImageError("缺少任务ID")
     if not runtime.get("api_key") or not runtime.get("base_url"):
@@ -190,12 +215,13 @@ def get_ai_image_task_result(task_id: str) -> dict:
         body = task_status(runtime["base_url"], runtime["api_key"], task_id, service_name="生图任务")
     except LLMClientError as exc:
         raise AIImageError(str(exc), exc.status) from exc
-    data = body.get("data") if isinstance(body.get("data"), dict) else {}
-    images = (((data.get("result") or {}).get("images")) or [])
+    raw_data = body.get("data")
+    data = raw_data[0] if isinstance(raw_data, list) and raw_data else raw_data if isinstance(raw_data, dict) else {}
+    images = _task_result_images(data) or _image_urls(body)
     return {
         "task_id": data.get("id") or task_id,
-        "status": data.get("status") or "",
-        "progress": data.get("progress") or 0,
-        "images": [str(item.get("url")) for item in images if item.get("url")],
-        "error": ((data.get("error") or {}).get("message") if isinstance(data.get("error"), dict) else data.get("message")) or "",
+        "status": data.get("status") or body.get("status") or "",
+        "progress": data.get("progress") or body.get("progress") or 0,
+        "images": images,
+        "error": ((data.get("error") or {}).get("message") if isinstance(data.get("error"), dict) else data.get("message") or body.get("message")) or "",
     }

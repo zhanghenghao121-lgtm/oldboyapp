@@ -164,7 +164,7 @@ def ai_image_task(request, task_id):
     if not _feature_allowed(request):
         return _feature_denied()
     try:
-        return ok(get_ai_image_task_result(task_id))
+        return ok(get_ai_image_task_result(task_id, str(request.query_params.get("model") or "")))
     except AIImageError as exc:
         return bad(str(exc), exc.status)
 

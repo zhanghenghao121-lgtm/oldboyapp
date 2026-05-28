@@ -478,6 +478,9 @@ def generate_panel_images(segment: StorySegment, model: str = "", asset_ids: lis
         raise StoryboardError("请先生成完整分镜板提示词")
     references = _panel_references(segment, asset_ids)
     image_model = str(model or segment.project.image_model).strip()
+    if image_model and segment.project.image_model != image_model:
+        segment.project.image_model = image_model
+        segment.project.save(update_fields=["image_model", "updated_at"])
     for panel in panels:
         if panel.image_url or panel.generation_task_id:
             continue
@@ -547,11 +550,11 @@ def regenerate_panel(panel: StoryboardPanel, payload: dict) -> dict:
     panel.save()
     segment.grid_image_url = ""
     segment.save(update_fields=["grid_image_url"])
-    _submit_panel_image(
-        panel,
-        str(payload.get("model") or segment.project.image_model).strip(),
-        _panel_references(segment, asset_ids),
-    )
+    image_model = str(payload.get("model") or segment.project.image_model).strip()
+    if image_model and segment.project.image_model != image_model:
+        segment.project.image_model = image_model
+        segment.project.save(update_fields=["image_model", "updated_at"])
+    _submit_panel_image(panel, image_model, _panel_references(segment, asset_ids))
     return serialize_panel(panel)
 
 
@@ -560,7 +563,7 @@ def refresh_panel_images(segment: StorySegment) -> list[dict]:
         if panel.image_url or not panel.generation_task_id:
             continue
         try:
-            result = get_ai_image_task_result(panel.generation_task_id)
+            result = get_ai_image_task_result(panel.generation_task_id, segment.project.image_model)
         except AIImageError as exc:
             logger.exception("分镜图任务查询失败 segment=%s panel=%s", segment.id, panel.panel_no)
             raise StoryboardError(f"第 {panel.panel_no} 格任务查询失败：{exc}", exc.status) from exc
@@ -568,6 +571,8 @@ def refresh_panel_images(segment: StorySegment) -> list[dict]:
         if images:
             panel.image_url = _persist_storyboard_png(str(images[0]), segment.project.user, "panels")
             panel.save(update_fields=["image_url"])
+        elif str(result.get("status") or "").lower() in {"completed", "complete", "succeeded", "success", "done"}:
+            raise StoryboardError(f"第 {panel.panel_no} 格生成完成但未返回图片地址，请重新生成", 502)
         elif str(result.get("status") or "").lower() in {"failed", "error"}:
             raise StoryboardError(f"第 {panel.panel_no} 格生成失败：{result.get('error') or '模型任务失败'}", 502)
     return [serialize_panel(panel) for panel in segment.panels.all()]

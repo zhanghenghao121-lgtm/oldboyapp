@@ -296,13 +296,27 @@ const uploadedAssets = computed(() => storyboardAssets.value.filter((asset) => a
 const uploadedCount = computed(() => uploadedAssets.value.length)
 const activePanelCount = computed(() => Number(selectedLeaf.value?.panel_count || 9))
 const imagesReady = computed(() => panels.value.length === activePanelCount.value && panels.value.every((panel) => panel.image_url))
-
-watch(selectedLeaf, () => stopPolling())
+const hasPendingImages = computed(() => panels.value.some((panel) => panel.generation_task_id && !panel.image_url))
 
 const stopPolling = () => {
   if (pollTimer) window.clearTimeout(pollTimer)
   pollTimer = null
 }
+
+const scheduleImagePolling = (delay = 4000) => {
+  stopPolling()
+  if (!hasPendingImages.value || imagesReady.value) {
+    generatingImages.value = false
+    return
+  }
+  generatingImages.value = true
+  pollTimer = window.setTimeout(pollImages, delay)
+}
+
+watch(selectedLeaf, () => {
+  stopPolling()
+  if (hasPendingImages.value) scheduleImagePolling(800)
+})
 
 const loadConfig = async () => {
   try {
@@ -422,7 +436,7 @@ const createPanels = async () => {
       generatingImages.value = false
       ElMessage.success(`${activePanelCount.value} 格分镜与图片已生成`)
     } else {
-      pollTimer = window.setTimeout(pollImages, 4000)
+      scheduleImagePolling(4000)
       ElMessage.success(`${activePanelCount.value} 格分镜已生成，图片正在生成`)
     }
   } catch (error) {
@@ -438,6 +452,10 @@ const pollImages = async () => {
     generatingImages.value = false
     return
   }
+  if (!hasPendingImages.value) {
+    generatingImages.value = false
+    return
+  }
   try {
     const res = await refreshStoryboardImages(selectedLeaf.value.id)
     selectedLeaf.value.panels = res.data.panels || []
@@ -446,7 +464,7 @@ const pollImages = async () => {
       ElMessage.success(`${activePanelCount.value} 张分镜图已生成`)
       return
     }
-    pollTimer = window.setTimeout(pollImages, 4500)
+    scheduleImagePolling(4500)
   } catch (error) {
     generatingImages.value = false
     ElMessage.error(String(error || '生图任务查询失败'))
@@ -512,9 +530,7 @@ const regenerateActivePanel = async () => {
     replacePanel(res.data)
     regenerateDialogVisible.value = false
     if (!res.data.image_url && res.data.generation_task_id) {
-      generatingImages.value = true
-      stopPolling()
-      pollTimer = window.setTimeout(pollImages, 4000)
+      scheduleImagePolling(4000)
     }
     ElMessage.success('该分镜已重新提交生成')
   } catch (error) {

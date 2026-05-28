@@ -136,7 +136,9 @@ def ai_image_generate(request):
     if not _feature_allowed(request):
         return _feature_denied()
     try:
-        mode = str(request.data.get("mode", "text") or "text").strip().lower()
+        mode = str(request.data.get("mode", "reverse_shot") or "reverse_shot").strip().lower()
+        if mode != "reverse_shot":
+            return bad("AI生图页面已不支持文生图模式", 400)
         try:
             object_names = json.loads(str(request.data.get("object_names", "[]") or "[]"))
         except Exception:

@@ -5,10 +5,6 @@
         <p class="eyebrow">AI IMAGE</p>
         <h1>AI生图</h1>
       </div>
-      <button class="mode-btn" :class="{ active: mode === 'text' }" type="button" @click="mode = 'text'">
-        <strong>文生图</strong>
-        <span>输入描述生成画面</span>
-      </button>
       <button class="mode-btn" :class="{ active: mode === 'reverse_shot' }" type="button" @click="mode = 'reverse_shot'">
         <strong>生出反打画面</strong>
         <span>@角色/物品推理站位</span>
@@ -23,8 +19,8 @@
     <main class="studio">
       <header class="studio-head">
         <div>
-          <p class="eyebrow">{{ mode === 'sticker' ? 'LAYER COMPOSER' : mode === 'reverse_shot' ? 'REVERSE SHOT' : 'TEXT TO IMAGE' }}</p>
-          <h2>{{ mode === 'sticker' ? '场景站位贴图' : mode === 'reverse_shot' ? '反打镜头生成' : 'AI 图像生成' }}</h2>
+          <p class="eyebrow">{{ mode === 'sticker' ? 'LAYER COMPOSER' : 'REVERSE SHOT' }}</p>
+          <h2>{{ mode === 'sticker' ? '场景站位贴图' : '反打镜头生成' }}</h2>
         </div>
         <div v-if="mode !== 'sticker'" class="preset-row">
           <el-button plain @click="settingsDialogRef?.open()">设置</el-button>
@@ -46,58 +42,47 @@
       <section v-if="mode !== 'sticker'" class="work-grid">
         <div class="control-panel">
           <div class="panel-head">
-            <h3>{{ mode === 'reverse_shot' ? '镜头参考' : '画面描述' }}</h3>
+            <h3>镜头参考</h3>
             <span>{{ isSeedreamSelected ? 'Doubao 使用 2k / 3k / 4k 档位' : '默认 16:9 · 1k · 1 张' }}</span>
           </div>
 
-          <template v-if="mode === 'reverse_shot'">
-            <div class="upload-grid">
-              <label v-for="item in reverseUploads" :key="item.field" class="upload-card">
-                <input type="file" accept="image/*" @change="(event) => handleReverseImageChange(event, item.field)" />
-                <span>{{ item.kicker }}</span>
-                <strong>{{ reverseImages[item.field]?.name || item.title }}</strong>
-                <button v-if="reverseImages[item.field]" type="button" @click.prevent="reverseImages[item.field] = null">移除</button>
-              </label>
-            </div>
+          <div class="upload-grid">
+            <label v-for="item in reverseUploads" :key="item.field" class="upload-card">
+              <input type="file" accept="image/*" @change="(event) => handleReverseImageChange(event, item.field)" />
+              <span>{{ item.kicker }}</span>
+              <strong>{{ reverseImages[item.field]?.name || item.title }}</strong>
+              <button v-if="reverseImages[item.field]" type="button" @click.prevent="reverseImages[item.field] = null">移除</button>
+            </label>
+          </div>
 
-            <div class="object-panel">
-              <div class="object-head">
-                <div>
-                  <h4>角色 / 物品参考</h4>
-                  <span>上传后可点击插入 @对象名</span>
-                </div>
-                <el-button plain size="small" :disabled="objectRefs.length >= 14" @click="addObjectRef">添加对象</el-button>
+          <div class="object-panel">
+            <div class="object-head">
+              <div>
+                <h4>角色 / 物品参考</h4>
+                <span>上传后可点击插入 @对象名</span>
               </div>
-              <div class="object-list">
-                <div v-for="item in objectRefs" :key="item.id" class="object-card">
-                  <el-input v-model="item.name" maxlength="20" placeholder="对象名，如 顾知夏 / 木箱" />
-                  <label class="object-file">
-                    <input type="file" accept="image/*" @change="(event) => handleObjectImageChange(event, item.id)" />
-                    <span>{{ item.file?.name || '上传参考图' }}</span>
-                  </label>
-                  <el-button text :disabled="!item.name.trim()" @click="insertMention(item.name)">插入@</el-button>
-                  <button class="remove-object" type="button" @click="removeObjectRef(item.id)">×</button>
-                </div>
+              <el-button plain size="small" :disabled="objectRefs.length >= 14" @click="addObjectRef">添加对象</el-button>
+            </div>
+            <div class="object-list">
+              <div v-for="item in objectRefs" :key="item.id" class="object-card">
+                <el-input v-model="item.name" maxlength="20" placeholder="对象名，如 顾知夏 / 木箱" />
+                <label class="object-file">
+                  <input type="file" accept="image/*" @change="(event) => handleObjectImageChange(event, item.id)" />
+                  <span>{{ item.file?.name || '上传参考图' }}</span>
+                </label>
+                <el-button text :disabled="!item.name.trim()" @click="insertMention(item.name)">插入@</el-button>
+                <button class="remove-object" type="button" @click="removeObjectRef(item.id)">×</button>
               </div>
             </div>
-
-            <el-input
-              ref="promptInputRef"
-              v-model="prompt"
-              type="textarea"
-              :rows="7"
-              resize="none"
-              placeholder="用 @对象名 描述它们在参考图1正面镜头中的站位，例如：@顾知夏站在门口左侧，面向@木箱，距离镜头更近；@木箱在桌子右后方，半遮挡。"
-            />
-          </template>
+          </div>
 
           <el-input
-            v-else
+            ref="promptInputRef"
             v-model="prompt"
             type="textarea"
-            :rows="12"
+            :rows="7"
             resize="none"
-            placeholder="描述你想生成的画面，例如：古风庭院夜景，男女主隔着灯影对望，电影级布光，细节丰富。"
+            placeholder="用 @对象名 描述它们在参考图1正面镜头中的站位，例如：@顾知夏站在门口左侧，面向@木箱，距离镜头更近；@木箱在桌子右后方，半遮挡。"
           />
 
           <div class="action-row">
@@ -140,7 +125,7 @@ import { generateAiImage, getAiImageConfig, getAiImageTask } from '../api/aiImag
 import UserSettingsDialog from '../components/UserSettingsDialog.vue'
 
 const StickerComposer = defineAsyncComponent(() => import('../components/StickerComposer.vue'))
-const mode = ref('text')
+const mode = ref('reverse_shot')
 const prompt = ref('')
 const promptInputRef = ref(null)
 const settingsDialogRef = ref(null)
@@ -274,10 +259,6 @@ const pollTask = async () => {
 
 const submitImage = async () => {
   if (generating.value) return
-  if (mode.value === 'text' && !prompt.value.trim()) {
-    ElMessage.warning('请输入生图提示词')
-    return
-  }
   if (mode.value === 'reverse_shot' && !hasReverseImages.value) {
     ElMessage.warning('请上传 2 张场景图和至少 1 张角色/物品参考图')
     return
@@ -288,7 +269,7 @@ const submitImage = async () => {
   }
 
   const formData = new FormData()
-  formData.append('mode', mode.value)
+  formData.append('mode', 'reverse_shot')
   formData.append('prompt', prompt.value)
   formData.append('model', selectedModel.value)
   formData.append('size', size.value)

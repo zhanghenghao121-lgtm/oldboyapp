@@ -124,12 +124,12 @@
               />
             </el-form-item>
             <div class="prompt-grid">
-              <el-form-item label="分镜适配与递归拆分提示词">
+              <el-form-item label="15秒视频片段适配与递归拆分提示词">
                 <el-input
                   v-model="forms.storyboard_leaf_split_prompt"
                   type="textarea"
                   :rows="8"
-                  placeholder="设置是否可用分镜板表现以及继续拆分的规则"
+                  placeholder="设置大段落如何继续拆成可生成 15 秒视频的小段落"
                 />
               </el-form-item>
               <el-form-item label="素材提取提示词">

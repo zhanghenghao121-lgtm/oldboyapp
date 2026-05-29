@@ -124,6 +124,7 @@ def serialize_panel(panel: StoryboardPanel) -> dict:
 
 
 def serialize_segment(segment: StorySegment, include_children: bool = True) -> dict:
+    context = _scene_context(segment)
     data = {
         "id": segment.id,
         "parent_id": segment.parent_id,
@@ -132,8 +133,11 @@ def serialize_segment(segment: StorySegment, include_children: bool = True) -> d
         "title": segment.title,
         "summary": segment.summary,
         "original_text": segment.original_text,
+        "scene_number": context.get("scene_number", ""),
         "scene_name": segment.scene_name,
+        "location": context.get("location", "") or segment.scene_name,
         "time_of_day": segment.time_of_day,
+        "characters": context.get("characters", []),
         "mood": segment.mood,
         "is_leaf": segment.is_leaf,
         "split_reason": segment.split_reason,
@@ -213,21 +217,65 @@ def _create_asset_slots(segment: StorySegment, required_assets: dict) -> None:
             )
 
 
+def _recommended_panel_count(value, fallback: int = 9) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        count = fallback
+    if count in ALLOWED_PANEL_COUNTS:
+        return count
+    return fallback if fallback in ALLOWED_PANEL_COUNTS else 9
+
+
+def _scene_context(segment: StorySegment) -> dict:
+    analysis = segment.analysis_json if isinstance(segment.analysis_json, dict) else {}
+    context = analysis.get("scene_context") if isinstance(analysis.get("scene_context"), dict) else analysis
+    characters = context.get("characters") or context.get("cast") or []
+    if isinstance(characters, str):
+        characters = [name.strip() for name in re.split(r"[、,，/]", characters) if name.strip()]
+    if not isinstance(characters, list):
+        characters = []
+    return {
+        "scene_number": str(context.get("scene_number") or context.get("scene_no") or "").strip(),
+        "location": str(context.get("location") or segment.scene_name or "").strip(),
+        "time_of_day": str(context.get("time_of_day") or context.get("time") or segment.time_of_day or "").strip(),
+        "characters": [str(name).strip() for name in characters if str(name).strip()],
+    }
+
+
+def _scene_context_text(segment: StorySegment, context: dict) -> str:
+    characters = "、".join(context.get("characters") or []) or "未明确"
+    return (
+        f"场景编号：{context.get('scene_number') or '未明确'}\n"
+        f"地点：{context.get('location') or segment.scene_name or '未明确'}\n"
+        f"时间：{context.get('time_of_day') or segment.time_of_day or '未明确'}\n"
+        f"出场人物：{characters}"
+    )
+
+
 def _split_segment(segment: StorySegment, model: str, depth: int) -> None:
+    scene_context = _scene_context(segment)
     judgment = _call_storyboard_json(
         get_storyboard_leaf_split_prompt(),
-        f"场景：{segment.scene_name}\n段落标题：{segment.title}\n剧情内容：\n{segment.original_text or segment.summary}",
+        (
+            f"{_scene_context_text(segment, scene_context)}\n"
+            f"段落标题：{segment.title}\n"
+            f"剧情内容：\n{segment.original_text or segment.summary}\n\n"
+            "请按约 15 秒视频片段继续判断或拆分；每个叶子小段需要推荐 panel_count=6/9/12。"
+        ),
         model,
         "故事板递归拆解模型",
     )
     children = [item for item in (judgment.get("children") or []) if isinstance(item, dict)]
     is_leaf = bool(judgment.get("can_be_9_grid")) or depth >= MAX_SPLIT_DEPTH or not children
     segment.grid_feasibility_score = int(judgment.get("score") or 0)
+    judgment["scene_context"] = scene_context
     segment.analysis_json = judgment
     segment.is_leaf = is_leaf
     if is_leaf:
+        segment.panel_count = _recommended_panel_count(judgment.get("panel_count"), segment.panel_count)
         segment.required_assets_json = _leaf_assets(segment, model)
-    segment.save(update_fields=["grid_feasibility_score", "analysis_json", "is_leaf", "required_assets_json"])
+    segment.save(update_fields=["grid_feasibility_score", "analysis_json", "is_leaf", "panel_count", "required_assets_json"])
     if is_leaf:
         _create_asset_slots(segment, segment.required_assets_json)
         return
@@ -244,6 +292,11 @@ def _split_segment(segment: StorySegment, model: str, depth: int) -> None:
             time_of_day=segment.time_of_day,
             mood=segment.mood,
             split_reason=str(item.get("split_reason") or judgment.get("reason") or ""),
+            panel_count=_recommended_panel_count(item.get("panel_count"), segment.panel_count),
+            analysis_json={
+                "scene_context": scene_context,
+                "panel_count_reason": str(item.get("panel_count_reason") or ""),
+            },
         )
         _split_segment(child, model, depth + 1)
 
@@ -263,17 +316,36 @@ def analyze_project(project: StoryboardProject) -> dict:
     if str(result.get("project_title") or "").strip() and project.title == "未命名故事板":
         project.title = str(result["project_title"]).strip()[:255]
     for index, item in enumerate(blocks, start=1):
+        scene_number = str(item.get("scene_number") or item.get("scene_no") or "").strip()
+        location = str(item.get("location") or item.get("scene_name") or "").strip()
+        time_of_day = str(item.get("time_of_day") or item.get("time") or "").strip()
+        characters = item.get("characters") or item.get("cast") or []
+        if isinstance(characters, str):
+            characters = [name.strip() for name in re.split(r"[、,，/]", characters) if name.strip()]
+        if not isinstance(characters, list):
+            characters = []
+        title = str(item.get("title") or f"场景 {index}")[:255]
+        if scene_number and scene_number not in title:
+            title = f"{scene_number} {title}"[:255]
         segment = StorySegment.objects.create(
             project=project,
             level=1,
             order_index=int(item.get("order") or index),
-            title=str(item.get("title") or f"场景 {index}")[:255],
+            title=title,
             summary=str(item.get("summary") or ""),
             original_text=str(item.get("original_text") or item.get("summary") or ""),
-            scene_name=str(item.get("scene_name") or ""),
-            time_of_day=str(item.get("time_of_day") or ""),
+            scene_name=location,
+            time_of_day=time_of_day,
             mood=str(item.get("mood") or ""),
             split_reason=str(item.get("split_reason") or ""),
+            analysis_json={
+                "scene_context": {
+                    "scene_number": scene_number,
+                    "location": location,
+                    "time_of_day": time_of_day,
+                    "characters": [str(name).strip() for name in characters if str(name).strip()],
+                }
+            },
         )
         _split_segment(segment, project.analysis_model, 1)
     project.status = StoryboardProject.STATUS_ANALYZED

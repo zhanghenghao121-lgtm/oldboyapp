@@ -38,9 +38,11 @@ class StoryboardServicesTests(TestCase):
                 "scene_blocks": [
                     {
                         "order": 1,
+                        "scene_number": "S01",
                         "title": "站台等待",
-                        "scene_name": "火车站台",
+                        "location": "火车站台",
                         "time_of_day": "雨夜",
+                        "characters": ["林初", "父亲"],
                         "mood": "克制",
                         "summary": "女主在列车到站时看见父亲",
                         "original_text": self.project.original_story,
@@ -48,7 +50,15 @@ class StoryboardServicesTests(TestCase):
                     }
                 ],
             },
-            {"can_be_9_grid": True, "score": 91, "reason": "动作连续", "analysis": "一次重逢", "children": []},
+            {
+                "can_be_9_grid": True,
+                "score": 91,
+                "panel_count": 6,
+                "panel_count_reason": "单人等待和情绪变化较慢",
+                "reason": "动作连续",
+                "analysis": "一次重逢",
+                "children": [],
+            },
             {"characters": [{"name": "林初", "description": "女主"}], "scenes": [], "props": []},
         ]
 
@@ -57,12 +67,76 @@ class StoryboardServicesTests(TestCase):
         self.project.refresh_from_db()
         segment = StorySegment.objects.get(project=self.project)
         self.assertEqual(self.project.title, "雨夜重逢")
+        self.assertEqual(segment.title, "S01 站台等待")
+        self.assertEqual(segment.scene_name, "火车站台")
+        self.assertEqual(segment.analysis_json["scene_context"]["characters"], ["林初", "父亲"])
         self.assertTrue(segment.is_leaf)
         self.assertEqual(segment.grid_feasibility_score, 91)
+        self.assertEqual(segment.panel_count, 6)
         self.assertEqual(segment.required_assets_json["characters"][0]["name"], "林初")
         self.assertEqual(segment.assets.get().name, "林初")
         self.assertEqual(segment.assets.get().image_url, "")
+        self.assertEqual(result["segments"][0]["scene_number"], "S01")
+        self.assertEqual(result["segments"][0]["characters"], ["林初", "父亲"])
         self.assertEqual(len(result["segments"]), 1)
+
+    @patch("apps.ai_customer.storyboard_services._call_storyboard_json")
+    def test_analyze_project_splits_scene_into_15s_children_with_panel_count(self, call_model):
+        call_model.side_effect = [
+            {
+                "project_title": "雨夜重逢",
+                "scene_blocks": [
+                    {
+                        "order": 1,
+                        "scene_number": "S02",
+                        "title": "车窗对望",
+                        "location": "火车站台",
+                        "time_of_day": "雨夜",
+                        "characters": "林初、父亲",
+                        "summary": "女主靠近车窗并与父亲对望",
+                        "original_text": self.project.original_story,
+                    }
+                ],
+            },
+            {
+                "can_be_9_grid": False,
+                "score": 60,
+                "reason": "包含等待和对望两个节奏",
+                "analysis": "需要拆成两个 15 秒视频片段",
+                "children": [
+                    {
+                        "order": 1,
+                        "title": "等待列车",
+                        "summary": "林初等待列车驶入",
+                        "original_text": "林初拿着旧车票等待，列车驶入。",
+                        "panel_count": 6,
+                        "panel_count_reason": "单人情绪",
+                    },
+                    {
+                        "order": 2,
+                        "title": "车窗对望",
+                        "summary": "林初看见父亲并向前一步",
+                        "original_text": "她看见车窗内久别的父亲，缓慢向前一步。",
+                        "panel_count": 9,
+                        "panel_count_reason": "两人情绪递进",
+                    },
+                ],
+            },
+            {"can_be_9_grid": True, "score": 93, "panel_count": 6, "reason": "单人情绪", "analysis": "等待列车", "children": []},
+            {"characters": [{"name": "林初", "description": "女主"}], "scenes": [{"name": "火车站台", "description": "雨夜"}], "props": []},
+            {"can_be_9_grid": True, "score": 95, "panel_count": 9, "reason": "两人对望", "analysis": "重逢瞬间", "children": []},
+            {"characters": [{"name": "林初", "description": "女主"}, {"name": "父亲", "description": "车窗内"}], "scenes": [], "props": []},
+        ]
+
+        analyze_project(self.project)
+
+        root = StorySegment.objects.get(project=self.project, parent__isnull=True)
+        children = list(root.children.order_by("order_index"))
+        self.assertFalse(root.is_leaf)
+        self.assertEqual(len(children), 2)
+        self.assertEqual(children[0].panel_count, 6)
+        self.assertEqual(children[1].panel_count, 9)
+        self.assertEqual(children[1].analysis_json["scene_context"]["scene_number"], "S02")
 
     @patch("apps.ai_customer.storyboard_services._call_storyboard_json")
     def test_generate_panels_persists_exactly_nine_shots(self, call_model):

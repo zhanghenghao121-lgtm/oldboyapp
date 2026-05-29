@@ -1,8 +1,8 @@
 import http from './http'
 
 export const getStoryboardConfig = () => http.get('/storyboard/config')
-export const createStoryboardProject = (payload) => http.post('/storyboard/projects', payload, { timeout: 30000 })
-export const analyzeStoryboardProject = (id) => http.post(`/storyboard/projects/${id}/analyze`, {}, { timeout: 600000 })
+export const createStoryboardProject = (payload, config = {}) => http.post('/storyboard/projects', payload, { timeout: 30000, ...config })
+export const analyzeStoryboardProject = (id, config = {}) => http.post(`/storyboard/projects/${id}/analyze`, {}, { timeout: 600000, ...config })
 export const getStoryboardSegments = (id) => http.get(`/storyboard/projects/${id}/segments`, { timeout: 30000 })
 export const saveStoryboardAsset = (segmentId, payload) => http.post(`/storyboard/segments/${segmentId}/assets`, payload, { timeout: 30000 })
 export const deleteStoryboardAsset = (segmentId, assetId) => http.delete(`/storyboard/segments/${segmentId}/assets/${assetId}`, { timeout: 30000 })

@@ -39,9 +39,15 @@
               <el-option label="方形 1:1" value="1:1" />
             </el-select>
           </div>
-          <el-button class="primary-action" type="primary" :loading="analyzing" @click="createAndAnalyze">
-            拆解为故事板
-          </el-button>
+          <div class="analyze-actions">
+            <el-button class="primary-action" type="primary" :loading="analyzing" :disabled="analyzing" @click="createAndAnalyze">
+              {{ analyzing ? '正在拆解故事板' : '拆解为故事板' }}
+            </el-button>
+            <el-button v-if="analyzing" class="cancel-action" plain @click="cancelAnalyze">取消拆解</el-button>
+          </div>
+          <p v-if="analyzing" class="analyze-hint">
+            AI 正在按场景和 15 秒小段拆解剧情，已耗时 {{ analyzingElapsed }} 秒。长剧情可能需要 1-3 分钟。
+          </p>
         </section>
 
         <section v-if="segments.length" class="segment-section">
@@ -273,6 +279,12 @@ const regenerateAssetIds = ref([])
 const regeneratingPanelId = ref('')
 const replacingPanelId = ref('')
 let pollTimer = null
+let analyzeController = null
+let analyzeTimer = null
+let analyzeCanceled = false
+let analyzeCancelNotified = false
+let analyzeRunId = 0
+const analyzingElapsed = ref(0)
 
 const collectLeaves = (segment) => {
   if (segment.is_leaf) return [segment]
@@ -318,6 +330,19 @@ const stopPolling = () => {
   pollTimer = null
 }
 
+const stopAnalyzeTimer = () => {
+  if (analyzeTimer) window.clearInterval(analyzeTimer)
+  analyzeTimer = null
+}
+
+const startAnalyzeTimer = () => {
+  stopAnalyzeTimer()
+  analyzingElapsed.value = 0
+  analyzeTimer = window.setInterval(() => {
+    analyzingElapsed.value += 1
+  }, 1000)
+}
+
 const scheduleImagePolling = (delay = 4000) => {
   stopPolling()
   if (!hasPendingImages.value || imagesReady.value) {
@@ -348,11 +373,17 @@ const loadConfig = async () => {
 }
 
 const createAndAnalyze = async () => {
+  if (analyzing.value) return
   if (storyText.value.trim().length < 20) {
     ElMessage.warning('请输入至少 20 个字的剧情内容')
     return
   }
   analyzing.value = true
+  analyzeCanceled = false
+  analyzeCancelNotified = false
+  const runId = ++analyzeRunId
+  analyzeController = new AbortController()
+  startAnalyzeTimer()
   stopPolling()
   try {
     const created = await createStoryboardProject({
@@ -362,17 +393,41 @@ const createAndAnalyze = async () => {
       aspect_ratio: aspectRatio.value,
       analysis_model: analysisModel.value,
       image_model: imageModel.value,
-    })
+    }, { signal: analyzeController.signal })
+    if (analyzeCanceled) return
     project.value = created.data
-    const analyzed = await analyzeStoryboardProject(project.value.id)
+    const analyzed = await analyzeStoryboardProject(project.value.id, { signal: analyzeController.signal })
+    if (analyzeCanceled) return
     project.value = analyzed.data
     segments.value = analyzed.data.segments || []
     selectedLeaf.value = leafSegments.value[0] || null
     ElMessage.success('剧情已拆解为可制作的故事板小段')
   } catch (error) {
+    if (analyzeCanceled || String(error).toLowerCase().includes('canceled')) {
+      if (!analyzeCancelNotified) ElMessage.info('已取消本次拆解')
+      return
+    }
     ElMessage.error(String(error || '剧情拆解失败'))
   } finally {
-    analyzing.value = false
+    if (runId === analyzeRunId) {
+      analyzing.value = false
+      analyzeController = null
+      stopAnalyzeTimer()
+    }
+  }
+}
+
+const cancelAnalyze = (silent = false) => {
+  if (!analyzing.value) return
+  analyzeCanceled = true
+  analyzeRunId += 1
+  analyzeController?.abort()
+  analyzeController = null
+  analyzing.value = false
+  stopAnalyzeTimer()
+  if (!silent) {
+    analyzeCancelNotified = true
+    ElMessage.info('已取消本次拆解')
   }
 }
 
@@ -586,7 +641,10 @@ const openGrid = () => window.open(storageFileUrl(selectedLeaf.value.grid_image_
 const previewImage = (url) => window.open(storageFileUrl(url), '_blank', 'noopener,noreferrer')
 
 onMounted(loadConfig)
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  stopPolling()
+  cancelAnalyze(true)
+})
 </script>
 
 <style scoped>
@@ -602,7 +660,10 @@ onBeforeUnmount(stopPolling)
 .control-section :deep(.el-input), .control-section :deep(.el-textarea) { margin-bottom: 12px; }
 .control-section :deep(.el-input__wrapper), .control-section :deep(.el-textarea__inner), .select-grid :deep(.el-select__wrapper) { box-shadow: 0 0 0 1px #d6d3cb inset; background: #fff; }
 .select-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 18px; }
+.analyze-actions { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
 .primary-action { width: 100%; height: 44px; background: #177264; border-color: #177264; }
+.cancel-action { height: 44px; }
+.analyze-hint { margin: 10px 0 0; color: #68716d; font-size: 12px; line-height: 1.5; }
 .segment-section { margin-top: 26px; border-top: 1px solid #dedbd2; padding-top: 22px; }
 .section-title { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 18px; }
 .section-title h2, .section-title h3 { margin: 0 0 5px; font-size: 18px; }

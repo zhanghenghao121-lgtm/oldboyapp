@@ -139,6 +139,80 @@ class StoryboardServicesTests(TestCase):
         self.assertEqual(children[1].analysis_json["scene_context"]["scene_number"], "S02")
 
     @patch("apps.ai_customer.storyboard_services._call_storyboard_json")
+    def test_long_scene_is_forced_to_split_even_when_model_marks_leaf(self, call_model):
+        long_story = (
+            "执事推开龙吟堂大门，众人从供桌旁退开。"
+            "主角发现地上的灰烬呈现奇怪符号，低声询问来历。"
+            "长老解释昨夜祭坛忽然熄灭，守夜弟子全部失踪。"
+            "门外传来钟声，另一名弟子跌跌撞撞冲入堂内。"
+            "他指认黑影从后山禁地逃走，众人情绪瞬间紧绷。"
+            "主角决定带人追查，却被长老拦下要求先封锁山门。"
+            "双方短暂争执后，供桌下突然滚出染血令牌。"
+        )
+        self.project.original_story = long_story
+        self.project.save(update_fields=["original_story"])
+        call_model.side_effect = [
+            {
+                "project_title": "龙吟堂",
+                "scene_blocks": [
+                    {
+                        "order": 1,
+                        "scene_number": "1-1",
+                        "title": "龙吟堂覆灭余波",
+                        "location": "龙吟堂",
+                        "time_of_day": "日",
+                        "characters": ["主角", "长老", "弟子"],
+                        "summary": "龙吟堂内连续出现线索和冲突",
+                        "original_text": long_story,
+                    }
+                ],
+            },
+            {
+                "can_be_9_grid": True,
+                "score": 95,
+                "panel_count": 12,
+                "reason": "模型误判为可直接表达",
+                "analysis": "长场景",
+                "children": [],
+            },
+            {
+                "can_be_9_grid": False,
+                "score": 72,
+                "reason": "长场景需要拆成 15 秒小段",
+                "analysis": "分为发现线索和突发指认",
+                "children": [
+                    {
+                        "order": 1,
+                        "title": "灰烬线索",
+                        "summary": "主角发现灰烬符号并询问来历",
+                        "original_text": "执事推开龙吟堂大门，众人从供桌旁退开。主角发现地上的灰烬呈现奇怪符号，低声询问来历。",
+                        "panel_count": 9,
+                    },
+                    {
+                        "order": 2,
+                        "title": "弟子突入",
+                        "summary": "弟子冲入并指认黑影，令牌制造新悬念",
+                        "original_text": "门外传来钟声，另一名弟子跌跌撞撞冲入堂内。他指认黑影从后山禁地逃走，供桌下突然滚出染血令牌。",
+                        "panel_count": 12,
+                    },
+                ],
+            },
+            {"can_be_9_grid": True, "score": 90, "panel_count": 9, "reason": "单个线索节奏", "analysis": "灰烬线索", "children": []},
+            {"characters": [{"name": "主角", "description": "查案者"}], "scenes": [{"name": "龙吟堂", "description": "堂内"}], "props": []},
+            {"can_be_9_grid": True, "score": 91, "panel_count": 12, "reason": "冲突和悬念", "analysis": "突发指认", "children": []},
+            {"characters": [{"name": "弟子", "description": "报信者"}], "scenes": [], "props": [{"name": "染血令牌", "description": "关键线索"}]},
+        ]
+
+        analyze_project(self.project)
+
+        root = StorySegment.objects.get(project=self.project, parent__isnull=True)
+        children = list(root.children.order_by("order_index"))
+        self.assertFalse(root.is_leaf)
+        self.assertEqual(len(children), 2)
+        self.assertEqual(children[0].title, "灰烬线索")
+        self.assertEqual(children[1].panel_count, 12)
+
+    @patch("apps.ai_customer.storyboard_services._call_storyboard_json")
     def test_generate_panels_persists_exactly_nine_shots(self, call_model):
         segment = StorySegment.objects.create(
             project=self.project,

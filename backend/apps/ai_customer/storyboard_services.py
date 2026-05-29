@@ -41,6 +41,9 @@ from apps.storage.models import UploadedFileRecord
 logger = logging.getLogger(__name__)
 
 MAX_SPLIT_DEPTH = 3
+FORCE_15S_SPLIT_MIN_CHARS = 260
+FORCE_15S_SPLIT_MIN_SENTENCES = 5
+FALLBACK_15S_CHUNK_CHARS = 180
 ASSET_TYPE_BY_GROUP = {
     "characters": StoryboardAsset.TYPE_CHARACTER,
     "scenes": StoryboardAsset.TYPE_SCENE,
@@ -253,6 +256,84 @@ def _scene_context_text(segment: StorySegment, context: dict) -> str:
     )
 
 
+def _compact_story_length(text: str) -> int:
+    return len(re.sub(r"\s+", "", text or ""))
+
+
+def _story_sentences(text: str) -> list[str]:
+    parts = re.split(r"(?<=[。！？!?；;])\s*|\n+", text or "")
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _needs_forced_15s_split(segment: StorySegment, depth: int) -> bool:
+    if depth != 1:
+        return False
+    text = segment.original_text or segment.summary
+    if _compact_story_length(text) >= FORCE_15S_SPLIT_MIN_CHARS:
+        return True
+    return len(_story_sentences(text)) >= FORCE_15S_SPLIT_MIN_SENTENCES
+
+
+def _panel_count_for_text(text: str) -> int:
+    length = _compact_story_length(text)
+    if length >= 220:
+        return 12
+    if length >= 110:
+        return 9
+    return 6
+
+
+def _fallback_15s_children(segment: StorySegment) -> list[dict]:
+    sentences = _story_sentences(segment.original_text or segment.summary)
+    if len(sentences) < 2:
+        return []
+    chunks = []
+    current = []
+    current_length = 0
+    for sentence in sentences:
+        sentence_length = _compact_story_length(sentence)
+        if current and current_length + sentence_length > FALLBACK_15S_CHUNK_CHARS:
+            chunks.append("".join(current))
+            current = []
+            current_length = 0
+        current.append(sentence)
+        current_length += sentence_length
+    if current:
+        chunks.append("".join(current))
+    if len(chunks) < 2:
+        midpoint = max(1, len(sentences) // 2)
+        chunks = ["".join(sentences[:midpoint]), "".join(sentences[midpoint:])]
+    return [
+        {
+            "order": index,
+            "title": f"{segment.title}-{index}",
+            "summary": chunk,
+            "original_text": chunk,
+            "panel_count": _panel_count_for_text(chunk),
+            "panel_count_reason": "根据剧情长度自动兜底推荐",
+            "split_reason": "原场景较长，按句子边界兜底拆成约 15 秒视频小段",
+        }
+        for index, chunk in enumerate(chunks, start=1)
+        if chunk
+    ]
+
+
+def _force_split_children(segment: StorySegment, model: str, scene_context: dict) -> dict:
+    return _call_storyboard_json(
+        get_storyboard_leaf_split_prompt(),
+        (
+            f"{_scene_context_text(segment, scene_context)}\n"
+            f"段落标题：{segment.title}\n"
+            f"剧情内容：\n{segment.original_text or segment.summary}\n\n"
+            "这个段落内容超过一个 15 秒视频可表达的信息量，必须继续拆成多个 children。"
+            "每个 child 只表现一个主要剧情节奏，并推荐 panel_count=6/9/12。"
+            "不要返回 can_be_9_grid=true 的叶子结果。"
+        ),
+        model,
+        "故事板强制15秒拆解模型",
+    )
+
+
 def _split_segment(segment: StorySegment, model: str, depth: int) -> None:
     scene_context = _scene_context(segment)
     judgment = _call_storyboard_json(
@@ -267,7 +348,22 @@ def _split_segment(segment: StorySegment, model: str, depth: int) -> None:
         "故事板递归拆解模型",
     )
     children = [item for item in (judgment.get("children") or []) if isinstance(item, dict)]
-    is_leaf = bool(judgment.get("can_be_9_grid")) or depth >= MAX_SPLIT_DEPTH or not children
+    force_split = _needs_forced_15s_split(segment, depth)
+    if force_split and not children:
+        forced_judgment = _force_split_children(segment, model, scene_context)
+        forced_children = [item for item in (forced_judgment.get("children") or []) if isinstance(item, dict)]
+        if forced_children:
+            judgment = forced_judgment
+            children = forced_children
+        else:
+            fallback_children = _fallback_15s_children(segment)
+            if fallback_children:
+                judgment["can_be_9_grid"] = False
+                judgment["forced_split"] = True
+                judgment["reason"] = "原场景较长，模型未返回小段，已按句子边界兜底拆分"
+                judgment["children"] = fallback_children
+                children = fallback_children
+    is_leaf = (bool(judgment.get("can_be_9_grid")) and not force_split) or depth >= MAX_SPLIT_DEPTH or not children
     segment.grid_feasibility_score = int(judgment.get("score") or 0)
     judgment["scene_context"] = scene_context
     segment.analysis_json = judgment

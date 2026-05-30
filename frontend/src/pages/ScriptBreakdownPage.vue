@@ -195,7 +195,11 @@
                           resize="none"
                           placeholder="输入 @ 选择图片素材，再描述这一小段开始时的角色站位、朝向、距离、道具位置和镜头方向。"
                           @input="(value) => handlePositionInput(segment, value)"
-                          @focus="handlePositionFocus(segment)"
+                          @focus="(event) => handlePositionFocus(segment, event)"
+                          @click="(event) => handlePositionCaret(segment, event)"
+                          @keyup="(event) => handlePositionCaret(segment, event)"
+                          @mouseup="(event) => handlePositionCaret(segment, event)"
+                          @compositionend="(event) => handlePositionCaret(segment, event)"
                           @keydown.esc="closeMentionPicker"
                         />
                         <div v-if="mentionPickerSegmentId === segment.id" class="mention-panel">
@@ -237,18 +241,19 @@
                           刷新结果
                         </el-button>
                       </div>
-                      <div v-if="segment.position_image_url" class="position-preview">
-                        <img :src="previewImageUrl(segment.position_image_url)" alt="站位图" />
-                        <div>
+                      <div class="position-preview">
+                        <div class="position-frame">
+                          <img v-if="segment.position_image_url" :src="previewImageUrl(segment.position_image_url)" alt="站位图" />
+                          <div v-else class="position-placeholder">
+                            <strong>16:9 站位图生成框</strong>
+                            <span>{{ segment.position_generation_task_id ? '站位图生成中，可稍后刷新结果' : '生成后将在这里预览' }}</span>
+                          </div>
+                        </div>
+                        <div v-if="segment.position_image_url" class="position-preview-actions">
                           <el-button size="small" plain @click="openImage(segment.position_image_url)">预览</el-button>
                           <el-button size="small" plain @click="downloadImage(segment.position_image_url)">下载</el-button>
-                          <el-button size="small" plain @click="copyText(segment.position_image_prompt)">复制生图提示词</el-button>
                         </div>
                       </div>
-                      <details v-if="segment.position_image_prompt" class="prompt-details">
-                        <summary>查看本次生图提示词</summary>
-                        <pre>{{ segment.position_image_prompt }}</pre>
-                      </details>
                     </div>
                   </div>
                 </article>
@@ -301,6 +306,7 @@ const defaultImageModel = ref('gpt-image-2')
 const positionDrafts = reactive({})
 const positionModels = reactive({})
 const positionAssetRefs = reactive({})
+const mentionRanges = reactive({})
 
 const form = reactive({
   title: '',
@@ -320,7 +326,7 @@ const assetGroups = [
   { type: 'prop', label: '道具', short: '物' },
   { type: 'reference', label: '参考图', short: '参' },
 ]
-const mentionTriggerPattern = /(^|[\s，。；、,.!?！？])@([^\s@，。；、,.!?！？]*)$/
+const mentionBreakPattern = /[\s，。；、,.!?！？]/
 
 const activeScene = computed(() => (selectedProject.value?.scene_blocks || []).find((scene) => scene.id === activeSceneId.value))
 const segmentCount = computed(() => (selectedProject.value?.scene_blocks || []).reduce((total, scene) => total + (scene.segments?.length || 0), 0))
@@ -535,51 +541,83 @@ const addPositionAsset = (segment, asset) => {
 
 const removePositionAsset = (segment, asset) => {
   positionAssetRefs[segment.id] = (positionAssetRefs[segment.id] || []).filter((id) => id !== asset.id)
-  const pattern = new RegExp(`(^|\\s)@${escapeRegExp(asset.name)}\\s*`, 'g')
-  positionDrafts[segment.id] = String(positionDrafts[segment.id] || '').replace(pattern, '$1').trimStart()
+  const pattern = new RegExp(`@${escapeRegExp(asset.name)}\\s*`, 'g')
+  positionDrafts[segment.id] = String(positionDrafts[segment.id] || '').replace(pattern, '').trimStart()
 }
 
 const closeMentionPicker = () => {
+  if (mentionPickerSegmentId.value) delete mentionRanges[mentionPickerSegmentId.value]
   mentionPickerSegmentId.value = ''
   mentionSearch.value = ''
 }
 
 const mentionAssetsByType = (type) => {
   const keyword = mentionSearch.value.trim().toLowerCase()
-  return uploadedAssets.value.filter((asset) => {
-    if (asset.asset_type !== type) return false
-    if (!keyword) return true
+  const typeAssets = uploadedAssets.value.filter((asset) => asset.asset_type === type)
+  if (!keyword) return typeAssets
+  const matched = typeAssets.filter((asset) => {
     return `${asset.name} ${asset.alias || ''} ${asset.ai_description || ''}`.toLowerCase().includes(keyword)
   })
+  return matched.length ? matched : typeAssets
+}
+
+const textareaCursor = (event, fallback) => {
+  const target = event?.target
+  if (target && typeof target.selectionStart === 'number') return target.selectionStart
+  const active = document.activeElement
+  if (active && typeof active.selectionStart === 'number') return active.selectionStart
+  return fallback
+}
+
+const mentionContextAtCursor = (text, cursor) => {
+  const safeCursor = Math.max(0, Math.min(Number(cursor ?? text.length), text.length))
+  const beforeCursor = text.slice(0, safeCursor)
+  const atIndex = beforeCursor.lastIndexOf('@')
+  if (atIndex < 0) return null
+  const query = beforeCursor.slice(atIndex + 1)
+  if (query.includes('@') || mentionBreakPattern.test(query)) return null
+  return { start: atIndex, end: safeCursor, query }
+}
+
+const updateMentionPicker = (segment, text, cursor) => {
+  const context = mentionContextAtCursor(text, cursor)
+  if (!context) {
+    closeMentionPicker()
+    return
+  }
+  mentionRanges[segment.id] = context
+  mentionPickerSegmentId.value = segment.id
+  mentionSearch.value = context.query || ''
 }
 
 const handlePositionInput = (segment, value) => {
   const text = String(value ?? positionDrafts[segment.id] ?? '')
   positionDrafts[segment.id] = text
-  const match = text.match(mentionTriggerPattern)
-  if (!match) {
-    closeMentionPicker()
-    return
-  }
-  mentionPickerSegmentId.value = segment.id
-  mentionSearch.value = match[2] || ''
+  updateMentionPicker(segment, text, textareaCursor(null, text.length))
 }
 
-const handlePositionFocus = (segment) => {
+const handlePositionCaret = (segment, event) => {
+  if (event?.key === 'Escape') return
   const text = String(positionDrafts[segment.id] || '')
-  if (mentionTriggerPattern.test(text)) {
-    handlePositionInput(segment, text)
-  }
+  updateMentionPicker(segment, text, textareaCursor(event, text.length))
+}
+
+const handlePositionFocus = (segment, event) => {
+  handlePositionCaret(segment, event)
 }
 
 const selectMentionAsset = (segment, asset) => {
   addPositionAsset(segment, asset)
   const current = String(positionDrafts[segment.id] || '')
-  const token = `@${asset.name} `
-  if (mentionTriggerPattern.test(current)) {
-    positionDrafts[segment.id] = current.replace(mentionTriggerPattern, `$1${token}`)
+  const token = `@${asset.name}`
+  const range = mentionRanges[segment.id]
+  if (range) {
+    const before = current.slice(0, range.start)
+    const after = current.slice(range.end)
+    const spacer = after && !mentionBreakPattern.test(after.charAt(0)) ? ' ' : ''
+    positionDrafts[segment.id] = `${before}${token}${after ? spacer : ' '}${after}`
   } else if (!current.includes(`@${asset.name}`)) {
-    positionDrafts[segment.id] = `${current}${current && !current.endsWith(' ') && !current.endsWith('\n') ? ' ' : ''}${token}`
+    positionDrafts[segment.id] = `${current}${current && !current.endsWith(' ') && !current.endsWith('\n') ? ' ' : ''}${token} `
   }
   closeMentionPicker()
 }
@@ -740,11 +778,12 @@ onMounted(async () => {
 .position-actions { display: grid; grid-template-columns: minmax(140px, 1fr) auto auto; gap: 8px; align-items: center; margin-top: 10px; }
 .position-actions :deep(.el-button--primary) { background: #177264; border-color: #177264; }
 .position-preview { margin-top: 12px; border-radius: 9px; overflow: hidden; border: 1px solid #d7dfda; background: #fff; }
-.position-preview img { width: 100%; display: block; aspect-ratio: 16 / 9; object-fit: contain; background: #111; }
-.position-preview div { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px; }
-.prompt-details { margin-top: 10px; color: #5e6763; font-size: 12px; }
-.prompt-details summary { cursor: pointer; color: #177264; font-weight: 800; }
-.prompt-details pre { min-height: 0; margin-top: 8px; background: #eef5f1; color: #273430; font-size: 12px; }
+.position-frame { width: 100%; aspect-ratio: 16 / 9; display: grid; place-items: center; background: #111; overflow: hidden; }
+.position-frame img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.position-placeholder { width: 100%; height: 100%; display: grid; place-content: center; gap: 6px; text-align: center; color: #dfe8e4; background: linear-gradient(135deg, #14201f, #253431); }
+.position-placeholder strong { font-size: 15px; }
+.position-placeholder span { color: #aebbb6; font-size: 12px; }
+.position-preview-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px; }
 @media (max-width: 1180px) {
   .asset-columns { grid-template-columns: 1fr; }
   .breakdown-workspace, .detail-grid, .segment-body { grid-template-columns: 1fr; }

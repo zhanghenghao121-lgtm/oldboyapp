@@ -3,14 +3,17 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.ai_script_breakdown.models import AiScriptBreakdownProject, AiScriptShotSegment
+from apps.ai_script_breakdown.models import AiScriptAsset, AiScriptBreakdownProject, AiScriptShotSegment
 from apps.ai_script_breakdown.services import (
     ScriptBreakdownError,
     create_project,
+    generate_position_image,
+    refresh_position_image,
     regenerate_position,
     regenerate_segment,
     run_project,
     serialize_project,
+    update_asset,
 )
 
 
@@ -90,6 +93,25 @@ def _owned_segment(request, segment_id):
     return AiScriptShotSegment.objects.filter(id=segment_id, project__user=request.user).select_related("project", "scene_block").first()
 
 
+def _owned_asset(request, asset_id):
+    return AiScriptAsset.objects.filter(id=asset_id, project__user=request.user).select_related("project").first()
+
+
+@csrf_exempt
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+def script_breakdown_asset_update(request, asset_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    asset = _owned_asset(request, asset_id)
+    if not asset:
+        return bad("素材不存在", 404)
+    try:
+        return ok(update_asset(asset, request.data))
+    except ScriptBreakdownError as exc:
+        return bad(str(exc), exc.status)
+
+
 @csrf_exempt
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -115,6 +137,36 @@ def script_breakdown_segment_regenerate_position(request, segment_id):
     if not segment:
         return bad("小段落不存在", 404)
     try:
-        return ok(regenerate_position(segment))
+        return ok(regenerate_position(segment, request.data))
+    except ScriptBreakdownError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def script_breakdown_segment_generate_position(request, segment_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    segment = _owned_segment(request, segment_id)
+    if not segment:
+        return bad("小段落不存在", 404)
+    try:
+        return ok(generate_position_image(segment, request.data))
+    except ScriptBreakdownError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def script_breakdown_segment_refresh_position(request, segment_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    segment = _owned_segment(request, segment_id)
+    if not segment:
+        return bad("小段落不存在", 404)
+    try:
+        return ok(refresh_position_image(segment))
     except ScriptBreakdownError as exc:
         return bad(str(exc), exc.status)

@@ -103,9 +103,12 @@ class AiScriptShotSegment(models.Model):
     scene_view = models.CharField(max_length=32, choices=VIEW_CHOICES, default=VIEW_FRONT)
     characters = models.JSONField(default=list)
     props = models.JSONField(default=list)
+    position_description = models.TextField(blank=True, default="")
     position_image_prompt = models.TextField(blank=True, default="")
     position_layout_json = models.JSONField(default=dict)
     position_image_url = models.URLField(max_length=1000, blank=True, default="")
+    position_image_model = models.CharField(max_length=100, blank=True, default="gpt-image-2")
+    position_generation_task_id = models.CharField(max_length=255, blank=True, default="")
     order_index = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 

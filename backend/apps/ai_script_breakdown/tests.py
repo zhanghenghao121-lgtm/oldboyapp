@@ -5,7 +5,13 @@ from django.test import TestCase
 
 from apps.ai_script_breakdown.models import AiScriptAsset, AiScriptBreakdownProject, AiScriptSceneBlock, AiScriptShotSegment
 from apps.ai_script_breakdown.prompts import DEFAULT_SCRIPT_LIVE_ACTION_STYLE_PROMPT
-from apps.ai_script_breakdown.services import ScriptBreakdownError, create_project, run_project
+from apps.ai_script_breakdown.services import (
+    ScriptBreakdownError,
+    create_project,
+    generate_position_image,
+    run_project,
+    update_asset,
+)
 
 
 class AiScriptBreakdownServicesTests(TestCase):
@@ -124,9 +130,44 @@ class AiScriptBreakdownServicesTests(TestCase):
         self.assertEqual(segments[1].previous_anchor_line, "【近景】【主角发现地上的灰烬呈现奇怪符号，低声说“这是什么？”】")
         self.assertIn(segments[1].previous_anchor_line, segments[1].copy_text)
         self.assertIn("【中景】【门外传来钟声", segments[1].copy_text)
-        self.assertEqual(segments[0].position_layout_json["characters"][0]["name"], "主角")
+        self.assertEqual(segments[0].position_layout_json, {})
+        self.assertEqual(segments[0].position_image_prompt, "")
         self.assertEqual(result["scene_blocks"][0]["scene_number"], "1-1")
         self.assertEqual(result["scene_blocks"][0]["segments"][1]["continuity_from_previous"], True)
+
+    @patch("apps.ai_script_breakdown.services._persist_storyboard_png", return_value="https://assets.example.com/position.png")
+    @patch("apps.ai_script_breakdown.services._reference_image_data_url", return_value="data:image/png;base64,xxx")
+    @patch("apps.ai_script_breakdown.services.submit_ai_image_generation")
+    def test_generate_position_image_uses_uploaded_assets_and_user_description(self, submit_image, reference_data_url, persist_png):
+        submit_image.return_value = {"task_id": "task-1", "status": "completed", "images": ["https://remote.example.com/position.png"]}
+        project = create_project(self.user, {"title": "站位图样例", "script_text": self.script_text})
+        asset = AiScriptAsset.objects.create(project=project, asset_type=AiScriptAsset.TYPE_CHARACTER, name="主角")
+        update_asset(asset, {"file_url": "https://assets.example.com/hero.png"})
+        scene = AiScriptSceneBlock.objects.create(project=project, scene_name="龙吟堂", location="龙吟堂", characters=["主角"])
+        segment = AiScriptShotSegment.objects.create(
+            project=project,
+            scene_block=scene,
+            segment_title="发现灰烬",
+            copy_text="真人写实电影质感\n【中景】【主角看向地面灰烬】",
+            characters=["主角"],
+            props=["灰烬符号"],
+        )
+
+        result = generate_position_image(
+            segment,
+            {"description": "@主角 站在龙吟堂左侧，低头看向地面灰烬，镜头从门口拍摄。", "model": "gpt-image-2"},
+        )
+
+        segment.refresh_from_db()
+        self.assertEqual(segment.position_description, "@主角 站在龙吟堂左侧，低头看向地面灰烬，镜头从门口拍摄。")
+        self.assertEqual(segment.position_image_model, "gpt-image-2")
+        self.assertEqual(segment.position_generation_task_id, "task-1")
+        self.assertEqual(segment.position_image_url, "https://assets.example.com/position.png")
+        self.assertIn("@主角", segment.position_image_prompt)
+        self.assertEqual(result["position_image_url"], "https://assets.example.com/position.png")
+        self.assertEqual(submit_image.call_args.kwargs["reference_images"][0]["name"], "主角")
+        reference_data_url.assert_called_once()
+        persist_png.assert_called_once()
 
     @patch("apps.ai_script_breakdown.services._call_script_json")
     def test_run_project_persists_failed_status_when_model_result_is_invalid(self, call_model):

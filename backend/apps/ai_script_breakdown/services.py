@@ -5,7 +5,17 @@ import re
 from django.db import transaction
 
 from apps.ai_customer.llm_clients import LLMClientError, chat_completion
+from apps.ai_customer.ai_image_services import (
+    AIImageError,
+    get_ai_image_task_result,
+    submit_ai_image_generation,
+)
 from apps.ai_customer.runtime_config import get_storyboard_llm_config
+from apps.ai_customer.storyboard_services import (
+    StoryboardError,
+    _persist_storyboard_png,
+    _reference_image_data_url,
+)
 from apps.console.models import SiteConfig
 from apps.ai_script_breakdown.models import (
     AiScriptAsset,
@@ -153,9 +163,12 @@ def serialize_segment(segment: AiScriptShotSegment) -> dict:
         "scene_view": segment.scene_view,
         "characters": segment.characters,
         "props": segment.props,
+        "position_description": segment.position_description,
         "position_image_prompt": segment.position_image_prompt,
         "position_layout": segment.position_layout_json,
         "position_image_url": segment.position_image_url,
+        "position_image_model": segment.position_image_model,
+        "position_generation_task_id": segment.position_generation_task_id,
         "order": segment.order_index,
         "shot_lines": [serialize_line(line) for line in segment.shot_lines.all()],
     }
@@ -237,6 +250,25 @@ def create_project(user, payload: dict) -> AiScriptBreakdownProject:
     return project
 
 
+def update_asset(asset: AiScriptAsset, payload: dict) -> dict:
+    update_fields = []
+    if "file_url" in payload:
+        asset.file_url = str(payload.get("file_url") or "").strip()
+        update_fields.append("file_url")
+    if "alias" in payload:
+        asset.alias = str(payload.get("alias") or "").strip()[:255]
+        update_fields.append("alias")
+    if "name" in payload:
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            raise ScriptBreakdownError("素材名称不能为空")
+        asset.name = name[:255]
+        update_fields.append("name")
+    if update_fields:
+        asset.save(update_fields=update_fields)
+    return serialize_asset(asset)
+
+
 def _uploaded_assets(project: AiScriptBreakdownProject) -> list[dict]:
     return [serialize_asset(asset) for asset in project.assets.all()]
 
@@ -310,8 +342,9 @@ def _save_segment(scene: AiScriptSceneBlock, item: dict, index: int, style_promp
         scene_view=scene_view,
         characters=item.get("characters") if isinstance(item.get("characters"), list) else scene.characters,
         props=item.get("props") if isinstance(item.get("props"), list) else scene.props,
-        position_image_prompt=str(item.get("position_image_prompt") or ""),
-        position_layout_json=item.get("position_layout") if isinstance(item.get("position_layout"), dict) else {},
+        position_description="",
+        position_image_prompt="",
+        position_layout_json={},
         order_index=index,
     )
     if continuity and previous_anchor:
@@ -364,6 +397,73 @@ def _scene_payload(scene: AiScriptSceneBlock) -> dict:
         "characters": scene.characters,
         "props": scene.props,
     }
+
+
+def _asset_mentions(description: str, asset: AiScriptAsset) -> bool:
+    text = str(description or "")
+    names = [asset.name, asset.alias]
+    return any(name and f"@{name}" in text for name in names)
+
+
+def _segment_position_references(segment: AiScriptShotSegment, description: str) -> list[dict]:
+    assets = list(segment.project.assets.exclude(file_url=""))
+    selected = [asset for asset in assets if _asset_mentions(description, asset)]
+    if not selected:
+        related_names = {
+            str(value).strip()
+            for value in [
+                segment.scene_block.scene_name,
+                segment.scene_block.location,
+                *(segment.characters or []),
+                *(segment.props or []),
+            ]
+            if str(value).strip()
+        }
+        selected = [
+            asset
+            for asset in assets
+            if asset.name in related_names or asset.alias in related_names
+        ]
+    if not selected:
+        selected = assets
+    references = []
+    for asset in selected[:16]:
+        references.append(
+            {
+                "field": "script_breakdown_asset",
+                "label": f"{asset.get_asset_type_display()}：{asset.name}",
+                "name": asset.name,
+                "data_url": _reference_image_data_url(asset.file_url, segment.project.user),
+            }
+        )
+    return references
+
+
+def _position_generation_prompt(segment: AiScriptShotSegment, description: str, references: list[dict]) -> str:
+    scene = segment.scene_block
+    asset_lines = "\n".join(f"- @{item['name']}（{item['label']}）" for item in references) or "无"
+    scene_block = {
+        "scene_number": scene.scene_number,
+        "scene_name": scene.scene_name,
+        "location": scene.location or scene.scene_name,
+        "time_of_day": scene.time_of_day,
+        "scene_description": scene.scene_description,
+        "front_view_description": scene.front_view_description,
+        "reverse_view_description": scene.reverse_view_description,
+    }
+    template = _prompt("ai_script_position_prompt")
+    if "position_layout" in template or "严格 JSON" in template:
+        template = DEFAULT_SCRIPT_POSITION_PROMPT
+    return _render_template(
+        template,
+        {
+            "style_prompt": _style_prompt(segment.project.selected_style),
+            "scene_block": scene_block,
+            "segment_copy_text": segment.copy_text,
+            "position_description": description,
+            "referenced_assets": asset_lines,
+        },
+    )
 
 
 def run_project(project: AiScriptBreakdownProject) -> dict:
@@ -495,21 +595,78 @@ def regenerate_segment(segment: AiScriptShotSegment) -> dict:
 
 
 @transaction.atomic
-def regenerate_position(segment: AiScriptShotSegment) -> dict:
-    style_prompt = _style_prompt(segment.project.selected_style)
-    result = _call_script_json(
-        _prompt("ai_script_position_prompt"),
-        (
-            f"后台风格提示词：\n{style_prompt}\n\n"
-            f"当前小段落：\n{json.dumps(serialize_segment(segment), ensure_ascii=False)}\n\n"
-            f"上传素材：\n{json.dumps(_uploaded_assets(segment.project), ensure_ascii=False)}\n\n"
-            f"场景正面描述：\n{segment.scene_block.front_view_description}\n\n"
-            f"场景反打描述：\n{segment.scene_block.reverse_view_description}"
-        ),
-        segment.project.analysis_model,
-        "AI拆剧站位图模型",
+def generate_position_image(segment: AiScriptShotSegment, payload: dict) -> dict:
+    description = str(payload.get("description") or "").strip()
+    if len(description) < 5:
+        raise ScriptBreakdownError("请输入站位描述，可以用 @ 引用已上传的场景、角色、道具")
+    image_model = str(payload.get("model") or segment.position_image_model or "gpt-image-2").strip()
+    references = _segment_position_references(segment, description)
+    prompt = _position_generation_prompt(segment, description, references)
+    try:
+        result = submit_ai_image_generation(
+            prompt=prompt,
+            model=image_model,
+            size="16:9",
+            resolution="1k",
+            reference_images=references,
+        )
+    except AIImageError as exc:
+        logger.exception("AI拆剧站位图生成失败 segment=%s", segment.id)
+        raise ScriptBreakdownError(str(exc), exc.status) from exc
+
+    image_ref = str((result.get("images") or [""])[0] or "")
+    image_url = ""
+    if image_ref:
+        try:
+            image_url = _persist_storyboard_png(image_ref, segment.project.user, "script_positions", image_model)
+        except StoryboardError as exc:
+            raise ScriptBreakdownError(str(exc), exc.status) from exc
+
+    segment.position_description = description
+    segment.position_image_prompt = prompt
+    segment.position_image_model = image_model
+    segment.position_generation_task_id = str(result.get("task_id") or "")
+    segment.position_image_url = image_url
+    segment.position_layout_json = {}
+    segment.save(
+        update_fields=[
+            "position_description",
+            "position_image_prompt",
+            "position_image_model",
+            "position_generation_task_id",
+            "position_image_url",
+            "position_layout_json",
+        ]
     )
-    segment.position_layout_json = result.get("position_layout") if isinstance(result.get("position_layout"), dict) else {}
-    segment.position_image_prompt = str(result.get("position_image_prompt") or "")
-    segment.save(update_fields=["position_layout_json", "position_image_prompt"])
     return serialize_segment(segment)
+
+
+def refresh_position_image(segment: AiScriptShotSegment) -> dict:
+    if not segment.position_generation_task_id:
+        raise ScriptBreakdownError("站位图任务不存在，请先生成站位图")
+    try:
+        result = get_ai_image_task_result(segment.position_generation_task_id, segment.position_image_model)
+    except AIImageError as exc:
+        logger.exception("AI拆剧站位图任务查询失败 segment=%s", segment.id)
+        raise ScriptBreakdownError(str(exc), exc.status) from exc
+    images = result.get("images") or []
+    if images:
+        try:
+            segment.position_image_url = _persist_storyboard_png(
+                str(images[0]),
+                segment.project.user,
+                "script_positions",
+                segment.position_image_model,
+            )
+        except StoryboardError as exc:
+            raise ScriptBreakdownError(str(exc), exc.status) from exc
+        segment.save(update_fields=["position_image_url"])
+    elif str(result.get("status") or "").lower() in {"completed", "complete", "succeeded", "success", "done"}:
+        raise ScriptBreakdownError("站位图生成完成但未返回图片地址，请重新生成", 502)
+    elif str(result.get("status") or "").lower() in {"failed", "error"}:
+        raise ScriptBreakdownError(f"站位图生成失败：{result.get('error') or '模型任务失败'}", 502)
+    return serialize_segment(segment)
+
+
+def regenerate_position(segment: AiScriptShotSegment, payload: dict | None = None) -> dict:
+    return generate_position_image(segment, payload or {})

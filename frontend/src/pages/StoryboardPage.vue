@@ -6,6 +6,7 @@
         <h1>AI故事板</h1>
       </div>
       <div class="top-actions">
+        <el-button plain @click="$router.push('/script-breakdown')">AI拆剧</el-button>
         <el-button plain @click="$router.push('/ai-image')">AI生图</el-button>
         <el-button plain @click="settingsDialogRef?.open()">设置</el-button>
       </div>

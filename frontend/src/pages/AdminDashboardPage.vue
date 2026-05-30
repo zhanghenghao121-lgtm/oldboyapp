@@ -167,6 +167,77 @@
             </div>
           </el-form>
         </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>AI拆剧提示词</h3>
+              <p>控制剧本资产提取、场景大段落拆分、15 秒小段分镜、站位图和校验流程。</p>
+            </div>
+            <el-button class="main-btn" type="primary" :loading="savingPrompts" @click="savePromptConfigs">保存提示词</el-button>
+          </div>
+
+          <el-form label-position="top">
+            <div class="prompt-grid">
+              <el-form-item label="真人写实风格提示词">
+                <el-input
+                  v-model="forms.ai_script_live_action_style_prompt"
+                  type="textarea"
+                  :rows="6"
+                  placeholder="设置真人写实风格的固定首行提示词"
+                />
+              </el-form-item>
+              <el-form-item label="3D动漫风格提示词">
+                <el-input
+                  v-model="forms.ai_script_anime_3d_style_prompt"
+                  type="textarea"
+                  :rows="6"
+                  placeholder="设置 3D 动漫风格的固定首行提示词"
+                />
+              </el-form-item>
+              <el-form-item label="资产提取提示词">
+                <el-input
+                  v-model="forms.ai_script_asset_extract_prompt"
+                  type="textarea"
+                  :rows="10"
+                  placeholder="设置场景、角色、道具和上传素材匹配规则"
+                />
+              </el-form-item>
+              <el-form-item label="场景大段落拆分提示词">
+                <el-input
+                  v-model="forms.ai_script_scene_split_prompt"
+                  type="textarea"
+                  :rows="10"
+                  placeholder="设置按场景拆成大段落的规则"
+                />
+              </el-form-item>
+              <el-form-item label="15秒小段分镜提示词">
+                <el-input
+                  v-model="forms.ai_script_shot_segment_prompt"
+                  type="textarea"
+                  :rows="12"
+                  placeholder="设置每个场景大段如何拆为 15 秒以内视频小段"
+                />
+              </el-form-item>
+              <el-form-item label="站位图提示词">
+                <el-input
+                  v-model="forms.ai_script_position_prompt"
+                  type="textarea"
+                  :rows="10"
+                  placeholder="设置每个小段开场站位图结构"
+                />
+              </el-form-item>
+              <el-form-item label="拆剧结果校验提示词">
+                <el-input
+                  v-model="forms.ai_script_validate_prompt"
+                  type="textarea"
+                  :rows="10"
+                  placeholder="设置剧情一致性、时长和格式校验规则"
+                />
+              </el-form-item>
+            </div>
+          </el-form>
+        </section>
       </template>
 
       <section v-else class="panel">
@@ -307,6 +378,13 @@ const forms = reactive({
   storyboard_panel_prompt: '',
   storyboard_single_panel_prompt: '',
   storyboard_video_prompt: '',
+  ai_script_live_action_style_prompt: '',
+  ai_script_anime_3d_style_prompt: '',
+  ai_script_asset_extract_prompt: '',
+  ai_script_scene_split_prompt: '',
+  ai_script_shot_segment_prompt: '',
+  ai_script_position_prompt: '',
+  ai_script_validate_prompt: '',
 })
 
 const userForm = reactive({
@@ -391,7 +469,21 @@ const saveModelConfigs = async () => {
 const savePromptConfigs = async () => {
   savingPrompts.value = true
   try {
-    await saveKeys(['storyboard_scene_split_prompt', 'storyboard_leaf_split_prompt', 'storyboard_asset_prompt', 'storyboard_panel_prompt', 'storyboard_single_panel_prompt', 'storyboard_video_prompt'])
+    await saveKeys([
+      'storyboard_scene_split_prompt',
+      'storyboard_leaf_split_prompt',
+      'storyboard_asset_prompt',
+      'storyboard_panel_prompt',
+      'storyboard_single_panel_prompt',
+      'storyboard_video_prompt',
+      'ai_script_live_action_style_prompt',
+      'ai_script_anime_3d_style_prompt',
+      'ai_script_asset_extract_prompt',
+      'ai_script_scene_split_prompt',
+      'ai_script_shot_segment_prompt',
+      'ai_script_position_prompt',
+      'ai_script_validate_prompt',
+    ])
     ElMessage.success('提示词配置已保存')
   } catch (e) {
     ElMessage.error(String(e || '提示词配置保存失败'))

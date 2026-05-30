@@ -1,0 +1,144 @@
+from unittest.mock import patch
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+
+from apps.ai_script_breakdown.models import AiScriptAsset, AiScriptBreakdownProject, AiScriptSceneBlock, AiScriptShotSegment
+from apps.ai_script_breakdown.prompts import DEFAULT_SCRIPT_LIVE_ACTION_STYLE_PROMPT
+from apps.ai_script_breakdown.services import ScriptBreakdownError, create_project, run_project
+
+
+class AiScriptBreakdownServicesTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="script-director", password="pass1234")
+        self.script_text = (
+            "1-1 龙吟堂 日。执事推开龙吟堂大门，众人从供桌旁退开。"
+            "主角发现地上的灰烬呈现奇怪符号，低声询问来历。"
+            "长老解释昨夜祭坛忽然熄灭，守夜弟子全部失踪。"
+            "门外传来钟声，另一名弟子跌跌撞撞冲入堂内。"
+        )
+
+    @patch("apps.ai_script_breakdown.services._call_script_json")
+    def test_run_project_creates_scene_blocks_and_15s_segments(self, call_model):
+        call_model.side_effect = [
+            {
+                "scenes": [{"name": "龙吟堂", "description": "山门正殿", "matched_uploaded_asset_name": "龙吟堂参考图"}],
+                "characters": [{"name": "主角", "description": "查案者", "matched_uploaded_asset_name": ""}],
+                "props": [{"name": "灰烬符号", "description": "关键线索", "matched_uploaded_asset_name": ""}],
+            },
+            {
+                "scene_blocks": [
+                    {
+                        "scene_number": "1-1",
+                        "scene_name": "龙吟堂覆灭余波",
+                        "location": "龙吟堂",
+                        "time_of_day": "日",
+                        "scene_description": "众人在正殿发现异常线索。",
+                        "front_view_description": "镜头面向供桌和主角。",
+                        "reverse_view_description": "从供桌方向反打众人。",
+                        "original_text": self.script_text,
+                        "characters": ["主角", "长老", "弟子"],
+                        "props": ["灰烬符号"],
+                        "order_index": 1,
+                    }
+                ]
+            },
+            {
+                "segments": [
+                    {
+                        "segment_title": "发现灰烬",
+                        "estimated_duration": 12,
+                        "scene_view": "front",
+                        "continuity_from_previous": False,
+                        "shot_lines": [
+                            {
+                                "shot_size": "全景",
+                                "description": "执事推开龙吟堂大门，众人从供桌旁退开。",
+                                "dialogue": "",
+                                "line_text": "【全景】【执事推开龙吟堂大门，众人从供桌旁退开】",
+                                "is_continuity_anchor": False,
+                            },
+                            {
+                                "shot_size": "近景",
+                                "description": "主角发现地上的灰烬呈现奇怪符号，低声询问来历。",
+                                "dialogue": "这是什么？",
+                                "line_text": "【近景】【主角发现地上的灰烬呈现奇怪符号，低声说“这是什么？”】",
+                                "is_continuity_anchor": False,
+                            },
+                        ],
+                        "copy_text": "",
+                        "position_layout": {
+                            "scene": "龙吟堂",
+                            "view": "front",
+                            "camera": {"position": "门口", "direction": "供桌"},
+                            "characters": [{"name": "主角", "x": 45, "y": 62, "facing": "供桌", "pose": "俯身"}],
+                            "props": [{"name": "灰烬符号", "x": 48, "y": 66, "holder": "", "state": "地面"}],
+                        },
+                        "position_image_prompt": "龙吟堂内，主角俯身查看灰烬符号。",
+                    },
+                    {
+                        "segment_title": "弟子突入",
+                        "estimated_duration": 15,
+                        "scene_view": "reverse",
+                        "continuity_from_previous": True,
+                        "previous_anchor_line": "",
+                        "shot_lines": [
+                            {
+                                "shot_size": "中景",
+                                "description": "门外传来钟声，弟子跌跌撞撞冲入堂内。",
+                                "dialogue": "后山有黑影！",
+                                "line_text": "【中景】【门外传来钟声，弟子跌跌撞撞冲入堂内喊“后山有黑影！”】",
+                                "is_continuity_anchor": False,
+                            }
+                        ],
+                        "copy_text": "",
+                        "position_layout": {"scene": "龙吟堂", "view": "reverse", "characters": [], "props": []},
+                        "position_image_prompt": "龙吟堂反打，弟子从门口冲入。",
+                    },
+                ]
+            },
+            {"valid": True, "errors": [], "fixed_json": None},
+        ]
+        project = create_project(
+            self.user,
+            {
+                "title": "龙吟堂拆剧",
+                "script_text": self.script_text,
+                "selected_style": AiScriptBreakdownProject.STYLE_LIVE_ACTION,
+                "assets": [{"asset_type": AiScriptAsset.TYPE_SCENE, "name": "龙吟堂参考图", "file_url": "https://example.com/scene.png"}],
+            },
+        )
+
+        result = run_project(project)
+
+        project.refresh_from_db()
+        scene = AiScriptSceneBlock.objects.get(project=project)
+        segments = list(AiScriptShotSegment.objects.filter(project=project).order_by("order_index"))
+        self.assertEqual(project.status, AiScriptBreakdownProject.STATUS_COMPLETED)
+        self.assertEqual(scene.scene_number, "1-1")
+        self.assertEqual(scene.location, "龙吟堂")
+        self.assertEqual(scene.time_of_day, "日")
+        self.assertEqual(len(segments), 2)
+        self.assertTrue(segments[0].copy_text.startswith(DEFAULT_SCRIPT_LIVE_ACTION_STYLE_PROMPT))
+        self.assertIn("【近景】【主角发现地上的灰烬", segments[0].copy_text)
+        self.assertEqual(segments[1].previous_anchor_line, "【近景】【主角发现地上的灰烬呈现奇怪符号，低声说“这是什么？”】")
+        self.assertIn(segments[1].previous_anchor_line, segments[1].copy_text)
+        self.assertIn("【中景】【门外传来钟声", segments[1].copy_text)
+        self.assertEqual(segments[0].position_layout_json["characters"][0]["name"], "主角")
+        self.assertEqual(result["scene_blocks"][0]["scene_number"], "1-1")
+        self.assertEqual(result["scene_blocks"][0]["segments"][1]["continuity_from_previous"], True)
+
+    @patch("apps.ai_script_breakdown.services._call_script_json")
+    def test_run_project_persists_failed_status_when_model_result_is_invalid(self, call_model):
+        call_model.side_effect = [
+            {"scenes": [], "characters": [], "props": []},
+            {"scene_blocks": []},
+        ]
+        project = create_project(self.user, {"title": "失败样例", "script_text": self.script_text})
+
+        with self.assertRaises(ScriptBreakdownError):
+            run_project(project)
+
+        project.refresh_from_db()
+        self.assertEqual(project.status, AiScriptBreakdownProject.STATUS_FAILED)
+        self.assertIn("模型未返回可用的场景大段落", project.error_message)

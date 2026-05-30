@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.storage",
     "apps.console",
     "apps.ai_customer",
+    "apps.ai_script_breakdown",
 ]
 
 MIDDLEWARE = [

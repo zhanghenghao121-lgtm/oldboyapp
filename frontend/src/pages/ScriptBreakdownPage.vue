@@ -113,7 +113,7 @@
                     :class="{ uploaded: asset.file_url }"
                   >
                     <div class="asset-thumb">
-                      <img v-if="asset.file_url" :src="asset.file_url" :alt="asset.name" />
+                      <img v-if="asset.file_url" :src="previewImageUrl(asset.file_url)" :alt="asset.name" />
                       <span v-else>{{ group.short }}</span>
                     </div>
                     <div class="asset-copy">
@@ -180,7 +180,7 @@
                       <div class="position-composer" :class="{ active: mentionPickerSegmentId === segment.id }">
                         <div v-if="selectedPositionAssets(segment).length" class="reference-cards">
                           <article v-for="asset in selectedPositionAssets(segment)" :key="asset.id" class="reference-card">
-                            <img :src="asset.file_url" :alt="asset.name" />
+                            <img :src="previewImageUrl(asset.file_url)" :alt="asset.name" />
                             <div>
                               <strong>@{{ asset.name }}</strong>
                               <small>{{ assetTypeLabel(asset.asset_type) }}</small>
@@ -194,7 +194,7 @@
                           :rows="5"
                           resize="none"
                           placeholder="输入 @ 选择图片素材，再描述这一小段开始时的角色站位、朝向、距离、道具位置和镜头方向。"
-                          @input="handlePositionInput(segment)"
+                          @input="(value) => handlePositionInput(segment, value)"
                           @focus="handlePositionFocus(segment)"
                           @keydown.esc="closeMentionPicker"
                         />
@@ -214,7 +214,7 @@
                                 class="mention-option"
                                 @click="selectMentionAsset(segment, asset)"
                               >
-                                <img :src="asset.file_url" :alt="asset.name" />
+                                <img :src="previewImageUrl(asset.file_url)" :alt="asset.name" />
                                 <span>{{ asset.name }}</span>
                                 <small>{{ asset.alias || asset.ai_description || group.label }}</small>
                               </button>
@@ -238,7 +238,7 @@
                         </el-button>
                       </div>
                       <div v-if="segment.position_image_url" class="position-preview">
-                        <img :src="segment.position_image_url" alt="站位图" />
+                        <img :src="previewImageUrl(segment.position_image_url)" alt="站位图" />
                         <div>
                           <el-button size="small" plain @click="openImage(segment.position_image_url)">预览</el-button>
                           <el-button size="small" plain @click="downloadImage(segment.position_image_url)">下载</el-button>
@@ -280,7 +280,7 @@ import {
   updateScriptBreakdownAsset,
 } from '../api/scriptBreakdown'
 import { getStoryboardConfig } from '../api/storyboard'
-import { uploadToCos } from '../api/storage'
+import { storageFileUrl, uploadToCos } from '../api/storage'
 import UserSettingsDialog from '../components/UserSettingsDialog.vue'
 
 const settingsDialogRef = ref(null)
@@ -320,6 +320,7 @@ const assetGroups = [
   { type: 'prop', label: '道具', short: '物' },
   { type: 'reference', label: '参考图', short: '参' },
 ]
+const mentionTriggerPattern = /(^|[\s，。；、,.!?！？])@([^\s@，。；、,.!?！？]*)$/
 
 const activeScene = computed(() => (selectedProject.value?.scene_blocks || []).find((scene) => scene.id === activeSceneId.value))
 const segmentCount = computed(() => (selectedProject.value?.scene_blocks || []).reduce((total, scene) => total + (scene.segments?.length || 0), 0))
@@ -352,6 +353,7 @@ const statusLabel = (status) => ({ pending: '待拆解', processing: '拆解中'
 const styleLabel = (style) => ({ live_action: '真人写实', anime_3d: '3D动漫' }[style] || style)
 const viewLabel = (view) => ({ front: '正面', reverse: '反打', side: '侧面', closeup: '近景', mixed: '混合' }[view] || view)
 const assetTypeLabel = (type) => ({ scene: '场景', character: '角色', prop: '道具', reference: '参考图' }[type] || type)
+const previewImageUrl = (url) => storageFileUrl(url)
 
 const loadProjects = async () => {
   loadingProjects.value = true
@@ -551,9 +553,10 @@ const mentionAssetsByType = (type) => {
   })
 }
 
-const handlePositionInput = (segment) => {
-  const text = String(positionDrafts[segment.id] || '')
-  const match = text.match(/(^|\s)@([^\s@，。；、]*)$/)
+const handlePositionInput = (segment, value) => {
+  const text = String(value ?? positionDrafts[segment.id] ?? '')
+  positionDrafts[segment.id] = text
+  const match = text.match(mentionTriggerPattern)
   if (!match) {
     closeMentionPicker()
     return
@@ -564,8 +567,8 @@ const handlePositionInput = (segment) => {
 
 const handlePositionFocus = (segment) => {
   const text = String(positionDrafts[segment.id] || '')
-  if (/(^|\s)@([^\s@，。；、]*)$/.test(text)) {
-    handlePositionInput(segment)
+  if (mentionTriggerPattern.test(text)) {
+    handlePositionInput(segment, text)
   }
 }
 
@@ -573,8 +576,8 @@ const selectMentionAsset = (segment, asset) => {
   addPositionAsset(segment, asset)
   const current = String(positionDrafts[segment.id] || '')
   const token = `@${asset.name} `
-  if (/(^|\s)@([^\s@，。；、]*)$/.test(current)) {
-    positionDrafts[segment.id] = current.replace(/(^|\s)@([^\s@，。；、]*)$/, `$1${token}`)
+  if (mentionTriggerPattern.test(current)) {
+    positionDrafts[segment.id] = current.replace(mentionTriggerPattern, `$1${token}`)
   } else if (!current.includes(`@${asset.name}`)) {
     positionDrafts[segment.id] = `${current}${current && !current.endsWith(' ') && !current.endsWith('\n') ? ' ' : ''}${token}`
   }
@@ -631,12 +634,12 @@ const copyText = async (text) => {
 }
 
 const openImage = (url) => {
-  window.open(url, '_blank', 'noopener,noreferrer')
+  window.open(storageFileUrl(url), '_blank', 'noopener,noreferrer')
 }
 
 const downloadImage = (url) => {
   const link = document.createElement('a')
-  link.href = url
+  link.href = storageFileUrl(url, { download: true })
   link.download = 'position-image.png'
   link.target = '_blank'
   link.rel = 'noopener noreferrer'
@@ -674,7 +677,7 @@ onMounted(async () => {
 .task-button, .scene-button { width: 100%; margin-top: 8px; padding: 11px 12px; display: flex; flex-direction: column; gap: 4px; border: 1px solid #ddd9ce; border-radius: 8px; background: #fff; text-align: left; cursor: pointer; }
 .task-button small, .scene-button small, .project-head span, .segment-card-head span { color: #177264; font-size: 12px; font-weight: 700; }
 .task-button.active, .scene-button.active { border-color: #177264; background: #e8f2ee; }
-.detail-column { padding: 24px; overflow: hidden; }
+.detail-column { min-width: 0; padding: 24px; overflow: visible; }
 .blank-state { height: calc(100vh - 130px); display: grid; place-content: center; max-width: 560px; margin: 0 auto; text-align: center; color: #68716d; }
 .blank-state h2 { color: #162321; }
 .project-head { padding: 18px; margin-bottom: 16px; display: flex; justify-content: space-between; gap: 20px; }
@@ -704,16 +707,16 @@ onMounted(async () => {
 .segment-list { display: grid; gap: 14px; min-width: 0; }
 .scene-summary { padding: 16px; }
 .meta-line { justify-content: flex-start; color: #5e6763; font-size: 13px; }
-.segment-card { padding: 0; overflow: hidden; }
+.segment-card { position: relative; padding: 0; overflow: visible; }
 .segment-card-head { padding: 14px 16px; display: flex; justify-content: space-between; gap: 14px; border-bottom: 1px solid #e4dfd4; background: #fbfaf6; }
 .segment-body { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(340px, .95fr); gap: 14px; padding: 16px; }
 .segment-body pre { margin: 0; min-height: 260px; padding: 14px; border-radius: 8px; background: #14201f; color: #edf6f2; white-space: pre-wrap; word-break: break-word; line-height: 1.75; font-family: inherit; font-size: 13px; }
-.position-panel { padding: 12px; border: 1px solid #d9e2dd; border-radius: 8px; background: #f7fbf8; }
+.position-panel { position: relative; padding: 12px; border: 1px solid #d9e2dd; border-radius: 8px; background: #f7fbf8; }
 .position-head { display: flex; justify-content: space-between; color: #177264; margin-bottom: 8px; }
 .position-head span { color: #7a817c; font-size: 12px; }
 .position-tip { margin: 0 0 10px; color: #5e6763; font-size: 12px; line-height: 1.55; }
-.position-composer { position: relative; padding: 10px; border: 1px solid #d5ded8; border-radius: 9px; background: #fff; }
-.position-composer.active { border-color: #177264; box-shadow: 0 0 0 3px rgba(23, 114, 100, .08); }
+.position-composer { position: relative; z-index: 1; padding: 10px; border: 1px solid #d5ded8; border-radius: 9px; background: #fff; }
+.position-composer.active { z-index: 30; border-color: #177264; box-shadow: 0 0 0 3px rgba(23, 114, 100, .08); }
 .position-composer :deep(.el-textarea__inner) { border: 0; box-shadow: none; padding: 8px 0 0; background: transparent; }
 .reference-cards { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .reference-card { max-width: 190px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 20px; gap: 8px; align-items: center; padding: 6px; border: 1px solid #c9ddd6; border-radius: 8px; background: #f4fbf7; }

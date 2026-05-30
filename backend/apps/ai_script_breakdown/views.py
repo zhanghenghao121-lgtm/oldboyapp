@@ -98,14 +98,17 @@ def _owned_asset(request, asset_id):
 
 
 @csrf_exempt
-@api_view(["PATCH"])
+@api_view(["PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
-def script_breakdown_asset_update(request, asset_id):
+def script_breakdown_asset_detail(request, asset_id):
     if not _feature_allowed(request):
         return _feature_denied()
     asset = _owned_asset(request, asset_id)
     if not asset:
         return bad("素材不存在", 404)
+    if request.method == "DELETE":
+        asset.delete()
+        return ok()
     try:
         return ok(update_asset(asset, request.data))
     except ScriptBreakdownError as exc:

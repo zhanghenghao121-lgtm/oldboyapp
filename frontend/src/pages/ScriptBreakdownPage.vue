@@ -118,6 +118,7 @@
                       <input type="file" accept="image/*" :disabled="uploadingAssetId === asset.id" @change="uploadParsedAsset($event, asset)" />
                       {{ uploadingAssetId === asset.id ? '上传中...' : asset.file_url ? '替换图片' : '上传图片' }}
                     </label>
+                    <button class="asset-delete" type="button" @click="removeAsset(asset)">删除</button>
                   </article>
                   <div v-if="!assetsByType(group.type).length" class="asset-empty">未识别到{{ group.label }}</div>
                 </div>
@@ -228,6 +229,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
   createScriptBreakdownProject,
+  deleteScriptBreakdownAsset,
   deleteScriptBreakdownProject,
   generateScriptPositionImage,
   getScriptBreakdownProject,
@@ -388,6 +390,19 @@ const replaceAsset = (updated) => {
   if (index >= 0) assets.splice(index, 1, updated)
 }
 
+const removeAsset = async (asset) => {
+  try {
+    await ElMessageBox.confirm(`删除解析素材“${asset.name}”？已生成的小段文字不会被删除。`, '删除素材', { type: 'warning' })
+    await deleteScriptBreakdownAsset(asset.id)
+    const assets = selectedProject.value?.assets || []
+    const index = assets.findIndex((item) => item.id === asset.id)
+    if (index >= 0) assets.splice(index, 1)
+    ElMessage.success('素材已删除')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(String(error || '素材删除失败'))
+  }
+}
+
 const uploadParsedAsset = async (event, asset) => {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -535,7 +550,7 @@ onMounted(async () => {
 .asset-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .asset-group { min-width: 0; }
 .asset-group h3 { margin-bottom: 10px; color: #177264; font-size: 16px; }
-.parsed-asset-card { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 10px; padding: 10px; margin-bottom: 10px; border: 1px solid #e2ded3; border-radius: 9px; background: #fbfaf6; }
+.parsed-asset-card { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 10px; padding: 10px; margin-bottom: 10px; border: 1px solid #e2ded3; border-radius: 9px; background: #fbfaf6; }
 .parsed-asset-card.uploaded { border-color: #a8cac1; background: #f5fbf8; }
 .asset-thumb { width: 54px; height: 54px; grid-row: span 2; display: grid; place-items: center; border-radius: 8px; overflow: hidden; background: #e8ece7; color: #177264; font-weight: 900; }
 .asset-thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -545,6 +560,8 @@ onMounted(async () => {
 .upload-mini { width: fit-content; min-height: 28px; padding: 0 10px; display: inline-flex; align-items: center; border: 1px dashed #8db6ad; border-radius: 6px; color: #177264; background: #fff; cursor: pointer; font-size: 12px; font-weight: 700; }
 .upload-mini.busy { opacity: .65; cursor: wait; }
 .upload-mini input { display: none; }
+.asset-delete { width: fit-content; min-height: 28px; padding: 0 10px; border: 1px solid #ead2cc; border-radius: 6px; background: #fff8f6; color: #a84737; font-size: 12px; font-weight: 700; cursor: pointer; }
+.asset-delete:hover { border-color: #d79a8d; color: #8f3326; }
 .asset-empty { padding: 12px; border-radius: 8px; background: #f0eee8; color: #8a8f89; font-size: 13px; }
 .detail-grid { display: grid; grid-template-columns: 230px 1fr; gap: 16px; }
 .scene-list { min-width: 0; }

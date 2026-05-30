@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from rest_framework.test import APIClient
 
 from apps.ai_script_breakdown.models import AiScriptAsset, AiScriptBreakdownProject, AiScriptSceneBlock, AiScriptShotSegment
 from apps.ai_script_breakdown.prompts import DEFAULT_SCRIPT_LIVE_ACTION_STYLE_PROMPT
@@ -183,3 +184,47 @@ class AiScriptBreakdownServicesTests(TestCase):
         project.refresh_from_db()
         self.assertEqual(project.status, AiScriptBreakdownProject.STATUS_FAILED)
         self.assertIn("模型未返回可用的场景大段落", project.error_message)
+
+
+class AiScriptBreakdownAssetApiTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="asset-owner",
+            email="asset-owner@example.com",
+            password="pass1234",
+            is_whitelisted=True,
+        )
+        self.other_user = get_user_model().objects.create_user(
+            username="asset-other",
+            email="asset-other@example.com",
+            password="pass1234",
+            is_whitelisted=True,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.project = AiScriptBreakdownProject.objects.create(
+            user=self.user,
+            title="素材删除",
+            script_text="一段足够长的剧本内容，用于测试删除解析出来的角色、场景和道具。",
+        )
+
+    def test_delete_owned_asset(self):
+        asset = AiScriptAsset.objects.create(project=self.project, asset_type=AiScriptAsset.TYPE_CHARACTER, name="主角")
+
+        response = self.client.delete(f"/api/v1/ai-script-breakdown/assets/{asset.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(AiScriptAsset.objects.filter(id=asset.id).exists())
+
+    def test_cannot_delete_other_users_asset(self):
+        other_project = AiScriptBreakdownProject.objects.create(
+            user=self.other_user,
+            title="他人素材",
+            script_text="另一段足够长的剧本内容，用于测试不能删除他人的解析素材。",
+        )
+        asset = AiScriptAsset.objects.create(project=other_project, asset_type=AiScriptAsset.TYPE_PROP, name="令牌")
+
+        response = self.client.delete(f"/api/v1/ai-script-breakdown/assets/{asset.id}")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(AiScriptAsset.objects.filter(id=asset.id).exists())

@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from apps.ai_script_breakdown.models import AiScriptAsset, AiScriptBreakdownProject, AiScriptShotSegment
 from apps.ai_script_breakdown.services import (
     ScriptBreakdownError,
+    create_asset,
     create_project,
     generate_position_image,
     refresh_position_image,
@@ -85,6 +86,21 @@ def script_breakdown_project_run(request, project_id):
         return bad("AI拆剧任务不存在", 404)
     try:
         return ok(run_project(project))
+    except ScriptBreakdownError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def script_breakdown_project_assets(request, project_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    project = _project_queryset(request).filter(id=project_id).first()
+    if not project:
+        return bad("AI拆剧任务不存在", 404)
+    try:
+        return ok(create_asset(project, request.data))
     except ScriptBreakdownError as exc:
         return bad(str(exc), exc.status)
 

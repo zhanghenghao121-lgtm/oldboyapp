@@ -164,11 +164,39 @@ class AiScriptBreakdownServicesTests(TestCase):
         self.assertEqual(segment.position_image_model, "gpt-image-2")
         self.assertEqual(segment.position_generation_task_id, "task-1")
         self.assertEqual(segment.position_image_url, "https://assets.example.com/position.png")
+        self.assertEqual(segment.position_reference_asset_ids, [asset.id])
         self.assertIn("@主角", segment.position_image_prompt)
         self.assertEqual(result["position_image_url"], "https://assets.example.com/position.png")
+        self.assertEqual(result["position_reference_asset_ids"], [asset.id])
         self.assertEqual(submit_image.call_args.kwargs["reference_images"][0]["name"], "主角")
         reference_data_url.assert_called_once()
         persist_png.assert_called_once()
+
+    @patch("apps.ai_script_breakdown.services._persist_storyboard_png", return_value="https://assets.example.com/position.png")
+    @patch("apps.ai_script_breakdown.services._reference_image_data_url", return_value="data:image/png;base64,xxx")
+    @patch("apps.ai_script_breakdown.services.submit_ai_image_generation")
+    def test_generate_position_image_uses_explicit_asset_ids_from_mention_cards(self, submit_image, reference_data_url, persist_png):
+        submit_image.return_value = {"task_id": "task-2", "status": "completed", "images": ["https://remote.example.com/position.png"]}
+        project = create_project(self.user, {"title": "显式引用素材", "script_text": self.script_text})
+        chosen = AiScriptAsset.objects.create(
+            project=project,
+            asset_type=AiScriptAsset.TYPE_SCENE,
+            name="龙吟堂",
+            file_url="https://assets.example.com/scene.png",
+        )
+        AiScriptAsset.objects.create(
+            project=project,
+            asset_type=AiScriptAsset.TYPE_PROP,
+            name="未选择道具",
+            file_url="https://assets.example.com/prop.png",
+        )
+        scene = AiScriptSceneBlock.objects.create(project=project, scene_name="龙吟堂")
+        segment = AiScriptShotSegment.objects.create(project=project, scene_block=scene, segment_title="站位")
+
+        result = generate_position_image(segment, {"description": "参考所选图片安排开场站位", "asset_ids": [chosen.id]})
+
+        self.assertEqual(result["position_reference_asset_ids"], [chosen.id])
+        self.assertEqual([item["name"] for item in submit_image.call_args.kwargs["reference_images"]], ["龙吟堂"])
 
     @patch("apps.ai_script_breakdown.services._call_script_json")
     def test_run_project_persists_failed_status_when_model_result_is_invalid(self, call_model):
@@ -215,6 +243,17 @@ class AiScriptBreakdownAssetApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(AiScriptAsset.objects.filter(id=asset.id).exists())
+
+    def test_create_reference_asset(self):
+        response = self.client.post(
+            f"/api/v1/ai-script-breakdown/projects/{self.project.id}/assets",
+            {"asset_type": AiScriptAsset.TYPE_REFERENCE, "name": "走位参考", "file_url": "https://assets.example.com/ref.png"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["asset_type"], AiScriptAsset.TYPE_REFERENCE)
+        self.assertTrue(AiScriptAsset.objects.filter(project=self.project, asset_type=AiScriptAsset.TYPE_REFERENCE).exists())
 
     def test_cannot_delete_other_users_asset(self):
         other_project = AiScriptBreakdownProject.objects.create(

@@ -41,10 +41,12 @@ class AiScriptAsset(models.Model):
     TYPE_SCENE = "scene"
     TYPE_CHARACTER = "character"
     TYPE_PROP = "prop"
+    TYPE_REFERENCE = "reference"
     TYPE_CHOICES = [
         (TYPE_SCENE, "场景"),
         (TYPE_CHARACTER, "角色"),
         (TYPE_PROP, "道具"),
+        (TYPE_REFERENCE, "参考图"),
     ]
 
     project = models.ForeignKey(AiScriptBreakdownProject, on_delete=models.CASCADE, related_name="assets")
@@ -104,6 +106,7 @@ class AiScriptShotSegment(models.Model):
     characters = models.JSONField(default=list)
     props = models.JSONField(default=list)
     position_description = models.TextField(blank=True, default="")
+    position_reference_asset_ids = models.JSONField(default=list)
     position_image_prompt = models.TextField(blank=True, default="")
     position_layout_json = models.JSONField(default=dict)
     position_image_url = models.URLField(max_length=1000, blank=True, default="")

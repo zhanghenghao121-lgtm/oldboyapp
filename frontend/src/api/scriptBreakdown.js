@@ -5,6 +5,7 @@ export const createScriptBreakdownProject = (payload) => http.post('/ai-script-b
 export const getScriptBreakdownProject = (id) => http.get(`/ai-script-breakdown/projects/${id}`, { timeout: 30000 })
 export const deleteScriptBreakdownProject = (id) => http.delete(`/ai-script-breakdown/projects/${id}`, { timeout: 30000 })
 export const runScriptBreakdownProject = (id) => http.post(`/ai-script-breakdown/projects/${id}/run`, {}, { timeout: 900000 })
+export const createScriptBreakdownAsset = (projectId, payload) => http.post(`/ai-script-breakdown/projects/${projectId}/assets`, payload, { timeout: 30000 })
 export const updateScriptBreakdownAsset = (id, payload) => http.patch(`/ai-script-breakdown/assets/${id}`, payload, { timeout: 30000 })
 export const deleteScriptBreakdownAsset = (id) => http.delete(`/ai-script-breakdown/assets/${id}`, { timeout: 30000 })
 export const regenerateScriptSegment = (id) => http.post(`/ai-script-breakdown/segments/${id}/regenerate`, {}, { timeout: 300000 })

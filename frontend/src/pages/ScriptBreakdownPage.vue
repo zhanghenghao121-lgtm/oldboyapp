@@ -99,7 +99,13 @@
               <div v-if="!allAssets.length" class="empty-inline">暂无解析素材。可以重新拆解或检查剧本文本。</div>
               <div v-else class="asset-columns">
                 <div v-for="group in assetGroups" :key="group.type" class="asset-group">
-                  <h3>{{ group.label }}</h3>
+                  <div class="asset-group-head">
+                    <h3>{{ group.label }}</h3>
+                    <label v-if="group.type === 'reference'" class="upload-mini group-upload" :class="{ busy: uploadingAssetId === 'reference' }">
+                      <input type="file" accept="image/*" :disabled="uploadingAssetId === 'reference'" @change="uploadReferenceAsset" />
+                      {{ uploadingAssetId === 'reference' ? '上传中...' : '添加参考图' }}
+                    </label>
+                  </div>
                   <article
                     v-for="asset in assetsByType(group.type)"
                     :key="asset.id"
@@ -171,19 +177,52 @@
                         <span>{{ segment.position_image_url ? '已生成' : segment.position_generation_task_id ? '任务进行中' : '待描述' }}</span>
                       </div>
                       <p class="position-tip">用 @ 引用已上传素材描述开场站位，例如：@{{ sampleAssetName }} 站在画面左侧，面向 @{{ sampleSceneName }} 深处。</p>
-                      <div v-if="uploadedAssets.length" class="asset-chips">
-                        <button v-for="asset in uploadedAssets" :key="asset.id" type="button" @click="insertAssetMention(segment, asset)">
-                          @{{ asset.name }}
-                        </button>
+                      <div class="position-composer" :class="{ active: mentionPickerSegmentId === segment.id }">
+                        <div v-if="selectedPositionAssets(segment).length" class="reference-cards">
+                          <article v-for="asset in selectedPositionAssets(segment)" :key="asset.id" class="reference-card">
+                            <img :src="asset.file_url" :alt="asset.name" />
+                            <div>
+                              <strong>@{{ asset.name }}</strong>
+                              <small>{{ assetTypeLabel(asset.asset_type) }}</small>
+                            </div>
+                            <button type="button" @click="removePositionAsset(segment, asset)">×</button>
+                          </article>
+                        </div>
+                        <el-input
+                          v-model="positionDrafts[segment.id]"
+                          type="textarea"
+                          :rows="5"
+                          resize="none"
+                          placeholder="输入 @ 选择图片素材，再描述这一小段开始时的角色站位、朝向、距离、道具位置和镜头方向。"
+                          @input="handlePositionInput(segment)"
+                          @focus="handlePositionFocus(segment)"
+                          @keydown.esc="closeMentionPicker"
+                        />
+                        <div v-if="mentionPickerSegmentId === segment.id" class="mention-panel">
+                          <div class="mention-head">
+                            <strong>可能 @ 的图片素材</strong>
+                            <button type="button" @click="closeMentionPicker">关闭</button>
+                          </div>
+                          <div v-if="!uploadedAssets.length" class="mention-empty">先上传场景、角色、道具或参考图，再用 @ 选择。</div>
+                          <template v-else>
+                            <div v-for="group in mentionGroups" :key="group.type" class="mention-group">
+                              <h4>{{ group.label }}</h4>
+                              <button
+                                v-for="asset in mentionAssetsByType(group.type)"
+                                :key="asset.id"
+                                type="button"
+                                class="mention-option"
+                                @click="selectMentionAsset(segment, asset)"
+                              >
+                                <img :src="asset.file_url" :alt="asset.name" />
+                                <span>{{ asset.name }}</span>
+                                <small>{{ asset.alias || asset.ai_description || group.label }}</small>
+                              </button>
+                              <p v-if="!mentionAssetsByType(group.type).length">暂无匹配{{ group.label }}</p>
+                            </div>
+                          </template>
+                        </div>
                       </div>
-                      <div v-else class="no-uploaded-assets">先在上方解析素材区上传场景、角色或道具图片，再在这里 @ 引用。</div>
-                      <el-input
-                        v-model="positionDrafts[segment.id]"
-                        type="textarea"
-                        :rows="5"
-                        resize="none"
-                        placeholder="描述这一小段开始时的角色站位、朝向、距离、道具位置和镜头方向。"
-                      />
                       <div class="position-actions">
                         <el-select v-model="positionModels[segment.id]" placeholder="生图模型">
                           <el-option v-for="model in imageModels" :key="model.id" :label="model.label" :value="model.id" />
@@ -228,6 +267,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
+  createScriptBreakdownAsset,
   createScriptBreakdownProject,
   deleteScriptBreakdownAsset,
   deleteScriptBreakdownProject,
@@ -253,11 +293,14 @@ const uploadingAssetId = ref('')
 const regeneratingSegmentId = ref('')
 const generatingPositionId = ref('')
 const refreshingPositionId = ref('')
+const mentionPickerSegmentId = ref('')
+const mentionSearch = ref('')
 const analysisModels = ref([])
 const imageModels = ref([])
 const defaultImageModel = ref('gpt-image-2')
 const positionDrafts = reactive({})
 const positionModels = reactive({})
+const positionAssetRefs = reactive({})
 
 const form = reactive({
   title: '',
@@ -275,6 +318,7 @@ const assetGroups = [
   { type: 'scene', label: '场景', short: '景' },
   { type: 'character', label: '角色', short: '角' },
   { type: 'prop', label: '道具', short: '物' },
+  { type: 'reference', label: '参考图', short: '参' },
 ]
 
 const activeScene = computed(() => (selectedProject.value?.scene_blocks || []).find((scene) => scene.id === activeSceneId.value))
@@ -285,12 +329,16 @@ const uploadedAssetCount = computed(() => uploadedAssets.value.length)
 const assetsByType = (type) => allAssets.value.filter((asset) => asset.asset_type === type)
 const sampleAssetName = computed(() => uploadedAssets.value[0]?.name || '角色名')
 const sampleSceneName = computed(() => assetsByType('scene')[0]?.name || '场景名')
+const mentionGroups = computed(() => assetGroups.filter((group) => uploadedAssets.value.some((asset) => asset.asset_type === group.type)))
 
 const syncPositionState = (project) => {
   for (const scene of project?.scene_blocks || []) {
     for (const segment of scene.segments || []) {
       positionDrafts[segment.id] = segment.position_description || positionDrafts[segment.id] || ''
       positionModels[segment.id] = segment.position_image_model || positionModels[segment.id] || defaultImageModel.value
+      positionAssetRefs[segment.id] = Array.isArray(segment.position_reference_asset_ids)
+        ? [...segment.position_reference_asset_ids]
+        : positionAssetRefs[segment.id] || []
     }
   }
 }
@@ -303,6 +351,7 @@ watch(selectedProject, (project) => {
 const statusLabel = (status) => ({ pending: '待拆解', processing: '拆解中', completed: '已完成', failed: '失败' }[status] || status)
 const styleLabel = (style) => ({ live_action: '真人写实', anime_3d: '3D动漫' }[style] || style)
 const viewLabel = (view) => ({ front: '正面', reverse: '反打', side: '侧面', closeup: '近景', mixed: '混合' }[view] || view)
+const assetTypeLabel = (type) => ({ scene: '场景', character: '角色', prop: '道具', reference: '参考图' }[type] || type)
 
 const loadProjects = async () => {
   loadingProjects.value = true
@@ -397,9 +446,34 @@ const removeAsset = async (asset) => {
     const assets = selectedProject.value?.assets || []
     const index = assets.findIndex((item) => item.id === asset.id)
     if (index >= 0) assets.splice(index, 1)
+    Object.keys(positionAssetRefs).forEach((segmentId) => {
+      positionAssetRefs[segmentId] = (positionAssetRefs[segmentId] || []).filter((id) => id !== asset.id)
+    })
     ElMessage.success('素材已删除')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(String(error || '素材删除失败'))
+  }
+}
+
+const uploadReferenceAsset = async (event) => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || !file.type.startsWith('image/') || !selectedProject.value?.id) return
+  uploadingAssetId.value = 'reference'
+  try {
+    const uploaded = await uploadToCos(file, 'images/script-breakdown/references', { timeout: 120000 })
+    const name = file.name.replace(/\.[^.]+$/, '') || '参考图'
+    const res = await createScriptBreakdownAsset(selectedProject.value.id, {
+      asset_type: 'reference',
+      name,
+      file_url: uploaded.data.url,
+    })
+    selectedProject.value.assets.push(res.data)
+    ElMessage.success(uploaded.data.compressed ? '参考图已压缩并上传' : '参考图已上传')
+  } catch (error) {
+    ElMessage.error(String(error || '参考图上传失败'))
+  } finally {
+    uploadingAssetId.value = ''
   }
 }
 
@@ -427,6 +501,9 @@ const replaceSegment = (updated) => {
   if (index >= 0) scene.segments.splice(index, 1, updated)
   positionDrafts[updated.id] = updated.position_description || positionDrafts[updated.id] || ''
   positionModels[updated.id] = updated.position_image_model || positionModels[updated.id] || defaultImageModel.value
+  positionAssetRefs[updated.id] = Array.isArray(updated.position_reference_asset_ids)
+    ? [...updated.position_reference_asset_ids]
+    : positionAssetRefs[updated.id] || []
 }
 
 const regenerateSegment = async (segment) => {
@@ -442,23 +519,80 @@ const regenerateSegment = async (segment) => {
   }
 }
 
-const insertAssetMention = (segment, asset) => {
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const selectedPositionAssets = (segment) => {
+  const ids = positionAssetRefs[segment.id] || []
+  return ids.map((id) => uploadedAssets.value.find((asset) => asset.id === id)).filter(Boolean)
+}
+
+const addPositionAsset = (segment, asset) => {
+  const ids = positionAssetRefs[segment.id] || []
+  if (!ids.includes(asset.id)) positionAssetRefs[segment.id] = [...ids, asset.id]
+}
+
+const removePositionAsset = (segment, asset) => {
+  positionAssetRefs[segment.id] = (positionAssetRefs[segment.id] || []).filter((id) => id !== asset.id)
+  const pattern = new RegExp(`(^|\\s)@${escapeRegExp(asset.name)}\\s*`, 'g')
+  positionDrafts[segment.id] = String(positionDrafts[segment.id] || '').replace(pattern, '$1').trimStart()
+}
+
+const closeMentionPicker = () => {
+  mentionPickerSegmentId.value = ''
+  mentionSearch.value = ''
+}
+
+const mentionAssetsByType = (type) => {
+  const keyword = mentionSearch.value.trim().toLowerCase()
+  return uploadedAssets.value.filter((asset) => {
+    if (asset.asset_type !== type) return false
+    if (!keyword) return true
+    return `${asset.name} ${asset.alias || ''} ${asset.ai_description || ''}`.toLowerCase().includes(keyword)
+  })
+}
+
+const handlePositionInput = (segment) => {
+  const text = String(positionDrafts[segment.id] || '')
+  const match = text.match(/(^|\s)@([^\s@，。；、]*)$/)
+  if (!match) {
+    closeMentionPicker()
+    return
+  }
+  mentionPickerSegmentId.value = segment.id
+  mentionSearch.value = match[2] || ''
+}
+
+const handlePositionFocus = (segment) => {
+  const text = String(positionDrafts[segment.id] || '')
+  if (/(^|\s)@([^\s@，。；、]*)$/.test(text)) {
+    handlePositionInput(segment)
+  }
+}
+
+const selectMentionAsset = (segment, asset) => {
+  addPositionAsset(segment, asset)
+  const current = String(positionDrafts[segment.id] || '')
   const token = `@${asset.name} `
-  const current = positionDrafts[segment.id] || ''
-  if (current.includes(`@${asset.name}`)) return
-  positionDrafts[segment.id] = `${current}${current && !current.endsWith(' ') && !current.endsWith('\n') ? ' ' : ''}${token}`
+  if (/(^|\s)@([^\s@，。；、]*)$/.test(current)) {
+    positionDrafts[segment.id] = current.replace(/(^|\s)@([^\s@，。；、]*)$/, `$1${token}`)
+  } else if (!current.includes(`@${asset.name}`)) {
+    positionDrafts[segment.id] = `${current}${current && !current.endsWith(' ') && !current.endsWith('\n') ? ' ' : ''}${token}`
+  }
+  closeMentionPicker()
 }
 
 const generatePosition = async (segment) => {
   const description = String(positionDrafts[segment.id] || '').trim()
-  if (description.length < 5) {
-    ElMessage.warning('请先描述站位，可以点击素材标签快速插入 @素材名')
+  const assetIds = selectedPositionAssets(segment).map((asset) => asset.id)
+  if (description.length < 5 && !assetIds.length) {
+    ElMessage.warning('请先描述站位，或输入 @ 选择图片素材')
     return
   }
   generatingPositionId.value = segment.id
   try {
     const res = await generateScriptPositionImage(segment.id, {
       description,
+      asset_ids: assetIds,
       model: positionModels[segment.id] || defaultImageModel.value,
     })
     replaceSegment(res.data)
@@ -547,9 +681,11 @@ onMounted(async () => {
 .project-actions, .card-actions, .meta-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .processing-card { padding: 30px; color: #68716d; }
 .parsed-assets-panel { padding: 16px; margin-bottom: 16px; }
-.asset-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.asset-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .asset-group { min-width: 0; }
-.asset-group h3 { margin-bottom: 10px; color: #177264; font-size: 16px; }
+.asset-group-head { min-height: 30px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.asset-group h3 { color: #177264; font-size: 16px; }
+.group-upload { min-height: 26px; font-size: 11px; }
 .parsed-asset-card { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 10px; padding: 10px; margin-bottom: 10px; border: 1px solid #e2ded3; border-radius: 9px; background: #fbfaf6; }
 .parsed-asset-card.uploaded { border-color: #a8cac1; background: #f5fbf8; }
 .asset-thumb { width: 54px; height: 54px; grid-row: span 2; display: grid; place-items: center; border-radius: 8px; overflow: hidden; background: #e8ece7; color: #177264; font-weight: 900; }
@@ -575,9 +711,29 @@ onMounted(async () => {
 .position-panel { padding: 12px; border: 1px solid #d9e2dd; border-radius: 8px; background: #f7fbf8; }
 .position-head { display: flex; justify-content: space-between; color: #177264; margin-bottom: 8px; }
 .position-head span { color: #7a817c; font-size: 12px; }
-.position-tip, .no-uploaded-assets { margin: 0 0 10px; color: #5e6763; font-size: 12px; line-height: 1.55; }
-.asset-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
-.asset-chips button { border: 1px solid #a8cac1; border-radius: 999px; padding: 4px 9px; background: #fff; color: #177264; font-size: 12px; cursor: pointer; }
+.position-tip { margin: 0 0 10px; color: #5e6763; font-size: 12px; line-height: 1.55; }
+.position-composer { position: relative; padding: 10px; border: 1px solid #d5ded8; border-radius: 9px; background: #fff; }
+.position-composer.active { border-color: #177264; box-shadow: 0 0 0 3px rgba(23, 114, 100, .08); }
+.position-composer :deep(.el-textarea__inner) { border: 0; box-shadow: none; padding: 8px 0 0; background: transparent; }
+.reference-cards { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.reference-card { max-width: 190px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 20px; gap: 8px; align-items: center; padding: 6px; border: 1px solid #c9ddd6; border-radius: 8px; background: #f4fbf7; }
+.reference-card img { width: 42px; height: 42px; border-radius: 6px; object-fit: cover; background: #e8ece7; }
+.reference-card strong, .reference-card small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reference-card strong { color: #14201f; font-size: 12px; }
+.reference-card small { color: #177264; font-size: 11px; }
+.reference-card button { width: 20px; height: 20px; border: 0; border-radius: 999px; background: #e7f1ed; color: #177264; cursor: pointer; }
+.mention-panel { position: absolute; z-index: 6; left: 10px; right: 10px; top: calc(100% - 4px); max-height: 320px; overflow: auto; padding: 12px; border: 1px solid #dfe4df; border-radius: 12px; background: #fff; box-shadow: 0 18px 45px rgba(20, 32, 31, .16); }
+.mention-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: #177264; }
+.mention-head button { border: 0; background: transparent; color: #7a817c; cursor: pointer; }
+.mention-group { margin-top: 10px; }
+.mention-group h4 { margin: 0 0 6px; color: #7a817c; font-size: 12px; }
+.mention-group p, .mention-empty { margin: 0; padding: 8px; color: #8a8f89; font-size: 12px; }
+.mention-option { width: 100%; min-height: 52px; margin-bottom: 6px; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 10px; align-items: center; border: 0; border-radius: 9px; padding: 6px; background: #f5f4ef; text-align: left; cursor: pointer; }
+.mention-option:hover { background: #e8f2ee; }
+.mention-option img { width: 42px; height: 42px; border-radius: 7px; object-fit: cover; background: #e8ece7; }
+.mention-option span, .mention-option small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-option span { color: #14201f; font-weight: 800; }
+.mention-option small { color: #68716d; font-size: 12px; }
 .position-actions { display: grid; grid-template-columns: minmax(140px, 1fr) auto auto; gap: 8px; align-items: center; margin-top: 10px; }
 .position-actions :deep(.el-button--primary) { background: #177264; border-color: #177264; }
 .position-preview { margin-top: 12px; border-radius: 9px; overflow: hidden; border: 1px solid #d7dfda; background: #fff; }

@@ -164,6 +164,7 @@ def serialize_segment(segment: AiScriptShotSegment) -> dict:
         "characters": segment.characters,
         "props": segment.props,
         "position_description": segment.position_description,
+        "position_reference_asset_ids": segment.position_reference_asset_ids,
         "position_image_prompt": segment.position_image_prompt,
         "position_layout": segment.position_layout_json,
         "position_image_url": segment.position_image_url,
@@ -248,6 +249,24 @@ def create_project(user, payload: dict) -> AiScriptBreakdownProject:
             file_url=str(item.get("file_url") or "").strip(),
         )
     return project
+
+
+def create_asset(project: AiScriptBreakdownProject, payload: dict) -> dict:
+    asset_type = str(payload.get("asset_type") or "").strip()
+    if asset_type not in ALLOWED_ASSET_TYPES:
+        raise ScriptBreakdownError("素材类型不支持")
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise ScriptBreakdownError("素材名称不能为空")
+    asset = AiScriptAsset.objects.create(
+        project=project,
+        asset_type=asset_type,
+        name=name[:255],
+        alias=str(payload.get("alias") or "").strip()[:255],
+        file_url=str(payload.get("file_url") or "").strip(),
+        ai_description=str(payload.get("ai_description") or "").strip(),
+    )
+    return serialize_asset(asset)
 
 
 def update_asset(asset: AiScriptAsset, payload: dict) -> dict:
@@ -405,10 +424,28 @@ def _asset_mentions(description: str, asset: AiScriptAsset) -> bool:
     return any(name and f"@{name}" in text for name in names)
 
 
-def _segment_position_references(segment: AiScriptShotSegment, description: str) -> list[dict]:
+def _payload_asset_ids(payload: dict) -> list[int]:
+    raw_ids = payload.get("asset_ids") or payload.get("reference_asset_ids") or []
+    if not isinstance(raw_ids, list):
+        return []
+    ids = []
+    for value in raw_ids:
+        try:
+            asset_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if asset_id not in ids:
+            ids.append(asset_id)
+    return ids
+
+
+def _segment_position_reference_assets(segment: AiScriptShotSegment, description: str, asset_ids: list[int] | None = None) -> list[AiScriptAsset]:
     assets = list(segment.project.assets.exclude(file_url=""))
-    selected = [asset for asset in assets if _asset_mentions(description, asset)]
-    if not selected:
+    if asset_ids is not None:
+        selected = [asset for asset in assets if asset.id in asset_ids]
+    else:
+        selected = [asset for asset in assets if _asset_mentions(description, asset)]
+    if not selected and asset_ids is None:
         related_names = {
             str(value).strip()
             for value in [
@@ -424,10 +461,17 @@ def _segment_position_references(segment: AiScriptShotSegment, description: str)
             for asset in assets
             if asset.name in related_names or asset.alias in related_names
         ]
-    if not selected:
+    if not selected and asset_ids is None:
         selected = assets
+    return selected[:16]
+
+
+def _segment_position_references(segment: AiScriptShotSegment, description: str, asset_ids: list[int] | None = None) -> tuple[list[dict], list[int]]:
+    selected = _segment_position_reference_assets(segment, description, asset_ids)
     references = []
-    for asset in selected[:16]:
+    reference_ids = []
+    for asset in selected:
+        reference_ids.append(asset.id)
         references.append(
             {
                 "field": "script_breakdown_asset",
@@ -436,7 +480,7 @@ def _segment_position_references(segment: AiScriptShotSegment, description: str)
                 "data_url": _reference_image_data_url(asset.file_url, segment.project.user),
             }
         )
-    return references
+    return references, reference_ids
 
 
 def _position_generation_prompt(segment: AiScriptShotSegment, description: str, references: list[dict]) -> str:
@@ -597,10 +641,17 @@ def regenerate_segment(segment: AiScriptShotSegment) -> dict:
 @transaction.atomic
 def generate_position_image(segment: AiScriptShotSegment, payload: dict) -> dict:
     description = str(payload.get("description") or "").strip()
-    if len(description) < 5:
-        raise ScriptBreakdownError("请输入站位描述，可以用 @ 引用已上传的场景、角色、道具")
+    explicit_asset_ids = _payload_asset_ids(payload)
+    if len(description) < 5 and not explicit_asset_ids:
+        raise ScriptBreakdownError("请输入站位描述，或用 @ 选择已上传的场景、角色、道具、参考图")
+    if not description:
+        description = "请根据当前小段剧情和已选择的图片素材生成开场站位图。"
     image_model = str(payload.get("model") or segment.position_image_model or "gpt-image-2").strip()
-    references = _segment_position_references(segment, description)
+    references, reference_asset_ids = _segment_position_references(
+        segment,
+        description,
+        explicit_asset_ids if explicit_asset_ids else None,
+    )
     prompt = _position_generation_prompt(segment, description, references)
     try:
         result = submit_ai_image_generation(
@@ -623,6 +674,7 @@ def generate_position_image(segment: AiScriptShotSegment, payload: dict) -> dict
             raise ScriptBreakdownError(str(exc), exc.status) from exc
 
     segment.position_description = description
+    segment.position_reference_asset_ids = reference_asset_ids
     segment.position_image_prompt = prompt
     segment.position_image_model = image_model
     segment.position_generation_task_id = str(result.get("task_id") or "")
@@ -631,6 +683,7 @@ def generate_position_image(segment: AiScriptShotSegment, payload: dict) -> dict
     segment.save(
         update_fields=[
             "position_description",
+            "position_reference_asset_ids",
             "position_image_prompt",
             "position_image_model",
             "position_generation_task_id",

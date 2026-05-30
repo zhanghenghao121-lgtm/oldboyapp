@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth import get_user_model
@@ -22,6 +24,7 @@ from .utils import valid_com_email, valid_password, gen_numeric_code
 
 User = get_user_model()
 DEFAULT_AVATAR = getattr(settings, "DEFAULT_AVATAR_URL", "")
+logger = logging.getLogger(__name__)
 
 
 def ok(data=None):
@@ -123,13 +126,21 @@ def email_code(request):
         daily_count = 0
 
     code = gen_numeric_code()
-    send_mail(
-        subject="OldboyApp 验证码",
-        message=f"您的验证码是：{code}，5分钟内有效。",
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[email],
-        fail_silently=False,
-    )
+    try:
+        sent_count = send_mail(
+            subject="OldboyApp 验证码",
+            message=f"您的验证码是：{code}，5分钟内有效。",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+            fail_silently=False,
+        )
+    except Exception as exc:
+        logger.exception("邮箱验证码发送失败 scene=%s email=%s", scene, email)
+        return bad("验证码邮件发送失败，请稍后重试或联系管理员检查 SMTP 配置", 502)
+    if sent_count <= 0:
+        logger.error("邮箱验证码未发送 scene=%s email=%s", scene, email)
+        return bad("验证码邮件发送失败，请稍后重试", 502)
+
     _cache_set(f"email_code:{scene}:{email}", code, 300)
     if scene == "register":
         _cache_set(f"email_bind:register:{email}", username, 300)

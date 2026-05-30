@@ -49,3 +49,16 @@ class EmailCodeRateLimitTests(TestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 429)
         self.assertEqual(send_mail.call_count, 1)
+
+    @patch("apps.accounts.views.send_mail", side_effect=RuntimeError("smtp unavailable"))
+    def test_email_send_failure_returns_json_error(self, send_mail):
+        response = self.client.post(
+            "/api/v1/auth/email-code",
+            {"email": "alpha@example.com", "scene": "reset"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["ok"], False)
+        self.assertIn("验证码邮件发送失败", response.json()["message"])
+        self.assertEqual(send_mail.call_count, 1)

@@ -45,7 +45,6 @@ class SiteConfig(models.Model):
     KEY_AI_IMAGE_DOUBAO_API_KEY = "ai_image_doubao_api_key"
     KEY_AI_IMAGE_DOUBAO_MODEL = "ai_image_doubao_model"
     KEY_REMOVE_BG_API_KEY = "remove_bg_api_key"
-    KEY_AI_IMAGE_REVERSE_PROMPT = "ai_image_reverse_prompt"
     KEY_STORYBOARD_SCENE_SPLIT_PROMPT = "storyboard_scene_split_prompt"
     KEY_STORYBOARD_LEAF_SPLIT_PROMPT = "storyboard_leaf_split_prompt"
     KEY_STORYBOARD_ASSET_PROMPT = "storyboard_asset_prompt"
@@ -67,7 +66,6 @@ class SiteConfig(models.Model):
         (KEY_AI_IMAGE_DOUBAO_API_KEY, "豆包生图API Key"),
         (KEY_AI_IMAGE_DOUBAO_MODEL, "豆包生图模型名称"),
         (KEY_REMOVE_BG_API_KEY, "remove.bg API Key"),
-        (KEY_AI_IMAGE_REVERSE_PROMPT, "反打画面提示词"),
         (KEY_STORYBOARD_SCENE_SPLIT_PROMPT, "故事板场景拆分提示词"),
         (KEY_STORYBOARD_LEAF_SPLIT_PROMPT, "故事板分镜适配提示词"),
         (KEY_STORYBOARD_ASSET_PROMPT, "故事板素材提取提示词"),

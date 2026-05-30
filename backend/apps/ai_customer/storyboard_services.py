@@ -689,7 +689,6 @@ def _persist_storyboard_png(image_ref: str, user, folder: str, image_model: str 
 def _submit_panel_image(panel: StoryboardPanel, model: str, references: list[dict]) -> None:
     try:
         result = submit_ai_image_generation(
-            mode="text",
             prompt=panel.image_prompt,
             model=model,
             size=panel.segment.project.aspect_ratio,

@@ -1,17 +1,9 @@
-import json
-
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.ai_customer.ai_image_services import (
-    AIImageError,
-    get_ai_image_task_result,
-    prepare_ai_image_references,
-    submit_ai_image_generation,
-)
 from apps.ai_customer.cutout_services import (
     CutoutError,
     cutout_character,
@@ -22,7 +14,6 @@ from apps.ai_customer.cutout_services import (
 from apps.ai_customer.models import StoryboardPanel, StoryboardProject, StorySegment
 from apps.ai_customer.runtime_config import (
     get_ai_image_configs,
-    get_ai_image_reverse_prompt,
     get_storyboard_llm_configs,
 )
 from apps.ai_customer.storyboard_services import (
@@ -89,86 +80,6 @@ def storyboard_config(request):
             "style_options": ["电影写实", "3D动漫", "国风水墨", "赛博朋克"],
         }
     )
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def ai_image_config(request):
-    if not _feature_allowed(request):
-        return _feature_denied()
-    image_configs = get_ai_image_configs()
-    image_config = image_configs[0]
-    return ok(
-        {
-            "default_model": image_config.get("model") or "gpt-image-2",
-            "default_size": "16:9",
-            "default_resolution": "1k",
-            "default_n": 1,
-            "reverse_prompt": get_ai_image_reverse_prompt(),
-            "model_options": [
-                {
-                    "id": item.get("id") or item.get("model"),
-                    "label": item.get("label") or item.get("model"),
-                    "model": item.get("model"),
-                    "provider": item.get("provider"),
-                }
-                for item in image_configs
-            ],
-            "size_options": [
-                "16:9",
-                "9:16",
-                "1:1",
-                "4:3",
-                "3:4",
-                "3:2",
-                "2:3",
-                "21:9",
-            ],
-            "resolution_options": ["1k", "2k", "4k"],
-        }
-    )
-
-
-@csrf_exempt
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def ai_image_generate(request):
-    if not _feature_allowed(request):
-        return _feature_denied()
-    try:
-        mode = str(request.data.get("mode", "reverse_shot") or "reverse_shot").strip().lower()
-        if mode != "reverse_shot":
-            return bad("AI生图页面已不支持文生图模式", 400)
-        try:
-            object_names = json.loads(str(request.data.get("object_names", "[]") or "[]"))
-        except Exception:
-            object_names = []
-        if not isinstance(object_names, list):
-            object_names = []
-        object_names = [str(item or "").strip() for item in object_names]
-        references = prepare_ai_image_references(request.FILES, object_names=object_names)
-        result = submit_ai_image_generation(
-            mode=mode,
-            prompt=str(request.data.get("prompt", "") or ""),
-            model=str(request.data.get("model", "") or ""),
-            size=str(request.data.get("size", "16:9") or "16:9"),
-            resolution=str(request.data.get("resolution", "1k") or "1k"),
-            reference_images=references,
-        )
-        return ok(result)
-    except AIImageError as exc:
-        return bad(str(exc), exc.status)
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def ai_image_task(request, task_id):
-    if not _feature_allowed(request):
-        return _feature_denied()
-    try:
-        return ok(get_ai_image_task_result(task_id, str(request.query_params.get("model") or "")))
-    except AIImageError as exc:
-        return bad(str(exc), exc.status)
 
 
 @csrf_exempt

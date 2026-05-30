@@ -165,14 +165,6 @@
                 />
               </el-form-item>
             </div>
-            <el-form-item label="独立 AI生图反打提示词">
-              <el-input
-                v-model="forms.ai_image_reverse_prompt"
-                type="textarea"
-                :rows="8"
-                placeholder="设置 AI生图工具中的反打画面默认提示词"
-              />
-            </el-form-item>
           </el-form>
         </section>
       </template>
@@ -309,7 +301,6 @@ const forms = reactive({
   ai_image_doubao_api_key: '',
   ai_image_doubao_model: '',
   remove_bg_api_key: '',
-  ai_image_reverse_prompt: '',
   storyboard_scene_split_prompt: '',
   storyboard_leaf_split_prompt: '',
   storyboard_asset_prompt: '',
@@ -400,7 +391,7 @@ const saveModelConfigs = async () => {
 const savePromptConfigs = async () => {
   savingPrompts.value = true
   try {
-    await saveKeys(['storyboard_scene_split_prompt', 'storyboard_leaf_split_prompt', 'storyboard_asset_prompt', 'storyboard_panel_prompt', 'storyboard_single_panel_prompt', 'storyboard_video_prompt', 'ai_image_reverse_prompt'])
+    await saveKeys(['storyboard_scene_split_prompt', 'storyboard_leaf_split_prompt', 'storyboard_asset_prompt', 'storyboard_panel_prompt', 'storyboard_single_panel_prompt', 'storyboard_video_prompt'])
     ElMessage.success('提示词配置已保存')
   } catch (e) {
     ElMessage.error(String(e || '提示词配置保存失败'))

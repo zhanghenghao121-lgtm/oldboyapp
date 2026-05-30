@@ -15,9 +15,6 @@ from apps.console.serializers import (
     SiteConfigSerializer,
     SiteConfigUpdateSerializer,
 )
-from apps.ai_customer.runtime_config import (
-    DEFAULT_AI_IMAGE_REVERSE_PROMPT,
-)
 from apps.ai_customer.storyboard_prompts import (
     DEFAULT_STORYBOARD_ASSET_PROMPT,
     DEFAULT_STORYBOARD_LEAF_SPLIT_PROMPT,
@@ -54,7 +51,6 @@ def _config_defaults():
         SiteConfig.KEY_AI_IMAGE_DOUBAO_API_KEY: "",
         SiteConfig.KEY_AI_IMAGE_DOUBAO_MODEL: "doubao-seedream-5-0-260128",
         SiteConfig.KEY_REMOVE_BG_API_KEY: getattr(settings, "REMOVE_BG_API_KEY", ""),
-        SiteConfig.KEY_AI_IMAGE_REVERSE_PROMPT: DEFAULT_AI_IMAGE_REVERSE_PROMPT,
         SiteConfig.KEY_STORYBOARD_SCENE_SPLIT_PROMPT: DEFAULT_STORYBOARD_SCENE_SPLIT_PROMPT,
         SiteConfig.KEY_STORYBOARD_LEAF_SPLIT_PROMPT: DEFAULT_STORYBOARD_LEAF_SPLIT_PROMPT,
         SiteConfig.KEY_STORYBOARD_ASSET_PROMPT: DEFAULT_STORYBOARD_ASSET_PROMPT,

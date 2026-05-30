@@ -75,13 +75,22 @@ def _image_url_candidates(url: str):
 def _user_storyboard_owns_url(user, url: str) -> bool:
     if not url:
         return False
-    from apps.ai_customer.models import StoryboardAsset, StoryboardPanel, StorySegment
+    from apps.ai_customer.models import SceneInferenceProject, StoryboardAsset, StoryboardPanel, StorySegment
 
     candidates = _image_url_candidates(url)
     return (
         StoryboardAsset.objects.filter(project__user=user, image_url__in=candidates).exists()
         or StoryboardPanel.objects.filter(segment__project__user=user, image_url__in=candidates).exists()
         or StorySegment.objects.filter(project__user=user, grid_image_url__in=candidates).exists()
+        or SceneInferenceProject.objects.filter(
+            user=user,
+            front_image_url__in=candidates,
+        ).exists()
+        or SceneInferenceProject.objects.filter(user=user, back_image_url__in=candidates).exists()
+        or SceneInferenceProject.objects.filter(user=user, left_image_url__in=candidates).exists()
+        or SceneInferenceProject.objects.filter(user=user, right_image_url__in=candidates).exists()
+        or SceneInferenceProject.objects.filter(user=user, top_image_url__in=candidates).exists()
+        or SceneInferenceProject.objects.filter(user=user, panorama_image_url__in=candidates).exists()
     )
 
 

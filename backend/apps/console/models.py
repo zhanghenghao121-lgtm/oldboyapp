@@ -58,6 +58,10 @@ class SiteConfig(models.Model):
     KEY_AI_SCRIPT_SHOT_SEGMENT_PROMPT = "ai_script_shot_segment_prompt"
     KEY_AI_SCRIPT_POSITION_PROMPT = "ai_script_position_prompt"
     KEY_AI_SCRIPT_VALIDATE_PROMPT = "ai_script_validate_prompt"
+    KEY_SCENE_INFERENCE_LEFT_PROMPT = "scene_inference_left_prompt"
+    KEY_SCENE_INFERENCE_RIGHT_PROMPT = "scene_inference_right_prompt"
+    KEY_SCENE_INFERENCE_TOP_PROMPT = "scene_inference_top_prompt"
+    KEY_SCENE_INFERENCE_PANORAMA_PROMPT = "scene_inference_panorama_prompt"
     KEY_CHOICES = [
         (KEY_DEFAULT_AVATAR, "默认头像URL"),
         (KEY_STORYBOARD_DEEPSEEK_BASE_URL, "故事板 DeepSeek API地址"),
@@ -86,6 +90,10 @@ class SiteConfig(models.Model):
         (KEY_AI_SCRIPT_SHOT_SEGMENT_PROMPT, "AI拆剧小段落分镜提示词"),
         (KEY_AI_SCRIPT_POSITION_PROMPT, "AI拆剧站位图提示词"),
         (KEY_AI_SCRIPT_VALIDATE_PROMPT, "AI拆剧校验提示词"),
+        (KEY_SCENE_INFERENCE_LEFT_PROMPT, "场景推理左侧面提示词"),
+        (KEY_SCENE_INFERENCE_RIGHT_PROMPT, "场景推理右侧面提示词"),
+        (KEY_SCENE_INFERENCE_TOP_PROMPT, "场景推理俯瞰图提示词"),
+        (KEY_SCENE_INFERENCE_PANORAMA_PROMPT, "场景推理全景图提示词"),
     ]
 
     key = models.CharField(max_length=64, choices=KEY_CHOICES, unique=True)

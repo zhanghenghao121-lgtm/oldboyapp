@@ -11,7 +11,7 @@ from apps.ai_customer.cutout_services import (
     list_sticker_assets,
     remove_sticker_asset,
 )
-from apps.ai_customer.models import StoryboardPanel, StoryboardProject, StorySegment
+from apps.ai_customer.models import SceneInferenceProject, StoryboardPanel, StoryboardProject, StorySegment
 from apps.ai_customer.runtime_config import (
     get_ai_image_configs,
     get_storyboard_llm_configs,
@@ -31,6 +31,14 @@ from apps.ai_customer.storyboard_services import (
     serialize_project,
     serialize_segment,
     update_panel,
+)
+from apps.ai_customer.scene_inference_services import (
+    SceneInferenceError,
+    create_scene_inference_project,
+    generate_scene_inference_views,
+    generate_scene_panorama,
+    refresh_scene_inference_project,
+    serialize_scene_inference_project,
 )
 
 
@@ -74,7 +82,13 @@ def storyboard_config(request):
                 for item in get_storyboard_llm_configs()
             ],
             "image_models": [
-                {"id": item["id"], "label": item["label"], "model": item["model"]}
+                {
+                    "id": item["id"],
+                    "label": item["label"],
+                    "model": item["model"],
+                    "supports_reference_images": True,
+                    "supports_panorama": True,
+                }
                 for item in get_ai_image_configs()
             ],
             "style_options": ["电影写实", "3D动漫", "国风水墨", "赛博朋克"],
@@ -335,3 +349,75 @@ def storyboard_panel_regenerate(request, panel_id):
         return ok(regenerate_panel(panel, request.data))
     except StoryboardError as exc:
         return bad(str(exc), exc.status)
+
+
+def _owned_scene_inference_project(request, project_id):
+    return SceneInferenceProject.objects.filter(id=project_id, user=request.user).prefetch_related("jobs").first()
+
+
+@csrf_exempt
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def scene_inference_projects(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    try:
+        if request.method == "GET":
+            projects = SceneInferenceProject.objects.filter(user=request.user).prefetch_related("jobs")[:30]
+            return ok({"list": [serialize_scene_inference_project(project, include_jobs=False) for project in projects]})
+        project = create_scene_inference_project(request.user, request.data)
+        return ok(serialize_scene_inference_project(project))
+    except SceneInferenceError as exc:
+        return bad(str(exc), exc.status)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def scene_inference_project_detail(request, project_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    project = _owned_scene_inference_project(request, project_id)
+    if not project:
+        return bad("场景推理项目不存在", 404)
+    return ok(serialize_scene_inference_project(project))
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def scene_inference_generate_views(request, project_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    project = _owned_scene_inference_project(request, project_id)
+    if not project:
+        return bad("场景推理项目不存在", 404)
+    try:
+        return ok(generate_scene_inference_views(project, request.data))
+    except SceneInferenceError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def scene_inference_generate_panorama(request, project_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    project = _owned_scene_inference_project(request, project_id)
+    if not project:
+        return bad("场景推理项目不存在", 404)
+    try:
+        return ok(generate_scene_panorama(project, request.data))
+    except SceneInferenceError as exc:
+        return bad(str(exc), exc.status)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def scene_inference_refresh(request, project_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    project = _owned_scene_inference_project(request, project_id)
+    if not project:
+        return bad("场景推理项目不存在", 404)
+    return ok(refresh_scene_inference_project(project))

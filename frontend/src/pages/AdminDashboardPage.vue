@@ -238,6 +238,53 @@
             </div>
           </el-form>
         </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>场景推理提示词</h3>
+              <p>控制正面图和反打图推理左侧面、右侧面、俯瞰图，以及生成 2:1 全景图的提示词。</p>
+            </div>
+            <el-button class="main-btn" type="primary" :loading="savingPrompts" @click="savePromptConfigs">保存提示词</el-button>
+          </div>
+
+          <el-form label-position="top">
+            <div class="prompt-grid">
+              <el-form-item label="左侧面提示词">
+                <el-input
+                  v-model="forms.scene_inference_left_prompt"
+                  type="textarea"
+                  :rows="9"
+                  placeholder="设置根据正面图和反打图推理左侧面视角的规则"
+                />
+              </el-form-item>
+              <el-form-item label="右侧面提示词">
+                <el-input
+                  v-model="forms.scene_inference_right_prompt"
+                  type="textarea"
+                  :rows="9"
+                  placeholder="设置根据正面图和反打图推理右侧面视角的规则"
+                />
+              </el-form-item>
+              <el-form-item label="俯瞰图提示词">
+                <el-input
+                  v-model="forms.scene_inference_top_prompt"
+                  type="textarea"
+                  :rows="9"
+                  placeholder="设置鸟瞰俯视图的空间布局推理规则"
+                />
+              </el-form-item>
+              <el-form-item label="全景图提示词">
+                <el-input
+                  v-model="forms.scene_inference_panorama_prompt"
+                  type="textarea"
+                  :rows="9"
+                  placeholder="设置 equirectangular 2:1 全景图生成规则"
+                />
+              </el-form-item>
+            </div>
+          </el-form>
+        </section>
       </template>
 
       <section v-else class="panel">
@@ -385,6 +432,10 @@ const forms = reactive({
   ai_script_shot_segment_prompt: '',
   ai_script_position_prompt: '',
   ai_script_validate_prompt: '',
+  scene_inference_left_prompt: '',
+  scene_inference_right_prompt: '',
+  scene_inference_top_prompt: '',
+  scene_inference_panorama_prompt: '',
 })
 
 const userForm = reactive({
@@ -483,6 +534,10 @@ const savePromptConfigs = async () => {
       'ai_script_shot_segment_prompt',
       'ai_script_position_prompt',
       'ai_script_validate_prompt',
+      'scene_inference_left_prompt',
+      'scene_inference_right_prompt',
+      'scene_inference_top_prompt',
+      'scene_inference_panorama_prompt',
     ])
     ElMessage.success('提示词配置已保存')
   } catch (e) {

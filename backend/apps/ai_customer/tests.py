@@ -7,7 +7,19 @@ from PIL import Image
 
 from apps.ai_customer.llm_clients import LLMClientError, chat_completion
 from apps.ai_customer.ai_image_services import _task_result_images
-from apps.ai_customer.models import StoryboardAsset, StoryboardPanel, StoryboardProject, StorySegment
+from apps.ai_customer.models import (
+    SceneInferenceJob,
+    SceneInferenceProject,
+    StoryboardAsset,
+    StoryboardPanel,
+    StoryboardProject,
+    StorySegment,
+)
+from apps.ai_customer.scene_inference_services import (
+    create_scene_inference_project,
+    generate_scene_inference_views,
+    generate_scene_panorama,
+)
 from apps.ai_customer.storyboard_services import (
     analyze_project,
     compose_grid,
@@ -18,6 +30,7 @@ from apps.ai_customer.storyboard_services import (
     regenerate_panel,
     save_asset,
 )
+from apps.storage.models import UploadedFileRecord
 
 
 class StoryboardServicesTests(TestCase):
@@ -334,6 +347,99 @@ class StoryboardServicesTests(TestCase):
         self.assertEqual(result["image_prompt"], "新提示词")
         references = submit_image.call_args.args[2]
         self.assertEqual(references[0]["name"], "林初")
+
+
+class SceneInferenceServicesTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="scene-director", password="pass1234")
+        UploadedFileRecord.objects.create(
+            user=self.user,
+            key="scene/front.png",
+            url="https://assets.example.com/front.png",
+            content_type="image/png",
+            size=128,
+        )
+        UploadedFileRecord.objects.create(
+            user=self.user,
+            key="scene/back.png",
+            url="https://assets.example.com/back.png",
+            content_type="image/png",
+            size=128,
+        )
+
+    def test_create_scene_inference_project_requires_owned_uploads(self):
+        project = create_scene_inference_project(
+            self.user,
+            {
+                "title": "龙吟堂空间",
+                "model_key": "gpt-image-2",
+                "front_image_url": "https://assets.example.com/front.png",
+                "back_image_url": "https://assets.example.com/back.png",
+            },
+        )
+
+        self.assertEqual(project.status, SceneInferenceProject.STATUS_DRAFT)
+        self.assertEqual(project.title, "龙吟堂空间")
+
+    @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
+    @patch("apps.ai_customer.scene_inference_services._persist_storyboard_png")
+    @patch("apps.ai_customer.scene_inference_services.submit_ai_image_generation")
+    def test_generate_scene_inference_views_persists_three_views(self, submit_image, persist_png, reference_data_url):
+        reference_data_url.side_effect = lambda url, user: f"data:{url}"
+        submit_image.side_effect = [
+            {"status": "completed", "images": ["left-ref"]},
+            {"status": "completed", "images": ["right-ref"]},
+            {"status": "completed", "images": ["top-ref"]},
+        ]
+        persist_png.side_effect = [
+            "https://assets.example.com/left.png",
+            "https://assets.example.com/right.png",
+            "https://assets.example.com/top.png",
+        ]
+        project = create_scene_inference_project(
+            self.user,
+            {
+                "front_image_url": "https://assets.example.com/front.png",
+                "back_image_url": "https://assets.example.com/back.png",
+            },
+        )
+
+        result = generate_scene_inference_views(project, {"model_key": "gpt-image-2"})
+
+        self.assertEqual(result["status"], SceneInferenceProject.STATUS_INFERENCE_DONE)
+        self.assertEqual(result["left_image_url"], "https://assets.example.com/left.png")
+        self.assertEqual(result["right_image_url"], "https://assets.example.com/right.png")
+        self.assertEqual(result["top_image_url"], "https://assets.example.com/top.png")
+        self.assertEqual(SceneInferenceJob.objects.filter(project=project, status=SceneInferenceJob.STATUS_SUCCESS).count(), 3)
+        self.assertEqual(submit_image.call_args_list[0].kwargs["size"], "16:9")
+        self.assertEqual(len(submit_image.call_args_list[0].kwargs["reference_images"]), 2)
+
+    @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
+    @patch("apps.ai_customer.scene_inference_services._persist_storyboard_png")
+    @patch("apps.ai_customer.scene_inference_services.submit_ai_image_generation")
+    def test_generate_scene_panorama_uses_five_references_and_2_to_1_size(self, submit_image, persist_png, reference_data_url):
+        reference_data_url.side_effect = lambda url, user: f"data:{url}"
+        submit_image.return_value = {"status": "completed", "images": ["panorama-ref"]}
+        persist_png.return_value = "https://assets.example.com/panorama.png"
+        project = create_scene_inference_project(
+            self.user,
+            {
+                "front_image_url": "https://assets.example.com/front.png",
+                "back_image_url": "https://assets.example.com/back.png",
+            },
+        )
+        project.left_image_url = "https://assets.example.com/left.png"
+        project.right_image_url = "https://assets.example.com/right.png"
+        project.top_image_url = "https://assets.example.com/top.png"
+        project.status = SceneInferenceProject.STATUS_INFERENCE_DONE
+        project.save(update_fields=["left_image_url", "right_image_url", "top_image_url", "status"])
+
+        result = generate_scene_panorama(project, {"model_key": "gpt-image-2"})
+
+        self.assertEqual(result["status"], SceneInferenceProject.STATUS_PANORAMA_DONE)
+        self.assertEqual(result["panorama_image_url"], "https://assets.example.com/panorama.png")
+        self.assertEqual(submit_image.call_args.kwargs["size"], "2:1")
+        self.assertEqual(len(submit_image.call_args.kwargs["reference_images"]), 5)
 
 
 class LLMClientErrorTests(TestCase):

@@ -115,3 +115,79 @@ class StoryboardAsset(models.Model):
 
     class Meta:
         ordering = ["asset_type", "id"]
+
+
+class SceneInferenceProject(models.Model):
+    STATUS_DRAFT = "draft"
+    STATUS_INFERENCE_RUNNING = "inference_running"
+    STATUS_INFERENCE_DONE = "inference_done"
+    STATUS_PANORAMA_RUNNING = "panorama_running"
+    STATUS_PANORAMA_DONE = "panorama_done"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "待推理"),
+        (STATUS_INFERENCE_RUNNING, "视角推理中"),
+        (STATUS_INFERENCE_DONE, "视角推理完成"),
+        (STATUS_PANORAMA_RUNNING, "全景生成中"),
+        (STATUS_PANORAMA_DONE, "全景完成"),
+        (STATUS_FAILED, "失败"),
+    ]
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="scene_inference_projects")
+    title = models.CharField(max_length=255, blank=True, default="场景推理")
+    model_key = models.CharField(max_length=100, blank=True, default="gpt-image-2")
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    front_image_url = models.URLField(max_length=1000)
+    back_image_url = models.URLField(max_length=1000)
+    left_image_url = models.URLField(max_length=1000, blank=True, default="")
+    right_image_url = models.URLField(max_length=1000, blank=True, default="")
+    top_image_url = models.URLField(max_length=1000, blank=True, default="")
+    panorama_image_url = models.URLField(max_length=1000, blank=True, default="")
+    error_message = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+
+class SceneInferenceJob(models.Model):
+    TYPE_LEFT = "generate_left"
+    TYPE_RIGHT = "generate_right"
+    TYPE_TOP = "generate_top"
+    TYPE_PANORAMA = "generate_panorama"
+    TYPE_CHOICES = [
+        (TYPE_LEFT, "生成左侧面"),
+        (TYPE_RIGHT, "生成右侧面"),
+        (TYPE_TOP, "生成俯瞰图"),
+        (TYPE_PANORAMA, "生成全景图"),
+    ]
+
+    STATUS_PENDING = "pending"
+    STATUS_RUNNING = "running"
+    STATUS_SUCCESS = "success"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "等待中"),
+        (STATUS_RUNNING, "生成中"),
+        (STATUS_SUCCESS, "成功"),
+        (STATUS_FAILED, "失败"),
+    ]
+
+    project = models.ForeignKey(SceneInferenceProject, on_delete=models.CASCADE, related_name="jobs")
+    job_type = models.CharField(max_length=50, choices=TYPE_CHOICES)
+    model_key = models.CharField(max_length=100, blank=True, default="")
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    progress = models.PositiveIntegerField(default=0)
+    task_id = models.CharField(max_length=120, blank=True, default="")
+    prompt_snapshot = models.TextField(blank=True, default="")
+    input_payload = models.JSONField(default=dict)
+    output_payload = models.JSONField(default=dict)
+    image_url = models.URLField(max_length=1000, blank=True, default="")
+    error_message = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]

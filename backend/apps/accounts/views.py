@@ -65,6 +65,19 @@ def _cache_delete(key):
     cache.delete(key)
 
 
+def _email_code_ip_limit() -> int:
+    return max(int(getattr(settings, "EMAIL_CODE_IP_LIMIT_PER_MINUTE", 10)), 1)
+
+
+def _cache_incr(key: str, ttl: int) -> int:
+    try:
+        return cache.incr(key)
+    except Exception:
+        current = int(_cache_get(key) or 0) + 1
+        _cache_set(key, current, ttl)
+        return current
+
+
 @csrf_exempt
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -91,10 +104,14 @@ def email_code(request):
             return bad("用户名已存在")
 
     ip = _client_ip(request)
-    if _cache_get(f"email_rate:{email}"):
+    if _cache_get(f"email_rate:{scene}:{email}"):
         return bad("发送过于频繁，请60秒后再试", 429)
-    if _cache_get(f"ip_rate:{ip}"):
-        return bad("请求过于频繁，请稍后重试", 429)
+    minute_key = timezone.now().strftime("%Y%m%d%H%M")
+    ip_key = f"email_ip_minute:{scene}:{minute_key}:{ip}"
+    ip_count = int(_cache_get(ip_key) or 0)
+    ip_limit = _email_code_ip_limit()
+    if ip_count >= ip_limit:
+        return bad(f"请求过于频繁，请稍后重试（每分钟最多{ip_limit}次）", 429)
 
     daily_key = f"email_daily:{timezone.now().strftime('%Y%m%d')}:{email}"
     try:
@@ -106,19 +123,6 @@ def email_code(request):
         daily_count = 0
 
     code = gen_numeric_code()
-    _cache_set(f"email_code:{scene}:{email}", code, 300)
-    if scene == "register":
-        _cache_set(f"email_bind:register:{email}", username, 300)
-    _cache_set(f"email_rate:{email}", "1", 60)
-    _cache_set(f"ip_rate:{ip}", "1", 60)
-
-    try:
-        r = get_redis_connection("default")
-        r.incr(daily_key)
-        r.expire(daily_key, 86400)
-    except Exception:
-        pass
-
     send_mail(
         subject="OldboyApp 验证码",
         message=f"您的验证码是：{code}，5分钟内有效。",
@@ -126,6 +130,18 @@ def email_code(request):
         recipient_list=[email],
         fail_silently=False,
     )
+    _cache_set(f"email_code:{scene}:{email}", code, 300)
+    if scene == "register":
+        _cache_set(f"email_bind:register:{email}", username, 300)
+    _cache_set(f"email_rate:{scene}:{email}", "1", 60)
+    _cache_set(ip_key, ip_count + 1, 70) if ip_count else _cache_set(ip_key, 1, 70)
+
+    try:
+        r = get_redis_connection("default")
+        r.incr(daily_key)
+        r.expire(daily_key, 86400)
+    except Exception:
+        _cache_incr(daily_key, 86400)
     return ok()
 
 

@@ -22,7 +22,9 @@
         <el-form-item label="邮箱验证码">
           <div class="d-flex gap-2 w-100 flex-wrap">
             <el-input v-model="form.email_code" maxlength="6" placeholder="请输入6位验证码" />
-            <el-button type="primary" plain :loading="sendingCode" @click="sendCode">发送验证码</el-button>
+            <el-button type="primary" plain :loading="sendingCode" :disabled="codeCooldown > 0" @click="sendCode">
+              {{ codeCooldown > 0 ? `${codeCooldown}秒后重发` : '发送验证码' }}
+            </el-button>
           </div>
         </el-form-item>
 
@@ -44,7 +46,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { changePassword, me, sendEmailCode } from '../api/auth'
@@ -53,6 +55,8 @@ const router = useRouter()
 const email = ref('')
 const sendingCode = ref(false)
 const submitting = ref(false)
+const codeCooldown = ref(0)
+let codeTimer = null
 
 const form = reactive({
   email_code: '',
@@ -60,7 +64,25 @@ const form = reactive({
   confirm_password: '',
 })
 
+const stopCodeTimer = () => {
+  if (codeTimer) window.clearInterval(codeTimer)
+  codeTimer = null
+}
+
+const startCodeCooldown = (seconds = 60) => {
+  stopCodeTimer()
+  codeCooldown.value = seconds
+  codeTimer = window.setInterval(() => {
+    codeCooldown.value -= 1
+    if (codeCooldown.value <= 0) {
+      codeCooldown.value = 0
+      stopCodeTimer()
+    }
+  }, 1000)
+}
+
 const sendCode = async () => {
+  if (codeCooldown.value > 0) return
   if (!email.value) {
     ElMessage.error('未获取到当前用户邮箱')
     return
@@ -68,8 +90,10 @@ const sendCode = async () => {
   sendingCode.value = true
   try {
     await sendEmailCode({ email: email.value, scene: 'reset' })
+    startCodeCooldown()
     ElMessage.success('验证码已发送')
   } catch (e) {
+    if (String(e || '').includes('60秒')) startCodeCooldown()
     ElMessage.error(e)
   } finally {
     sendingCode.value = false
@@ -114,6 +138,8 @@ onMounted(async () => {
     router.push('/login')
   }
 })
+
+onBeforeUnmount(stopCodeTimer)
 </script>
 
 <style scoped>

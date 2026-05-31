@@ -113,9 +113,10 @@
           <p class="eyebrow">PANORAMA VIEWER</p>
           <h3>2:1 全景旋转查看</h3>
         </div>
-        <el-button size="small" plain :disabled="!panoramaUrl" @click="resetPanorama">重置视角</el-button>
+        <el-button size="small" plain :loading="capturingPanorama" :disabled="!panoramaUrl" @click="capturePanoramaView">截屏</el-button>
       </div>
       <div
+        ref="panoramaViewerRef"
         class="panorama-viewer"
         :class="{ empty: !panoramaUrl }"
         :style="panoramaStyle"
@@ -144,7 +145,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import {
@@ -174,8 +175,11 @@ const refreshing = ref(false)
 const loadingProjects = ref(false)
 const panoramaYaw = ref(0)
 const panoramaZoom = ref(120)
+const panoramaViewerRef = ref(null)
+const capturingPanorama = ref(false)
 let pollingTimer = null
 let dragState = null
+let panoramaImage = null
 
 const previewUrl = (url) => storageFileUrl(url)
 const panoramaUrl = computed(() => currentProject.value?.panorama_image_url || '')
@@ -194,6 +198,18 @@ const panoramaStyle = computed(() => {
     backgroundSize: `auto ${panoramaZoom.value}%`,
   }
 })
+
+watch(panoramaUrl, () => {
+  panoramaImage = null
+})
+
+const loadImage = (url) =>
+  new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('全景图加载失败，无法截屏'))
+    image.src = url
+  })
 
 const latestJob = (type) => (currentProject.value?.jobs || []).find((job) => job.job_type === type)
 
@@ -422,6 +438,69 @@ const downloadImage = (url, filename) => {
 const resetPanorama = () => {
   panoramaYaw.value = 0
   panoramaZoom.value = 120
+}
+
+const canvasBlob = (canvas) =>
+  new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+
+const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+const drawRepeatedPanorama = (context, image, width, height, renderedWidth, renderedHeight, offsetX, offsetY) => {
+  let x = offsetX % renderedWidth
+  if (x > 0) x -= renderedWidth
+  while (x < width) {
+    context.drawImage(image, x, offsetY, renderedWidth, renderedHeight)
+    x += renderedWidth
+  }
+}
+
+const capturePanoramaView = async () => {
+  if (!panoramaUrl.value || capturingPanorama.value) return
+  const viewer = panoramaViewerRef.value
+  if (!viewer) return
+  capturingPanorama.value = true
+  try {
+    if (!panoramaImage) panoramaImage = await loadImage(previewUrl(panoramaUrl.value))
+    const rect = viewer.getBoundingClientRect()
+    const pixelRatio = window.devicePixelRatio || 1
+    const width = Math.max(Math.round(rect.width * pixelRatio), 1)
+    const height = Math.max(Math.round(rect.height * pixelRatio), 1)
+    const imageWidth = panoramaImage.naturalWidth || panoramaImage.width
+    const imageHeight = panoramaImage.naturalHeight || panoramaImage.height
+    const renderedHeight = height * (panoramaZoom.value / 100)
+    const renderedWidth = imageWidth * (renderedHeight / imageHeight)
+    const offsetY = (height - renderedHeight) / 2
+    const offsetX = panoramaYaw.value * pixelRatio
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    context.imageSmoothingEnabled = true
+    context.imageSmoothingQuality = 'high'
+    context.fillStyle = '#05090d'
+    context.fillRect(0, 0, width, height)
+    context.save()
+    context.beginPath()
+    context.rect(0, 0, width, height)
+    context.clip()
+    drawRepeatedPanorama(context, panoramaImage, width, height, renderedWidth, renderedHeight, offsetX, offsetY)
+    context.restore()
+    const blob = await canvasBlob(canvas)
+    if (!blob) throw new Error('截屏生成失败')
+    downloadBlob(blob, `scene_panorama_view_${Date.now()}.png`)
+    ElMessage.success('当前视角截屏已生成')
+  } catch (error) {
+    ElMessage.error(String(error || '全景截屏失败'))
+  } finally {
+    capturingPanorama.value = false
+  }
 }
 
 const startPanoramaDrag = (event) => {

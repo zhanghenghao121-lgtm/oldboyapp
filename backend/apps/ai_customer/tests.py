@@ -4,6 +4,7 @@ import io
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from PIL import Image
+from rest_framework.test import APIClient
 
 from apps.ai_customer.llm_clients import LLMClientError, chat_completion
 from apps.ai_customer.ai_image_services import _task_result_images
@@ -389,6 +390,44 @@ class SceneInferenceServicesTests(TestCase):
 
         self.assertEqual(project.status, SceneInferenceProject.STATUS_DRAFT)
         self.assertEqual(project.title, "龙吟堂空间")
+
+    def test_scene_inference_project_delete_removes_owned_history_record(self):
+        self.user.is_whitelisted = True
+        self.user.save(update_fields=["is_whitelisted"])
+        client = APIClient()
+        client.force_authenticate(self.user)
+        project = create_scene_inference_project(
+            self.user,
+            {
+                "front_image_url": "https://assets.example.com/front.png",
+                "back_image_url": "https://assets.example.com/back.png",
+            },
+        )
+        SceneInferenceJob.objects.create(project=project, job_type=SceneInferenceJob.TYPE_LEFT)
+        other_user = get_user_model().objects.create_user(
+            username="other-scene-director",
+            email="other-scene-director@example.com",
+            password="pass1234",
+        )
+        other_project = SceneInferenceProject.objects.create(
+            user=other_user,
+            title="其他人的记录",
+            front_image_url="https://assets.example.com/other-front.png",
+            back_image_url="https://assets.example.com/other-back.png",
+        )
+
+        response = client.delete(f"/api/v1/scene-inference/projects/{project.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["data"]["deleted"])
+        self.assertFalse(SceneInferenceProject.objects.filter(id=project.id).exists())
+        self.assertFalse(SceneInferenceJob.objects.filter(project_id=project.id).exists())
+        self.assertTrue(SceneInferenceProject.objects.filter(id=other_project.id).exists())
+
+        forbidden = client.delete(f"/api/v1/scene-inference/projects/{other_project.id}")
+
+        self.assertEqual(forbidden.status_code, 404)
+        self.assertTrue(SceneInferenceProject.objects.filter(id=other_project.id).exists())
 
     @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
     @patch("apps.ai_customer.scene_inference_services._persist_storyboard_png")

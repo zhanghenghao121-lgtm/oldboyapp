@@ -19,6 +19,8 @@ export const createSceneInferenceProject = (payload) => http.post('/scene-infere
 
 export const getSceneInferenceProject = (projectId) => http.get(`/scene-inference/projects/${projectId}`, { timeout: 30000 })
 
+export const deleteSceneInferenceProject = (projectId) => http.delete(`/scene-inference/projects/${projectId}`, { timeout: 30000 })
+
 export const generateSceneInferenceViews = (projectId, payload) =>
   http.post(`/scene-inference/projects/${projectId}/generate-views`, payload, { timeout: 600000 })
 

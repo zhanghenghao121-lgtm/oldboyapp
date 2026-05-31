@@ -372,7 +372,7 @@ def scene_inference_projects(request):
         return bad(str(exc), exc.status)
 
 
-@api_view(["GET"])
+@api_view(["GET", "DELETE"])
 @permission_classes([IsAuthenticated])
 def scene_inference_project_detail(request, project_id):
     if not _feature_allowed(request):
@@ -380,6 +380,9 @@ def scene_inference_project_detail(request, project_id):
     project = _owned_scene_inference_project(request, project_id)
     if not project:
         return bad("场景推理项目不存在", 404)
+    if request.method == "DELETE":
+        project.delete()
+        return ok({"deleted": True, "id": project_id})
     return ok(serialize_scene_inference_project(project))
 
 

@@ -58,17 +58,26 @@
           <el-button text size="small" :loading="loadingProjects" @click="loadProjects">刷新</el-button>
         </div>
         <div v-if="!projects.length" class="empty-row">暂无场景推理记录。</div>
-        <button
+        <div
           v-for="project in projects"
           :key="project.id"
-          type="button"
           class="project-row"
           :class="{ active: currentProject?.id === project.id }"
-          @click="selectProject(project)"
         >
-          <span>{{ project.title || '场景推理' }}</span>
-          <small>{{ projectStatus(project.status) }} · {{ project.model_key }}</small>
-        </button>
+          <button type="button" class="project-select" @click="selectProject(project)">
+            <span>{{ project.title || '场景推理' }}</span>
+            <small>{{ projectStatus(project.status) }} · {{ project.model_key }}</small>
+          </button>
+          <el-button
+            text
+            type="danger"
+            size="small"
+            :loading="deletingProjectId === project.id"
+            @click.stop="deleteProject(project)"
+          >
+            删除
+          </el-button>
+        </div>
       </div>
     </aside>
 
@@ -158,10 +167,11 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
   createSceneInferenceProject,
+  deleteSceneInferenceProject,
   enhanceSceneInferenceScreenshot,
   generateSceneInferencePanorama,
   generateSceneInferenceViews,
@@ -186,6 +196,7 @@ const inferring = ref(false)
 const generatingPanorama = ref(false)
 const refreshing = ref(false)
 const loadingProjects = ref(false)
+const deletingProjectId = ref(null)
 const panoramaYaw = ref(0)
 const panoramaZoom = ref(120)
 const panoramaViewerRef = ref(null)
@@ -340,6 +351,45 @@ const selectProject = async (project) => {
     maybePoll()
   } catch (error) {
     ElMessage.error(String(error || '场景推理项目加载失败'))
+  }
+}
+
+const clearCurrentProject = () => {
+  stopPolling()
+  currentProject.value = null
+  projectTitle.value = ''
+  inputs.front.url = ''
+  inputs.front.name = ''
+  inputs.back.url = ''
+  inputs.back.name = ''
+  resetPanorama()
+}
+
+const deleteProject = async (project) => {
+  if (!project?.id || deletingProjectId.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除“${project.title || '场景推理'}”吗？删除后无法恢复。`,
+      '删除历史记录',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch {
+    return
+  }
+  deletingProjectId.value = project.id
+  try {
+    await deleteSceneInferenceProject(project.id)
+    projects.value = projects.value.filter((item) => item.id !== project.id)
+    if (currentProject.value?.id === project.id) clearCurrentProject()
+    ElMessage.success('历史记录已删除')
+  } catch (error) {
+    ElMessage.error(String(error || '历史记录删除失败'))
+  } finally {
+    deletingProjectId.value = null
   }
 }
 
@@ -725,9 +775,21 @@ p {
   border: 1px solid rgba(157, 214, 189, .18);
   border-radius: 12px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px;
+  align-items: center;
   background: rgba(255, 255, 255, .04);
   color: #eaf5f0;
+}
+
+.project-select {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  background: transparent;
+  color: inherit;
   text-align: left;
   cursor: pointer;
 }

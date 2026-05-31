@@ -20,6 +20,7 @@ from apps.ai_customer.scene_inference_services import (
     enhance_scene_screenshot,
     generate_scene_inference_views,
     generate_scene_panorama,
+    refresh_scene_inference_project,
 )
 from apps.ai_customer.storyboard_services import (
     analyze_project,
@@ -450,23 +451,57 @@ class SceneInferenceServicesTests(TestCase):
         self.assertEqual(len(submit_image.call_args.kwargs["reference_images"]), 5)
 
     @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
-    @patch("apps.ai_customer.scene_inference_services._persist_storyboard_png")
     @patch("apps.ai_customer.scene_inference_services.submit_ai_image_generation")
-    def test_enhance_scene_screenshot_uses_4k_prompt_and_reference(self, submit_image, persist_png, reference_data_url):
+    def test_enhance_scene_screenshot_creates_async_job(self, submit_image, reference_data_url):
         reference_data_url.return_value = "data:image/png;base64,abc"
-        submit_image.return_value = {"status": "completed", "images": ["hd-ref"]}
-        persist_png.return_value = "https://assets.example.com/screenshot-hd.png"
+        submit_image.return_value = {"status": "submitted", "task_id": "task-hd"}
+        project = create_scene_inference_project(
+            self.user,
+            {
+                "front_image_url": "https://assets.example.com/front.png",
+                "back_image_url": "https://assets.example.com/back.png",
+            },
+        )
 
         result = enhance_scene_screenshot(
-            self.user,
+            project,
             {"image_url": "https://assets.example.com/screenshot.png", "model_key": "gpt-image-2"},
         )
 
-        self.assertEqual(result["enhanced_image_url"], "https://assets.example.com/screenshot-hd.png")
+        self.assertEqual(result["job_type"], SceneInferenceJob.TYPE_SCREENSHOT_ENHANCE)
+        self.assertEqual(result["status"], SceneInferenceJob.STATUS_RUNNING)
+        self.assertEqual(result["task_id"], "task-hd")
         self.assertEqual(submit_image.call_args.kwargs["size"], "16:9")
         self.assertEqual(submit_image.call_args.kwargs["resolution"], "4k")
         self.assertIn("保持原图的场景构图", submit_image.call_args.kwargs["prompt"])
         self.assertEqual(len(submit_image.call_args.kwargs["reference_images"]), 1)
+
+    @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
+    @patch("apps.ai_customer.scene_inference_services._persist_storyboard_png")
+    @patch("apps.ai_customer.scene_inference_services.get_ai_image_task_result")
+    @patch("apps.ai_customer.scene_inference_services.submit_ai_image_generation")
+    def test_refresh_scene_inference_project_finishes_screenshot_job(self, submit_image, task_result, persist_png, reference_data_url):
+        reference_data_url.return_value = "data:image/png;base64,abc"
+        submit_image.return_value = {"status": "submitted", "task_id": "task-hd"}
+        task_result.return_value = {"status": "completed", "progress": 100, "images": ["hd-ref"]}
+        persist_png.return_value = "https://assets.example.com/screenshot-hd.png"
+        project = create_scene_inference_project(
+            self.user,
+            {
+                "front_image_url": "https://assets.example.com/front.png",
+                "back_image_url": "https://assets.example.com/back.png",
+            },
+        )
+        enhance_scene_screenshot(
+            project,
+            {"image_url": "https://assets.example.com/screenshot.png", "model_key": "gpt-image-2"},
+        )
+
+        refreshed = refresh_scene_inference_project(project)
+
+        screenshot_job = next(job for job in refreshed["jobs"] if job["job_type"] == SceneInferenceJob.TYPE_SCREENSHOT_ENHANCE)
+        self.assertEqual(screenshot_job["status"], SceneInferenceJob.STATUS_SUCCESS)
+        self.assertEqual(screenshot_job["image_url"], "https://assets.example.com/screenshot-hd.png")
 
 
 class LLMClientErrorTests(TestCase):

@@ -51,5 +51,5 @@ urlpatterns = [
     path("scene-inference/projects/<int:project_id>/generate-views", scene_inference_generate_views),
     path("scene-inference/projects/<int:project_id>/generate-panorama", scene_inference_generate_panorama),
     path("scene-inference/projects/<int:project_id>/refresh", scene_inference_refresh),
-    path("scene-inference/screenshot/enhance", scene_inference_enhance_screenshot),
+    path("scene-inference/projects/<int:project_id>/screenshot/enhance", scene_inference_enhance_screenshot),
 ]

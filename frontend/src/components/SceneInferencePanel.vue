@@ -113,7 +113,7 @@
           <p class="eyebrow">PANORAMA VIEWER</p>
           <h3>2:1 全景旋转查看</h3>
         </div>
-        <el-button size="small" plain :loading="capturingPanorama" :disabled="!panoramaUrl" @click="capturePanoramaView">截屏</el-button>
+        <el-button size="small" plain :loading="capturingPanorama" :disabled="!panoramaUrl" @click="capturePanoramaView">截屏高清修复</el-button>
       </div>
       <div
         ref="panoramaViewerRef"
@@ -138,6 +138,18 @@
       <div class="pano-actions">
         <el-button plain :disabled="!panoramaUrl" @click="openImage(panoramaUrl)">预览大图</el-button>
         <el-button type="primary" :disabled="!panoramaUrl" @click="downloadImage(panoramaUrl, 'scene_panorama.png')">下载全景图</el-button>
+      </div>
+      <div v-if="screenshotJob" class="screenshot-job" :class="screenshotJob.status">
+        <span v-if="screenshotRunning">高清修复生成中，可以离开页面，稍后回来刷新后下载。</span>
+        <span v-else-if="screenshotJob.status === 'failed'">{{ screenshotJob.error_message || '高清修复失败，请重新截屏。' }}</span>
+        <el-button
+          v-if="screenshotReady"
+          type="success"
+          @click="downloadImage(screenshotJob.image_url, 'scene_panorama_view_hd.png')"
+        >
+          下载高清修复图
+        </el-button>
+        <el-button v-else-if="screenshotRunning" plain :loading="refreshing" @click="refreshProject">刷新修复结果</el-button>
       </div>
       <div v-if="currentProject?.error_message" class="error-box">{{ currentProject.error_message }}</div>
     </aside>
@@ -213,6 +225,10 @@ const loadImage = (url) =>
   })
 
 const latestJob = (type) => (currentProject.value?.jobs || []).find((job) => job.job_type === type)
+const screenshotJob = computed(() => latestJob('enhance_screenshot'))
+const screenshotRunning = computed(() => ['pending', 'running'].includes(screenshotJob.value?.status || ''))
+const screenshotReady = computed(() => screenshotJob.value?.status === 'success' && Boolean(screenshotJob.value?.image_url))
+const shouldPollProject = computed(() => running.value || screenshotRunning.value)
 
 const viewCards = computed(() => {
   const project = currentProject.value || {}
@@ -354,9 +370,20 @@ const stopPolling = () => {
   pollingTimer = null
 }
 
+const upsertJob = (job) => {
+  if (!job || !currentProject.value) return
+  const jobs = currentProject.value.jobs || []
+  const index = jobs.findIndex((item) => item.id === job.id)
+  if (index >= 0) {
+    jobs.splice(index, 1, job)
+  } else {
+    currentProject.value.jobs = [job, ...jobs]
+  }
+}
+
 const maybePoll = () => {
   stopPolling()
-  if (!currentProject.value?.id || !running.value) return
+  if (!currentProject.value?.id || !shouldPollProject.value) return
   pollingTimer = window.setInterval(refreshProject, 4500)
 }
 
@@ -366,7 +393,7 @@ const refreshProject = async () => {
   try {
     const res = await refreshSceneInferenceProject(currentProject.value.id)
     currentProject.value = res.data
-    if (!running.value) stopPolling()
+    if (!shouldPollProject.value) stopPolling()
   } catch (error) {
     stopPolling()
     ElMessage.error(String(error || '任务刷新失败'))
@@ -455,6 +482,10 @@ const drawRepeatedPanorama = (context, image, width, height, renderedWidth, rend
 
 const capturePanoramaView = async () => {
   if (!panoramaUrl.value || capturingPanorama.value) return
+  if (!currentProject.value?.id) {
+    ElMessage.warning('请先选择一个场景推理项目')
+    return
+  }
   const viewer = panoramaViewerRef.value
   if (!viewer) return
   capturingPanorama.value = true
@@ -487,16 +518,15 @@ const capturePanoramaView = async () => {
     const blob = await canvasBlob(canvas)
     if (!blob) throw new Error('截屏生成失败')
     const file = new File([blob], `scene_panorama_view_${Date.now()}.png`, { type: 'image/png' })
-    ElMessage.info('当前视角已截屏，正在高清修复...')
+    ElMessage.info('当前视角已截屏，正在提交高清修复任务...')
     const uploaded = await uploadToCos(file, 'images/scene-inference/screenshots', { timeout: 120000 })
-    const enhanced = await enhanceSceneInferenceScreenshot({
+    const enhanced = await enhanceSceneInferenceScreenshot(currentProject.value.id, {
       image_url: uploaded.data.url,
       model_key: modelKey.value,
     })
-    const enhancedUrl = enhanced.data.enhanced_image_url
-    if (!enhancedUrl) throw new Error('高清修复未返回图片')
-    downloadImage(enhancedUrl, `scene_panorama_view_hd_${Date.now()}.png`)
-    ElMessage.success('高清修复完成，已下载当前视角')
+    upsertJob(enhanced.data)
+    maybePoll()
+    ElMessage.success(screenshotReady.value ? '高清修复完成，请点击下载' : '高清修复任务已提交，可离开页面，完成后回来下载')
   } catch (error) {
     ElMessage.error(String(error || '全景截屏失败'))
   } finally {
@@ -876,6 +906,38 @@ p {
   grid-template-columns: 1fr 1fr;
   gap: 9px;
   margin-top: 12px;
+}
+
+.screenshot-job {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(157, 214, 189, .22);
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  background: rgba(255, 255, 255, .04);
+  color: #dff5ec;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.screenshot-job.running {
+  border-color: rgba(82, 166, 255, .35);
+}
+
+.screenshot-job.failed {
+  border-color: rgba(255, 157, 143, .35);
+  background: rgba(255, 157, 143, .08);
+  color: #ffb5aa;
+}
+
+.screenshot-job.success {
+  border-color: rgba(110, 231, 172, .35);
+  background: rgba(110, 231, 172, .08);
+}
+
+.screenshot-job :deep(.el-button) {
+  width: 100%;
 }
 
 .error-box {

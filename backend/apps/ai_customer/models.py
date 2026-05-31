@@ -156,11 +156,13 @@ class SceneInferenceJob(models.Model):
     TYPE_RIGHT = "generate_right"
     TYPE_TOP = "generate_top"
     TYPE_PANORAMA = "generate_panorama"
+    TYPE_SCREENSHOT_ENHANCE = "enhance_screenshot"
     TYPE_CHOICES = [
         (TYPE_LEFT, "生成左侧面"),
         (TYPE_RIGHT, "生成右侧面"),
         (TYPE_TOP, "生成俯瞰图"),
         (TYPE_PANORAMA, "生成全景图"),
+        (TYPE_SCREENSHOT_ENHANCE, "高清修复截屏"),
     ]
 
     STATUS_PENDING = "pending"

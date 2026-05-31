@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 
 from django.utils import timezone
 
@@ -53,6 +54,13 @@ PROMPT_KEYS = {
     SceneInferenceJob.TYPE_TOP: (SiteConfig.KEY_SCENE_INFERENCE_TOP_PROMPT, DEFAULT_SCENE_INFERENCE_TOP_PROMPT),
     SceneInferenceJob.TYPE_PANORAMA: (SiteConfig.KEY_SCENE_INFERENCE_PANORAMA_PROMPT, DEFAULT_SCENE_INFERENCE_PANORAMA_PROMPT),
 }
+SCENE_SCREENSHOT_ENHANCE_PROMPT = (
+    "保持原图的场景构图、视角、透视关系、物体位置、色调和画风完全不变，"
+    "不新增人物或物体，不改变场景布局，只进行高清修复和细节增强。"
+    "提升整体清晰度，增强墙面、地面、家具、门窗、建筑材质的纹理细节，"
+    "边缘更加清晰锐利，光影层次更自然，空间感更强，修复模糊和低清区域，"
+    "减少噪点和压缩痕迹，画面干净细腻，高清4K画质。"
+)
 
 
 class SceneInferenceError(Exception):
@@ -211,6 +219,63 @@ def _finish_job_with_image(job: SceneInferenceJob, image_ref: str) -> None:
     setattr(job.project, JOB_FIELD[job.job_type], image_url)
     job.project.error_message = ""
     job.project.save(update_fields=[JOB_FIELD[job.job_type], "error_message", "updated_at"])
+
+
+def _wait_for_image_result(task_id: str, model_key: str, timeout_seconds: int = 300, interval_seconds: int = 5) -> str:
+    start = time.monotonic()
+    while time.monotonic() - start < timeout_seconds:
+        try:
+            result = get_ai_image_task_result(task_id, model_key)
+        except AIImageError as exc:
+            raise SceneInferenceError(str(exc), exc.status) from exc
+        images = result.get("images") or []
+        if images:
+            return str(images[0])
+        status = _clean_text(result.get("status")).lower()
+        if status in TERMINAL_FAILED:
+            raise SceneInferenceError(f"高清修复失败：{result.get('error') or '模型任务失败'}", 502)
+        if status in TERMINAL_SUCCESS:
+            raise SceneInferenceError("高清修复完成但未返回图片地址，请重新截屏", 502)
+        time.sleep(interval_seconds)
+    raise SceneInferenceError("高清修复仍在生成中，请稍后重新截屏", 504)
+
+
+def enhance_scene_screenshot(user, payload: dict) -> dict:
+    image_url = _validate_uploaded_image(user, payload.get("image_url"), "截屏图")
+    model_key = _clean_text(payload.get("model_key") or payload.get("model"), "gpt-image-2")
+    references = [
+        {
+            "field": "panorama_screenshot",
+            "label": "当前全景视角截屏",
+            "name": "当前全景视角截屏",
+            "data_url": _reference_image_data_url(image_url, user),
+        }
+    ]
+    try:
+        result = submit_ai_image_generation(
+            prompt=SCENE_SCREENSHOT_ENHANCE_PROMPT,
+            model=model_key,
+            size="16:9",
+            resolution="4k",
+            reference_images=references,
+        )
+    except AIImageError as exc:
+        raise SceneInferenceError(f"高清修复失败：{exc}", exc.status) from exc
+    image_ref = _clean_text((result.get("images") or [""])[0] if isinstance(result.get("images"), list) else "")
+    if not image_ref and result.get("task_id"):
+        image_ref = _wait_for_image_result(str(result.get("task_id")), model_key)
+    if not image_ref:
+        raise SceneInferenceError("高清修复未返回图片地址，请重新截屏", 502)
+    try:
+        enhanced_url = _persist_storyboard_png(image_ref, user, "scene_inference_screenshot_hd", model_key)
+    except StoryboardError as exc:
+        raise SceneInferenceError(str(exc), exc.status) from exc
+    return {
+        "source_image_url": image_url,
+        "enhanced_image_url": enhanced_url,
+        "model_key": model_key,
+        "prompt": SCENE_SCREENSHOT_ENHANCE_PROMPT,
+    }
 
 
 def _set_project_status(project: SceneInferenceProject) -> None:

@@ -27,3 +27,6 @@ export const generateSceneInferencePanorama = (projectId, payload) =>
 
 export const refreshSceneInferenceProject = (projectId) =>
   http.get(`/scene-inference/projects/${projectId}/refresh`, { timeout: 120000 })
+
+export const enhanceSceneInferenceScreenshot = (payload) =>
+  http.post('/scene-inference/screenshot/enhance', payload, { timeout: 600000 })

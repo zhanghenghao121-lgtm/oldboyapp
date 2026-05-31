@@ -35,6 +35,7 @@ from apps.ai_customer.storyboard_services import (
 from apps.ai_customer.scene_inference_services import (
     SceneInferenceError,
     create_scene_inference_project,
+    enhance_scene_screenshot,
     generate_scene_inference_views,
     generate_scene_panorama,
     refresh_scene_inference_project,
@@ -421,3 +422,15 @@ def scene_inference_refresh(request, project_id):
     if not project:
         return bad("场景推理项目不存在", 404)
     return ok(refresh_scene_inference_project(project))
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def scene_inference_enhance_screenshot(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    try:
+        return ok(enhance_scene_screenshot(request.user, request.data))
+    except SceneInferenceError as exc:
+        return bad(str(exc), exc.status)

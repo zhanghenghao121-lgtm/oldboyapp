@@ -5,6 +5,7 @@ from apps.ai_customer.views import (
     ai_image_cutout_asset,
     ai_image_cutout_asset_delete,
     ai_image_cutout_assets,
+    scene_inference_enhance_screenshot,
     scene_inference_generate_panorama,
     scene_inference_generate_views,
     scene_inference_project_detail,
@@ -50,4 +51,5 @@ urlpatterns = [
     path("scene-inference/projects/<int:project_id>/generate-views", scene_inference_generate_views),
     path("scene-inference/projects/<int:project_id>/generate-panorama", scene_inference_generate_panorama),
     path("scene-inference/projects/<int:project_id>/refresh", scene_inference_refresh),
+    path("scene-inference/screenshot/enhance", scene_inference_enhance_screenshot),
 ]

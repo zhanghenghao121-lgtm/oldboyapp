@@ -150,6 +150,7 @@ import { ElMessage } from 'element-plus'
 
 import {
   createSceneInferenceProject,
+  enhanceSceneInferenceScreenshot,
   generateSceneInferencePanorama,
   generateSceneInferenceViews,
   getSceneInferenceProject,
@@ -443,15 +444,6 @@ const resetPanorama = () => {
 const canvasBlob = (canvas) =>
   new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
 
-const downloadBlob = (blob, filename) => {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.click()
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
 const drawRepeatedPanorama = (context, image, width, height, renderedWidth, renderedHeight, offsetX, offsetY) => {
   let x = offsetX % renderedWidth
   if (x > 0) x -= renderedWidth
@@ -469,15 +461,15 @@ const capturePanoramaView = async () => {
   try {
     if (!panoramaImage) panoramaImage = await loadImage(previewUrl(panoramaUrl.value))
     const rect = viewer.getBoundingClientRect()
-    const pixelRatio = window.devicePixelRatio || 1
-    const width = Math.max(Math.round(rect.width * pixelRatio), 1)
-    const height = Math.max(Math.round(rect.height * pixelRatio), 1)
+    const viewportScale = Math.max(Math.round(rect.width * (window.devicePixelRatio || 1)), 1920) / Math.max(rect.width, 1)
+    const width = Math.max(Math.round(rect.width * viewportScale), 1)
+    const height = Math.max(Math.round(rect.height * viewportScale), 1)
     const imageWidth = panoramaImage.naturalWidth || panoramaImage.width
     const imageHeight = panoramaImage.naturalHeight || panoramaImage.height
     const renderedHeight = height * (panoramaZoom.value / 100)
     const renderedWidth = imageWidth * (renderedHeight / imageHeight)
     const offsetY = (height - renderedHeight) / 2
-    const offsetX = panoramaYaw.value * pixelRatio
+    const offsetX = panoramaYaw.value * viewportScale
     const canvas = document.createElement('canvas')
     canvas.width = width
     canvas.height = height
@@ -494,8 +486,17 @@ const capturePanoramaView = async () => {
     context.restore()
     const blob = await canvasBlob(canvas)
     if (!blob) throw new Error('截屏生成失败')
-    downloadBlob(blob, `scene_panorama_view_${Date.now()}.png`)
-    ElMessage.success('当前视角截屏已生成')
+    const file = new File([blob], `scene_panorama_view_${Date.now()}.png`, { type: 'image/png' })
+    ElMessage.info('当前视角已截屏，正在高清修复...')
+    const uploaded = await uploadToCos(file, 'images/scene-inference/screenshots', { timeout: 120000 })
+    const enhanced = await enhanceSceneInferenceScreenshot({
+      image_url: uploaded.data.url,
+      model_key: modelKey.value,
+    })
+    const enhancedUrl = enhanced.data.enhanced_image_url
+    if (!enhancedUrl) throw new Error('高清修复未返回图片')
+    downloadImage(enhancedUrl, `scene_panorama_view_hd_${Date.now()}.png`)
+    ElMessage.success('高清修复完成，已下载当前视角')
   } catch (error) {
     ElMessage.error(String(error || '全景截屏失败'))
   } finally {
@@ -817,7 +818,8 @@ p {
 
 .panorama-viewer {
   position: relative;
-  height: 440px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
   border: 1px solid rgba(157, 214, 189, .22);
   border-radius: 18px;
   overflow: hidden;

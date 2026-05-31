@@ -17,6 +17,7 @@ from apps.ai_customer.models import (
 )
 from apps.ai_customer.scene_inference_services import (
     create_scene_inference_project,
+    enhance_scene_screenshot,
     generate_scene_inference_views,
     generate_scene_panorama,
 )
@@ -366,6 +367,13 @@ class SceneInferenceServicesTests(TestCase):
             content_type="image/png",
             size=128,
         )
+        UploadedFileRecord.objects.create(
+            user=self.user,
+            key="scene/screenshot.png",
+            url="https://assets.example.com/screenshot.png",
+            content_type="image/png",
+            size=128,
+        )
 
     def test_create_scene_inference_project_requires_owned_uploads(self):
         project = create_scene_inference_project(
@@ -440,6 +448,25 @@ class SceneInferenceServicesTests(TestCase):
         self.assertEqual(result["panorama_image_url"], "https://assets.example.com/panorama.png")
         self.assertEqual(submit_image.call_args.kwargs["size"], "2:1")
         self.assertEqual(len(submit_image.call_args.kwargs["reference_images"]), 5)
+
+    @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
+    @patch("apps.ai_customer.scene_inference_services._persist_storyboard_png")
+    @patch("apps.ai_customer.scene_inference_services.submit_ai_image_generation")
+    def test_enhance_scene_screenshot_uses_4k_prompt_and_reference(self, submit_image, persist_png, reference_data_url):
+        reference_data_url.return_value = "data:image/png;base64,abc"
+        submit_image.return_value = {"status": "completed", "images": ["hd-ref"]}
+        persist_png.return_value = "https://assets.example.com/screenshot-hd.png"
+
+        result = enhance_scene_screenshot(
+            self.user,
+            {"image_url": "https://assets.example.com/screenshot.png", "model_key": "gpt-image-2"},
+        )
+
+        self.assertEqual(result["enhanced_image_url"], "https://assets.example.com/screenshot-hd.png")
+        self.assertEqual(submit_image.call_args.kwargs["size"], "16:9")
+        self.assertEqual(submit_image.call_args.kwargs["resolution"], "4k")
+        self.assertIn("保持原图的场景构图", submit_image.call_args.kwargs["prompt"])
+        self.assertEqual(len(submit_image.call_args.kwargs["reference_images"]), 1)
 
 
 class LLMClientErrorTests(TestCase):

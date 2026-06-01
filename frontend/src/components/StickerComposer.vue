@@ -11,18 +11,19 @@
       </div>
 
       <div class="control-card">
-        <h3>2. 上传角色并抠图</h3>
+        <h3>2. 上传角色或透明图</h3>
         <el-radio-group v-model="cutoutMode" class="cutout-modes">
           <el-radio-button value="fast">免费快速抠图</el-radio-button>
           <el-radio-button value="ai">AI 精细抠图</el-radio-button>
+          <el-radio-button value="transparent">透明图直传</el-radio-button>
         </el-radio-group>
-        <p class="hint">{{ cutoutMode === 'fast' ? '适合纯白或接近白色背景，不消耗 AI 抠图额度。' : '适合复杂背景，将调用 remove.bg 服务。' }}</p>
+        <p class="hint">{{ cutoutHint }}</p>
         <label class="file-drop compact" :class="{ disabled: !hasScene || cutting }">
           <input type="file" accept="image/*" :disabled="!hasScene || cutting" @change="handleCharacterUpload" />
-          <strong>{{ cutting ? '正在抠图并上传...' : '添加角色图片' }}</strong>
-          <span>{{ hasScene ? '可连续添加多个角色' : '请先上传场景图' }}</span>
+          <strong>{{ cutting ? uploadBusyText : uploadActionText }}</strong>
+          <span>{{ hasScene ? uploadTipText : '请先上传场景图' }}</span>
         </label>
-        <el-checkbox v-model="saveToLibrary" class="save-option">抠图后保存到资产库</el-checkbox>
+        <el-checkbox v-model="saveToLibrary" class="save-option">处理后保存到资产库</el-checkbox>
       </div>
 
       <div class="control-card library-card">
@@ -31,13 +32,13 @@
           <el-button text size="small" :loading="libraryLoading" @click="loadAssetLibrary">刷新</el-button>
         </div>
         <div v-if="libraryLoading && !assetLibrary.length" class="no-layer">正在加载资产...</div>
-        <div v-else-if="!assetLibrary.length" class="no-layer">勾选保存后，抠图角色会留在这里。</div>
+        <div v-else-if="!assetLibrary.length" class="no-layer">勾选保存后，处理过的透明素材会留在这里。</div>
         <div v-else class="asset-list">
           <div v-for="asset in assetLibrary" :key="asset.id" class="asset-row">
             <img :src="aiImageCutoutAssetUrl(asset.key)" :alt="asset.name" />
             <div class="asset-info">
               <strong>{{ asset.name }}</strong>
-              <small>{{ asset.mode === 'ai' ? 'AI 精细抠图' : '免费快速抠图' }}</small>
+              <small>{{ cutoutModeLabel(asset.mode) }}</small>
             </div>
             <el-button text size="small" :loading="addingAssetId === asset.id" :disabled="!hasScene" @click="addAssetToCanvas(asset)">添加</el-button>
             <el-button text size="small" class="remove-asset" @click="deleteAsset(asset)">移除</el-button>
@@ -48,9 +49,9 @@
       <div class="control-card layers-card">
         <div class="card-head">
           <h3>4. 图层</h3>
-          <span>{{ layers.length }} 个角色</span>
+          <span>{{ layers.length }} 个素材</span>
         </div>
-        <div v-if="!layers.length" class="no-layer">抠图后的角色会出现在这里。</div>
+        <div v-if="!layers.length" class="no-layer">处理后的透明素材会出现在这里。</div>
         <button
           v-for="layer in layers"
           :key="layer.id"
@@ -60,7 +61,7 @@
           @click="selectLayer(layer.id)"
         >
           <span>{{ layer.name }}</span>
-          <small>{{ layer.mode === 'ai' ? 'AI' : '免费' }}</small>
+          <small>{{ layerModeLabel(layer.mode) }}</small>
         </button>
         <div class="layer-actions">
           <el-button size="small" plain :disabled="!selectedId" @click="moveSelected('down')">下移</el-button>
@@ -97,7 +98,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Canvas, FabricImage } from 'fabric'
 
@@ -124,6 +125,27 @@ const selectedId = ref('')
 const compositeUrl = ref('')
 let editor = null
 let layerCounter = 0
+
+const cutoutHint = computed(() => {
+  if (cutoutMode.value === 'transparent') return '适合已经带透明通道的 PNG 或 WebP，不调用抠图服务。'
+  if (cutoutMode.value === 'ai') return '适合复杂背景，将调用 remove.bg 服务。'
+  return '适合纯白或接近白色背景，不消耗 AI 抠图额度。'
+})
+const uploadActionText = computed(() => (cutoutMode.value === 'transparent' ? '上传透明图片' : '添加角色图片'))
+const uploadBusyText = computed(() => (cutoutMode.value === 'transparent' ? '正在上传透明图...' : '正在抠图并上传...'))
+const uploadTipText = computed(() => (cutoutMode.value === 'transparent' ? '可直接添加已抠除背景的透明素材' : '可连续添加多个角色'))
+
+const cutoutModeLabel = (mode) => {
+  if (mode === 'transparent') return '透明图直传'
+  if (mode === 'ai') return 'AI 精细抠图'
+  return '免费快速抠图'
+}
+
+const layerModeLabel = (mode) => {
+  if (mode === 'transparent') return '透明'
+  if (mode === 'ai') return 'AI'
+  return '免费'
+}
 
 const imageDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -226,9 +248,10 @@ const handleCharacterUpload = async (event) => {
     if (item.library_asset) {
       assetLibrary.value = [item.library_asset, ...assetLibrary.value.filter((asset) => asset.id !== item.library_asset.id)]
     }
-    ElMessage.success(item.library_asset ? '抠图完成，已加入画布并保存到资产库' : '抠图完成，已加入画布')
+    const actionName = cutoutMode.value === 'transparent' ? '透明图上传完成' : '抠图完成'
+    ElMessage.success(item.library_asset ? `${actionName}，已加入画布并保存到资产库` : `${actionName}，已加入画布`)
   } catch (error) {
-    ElMessage.error(String(error || '角色抠图失败'))
+    ElMessage.error(String(error || '素材处理失败'))
   } finally {
     cutting.value = false
   }
@@ -429,6 +452,24 @@ onBeforeUnmount(() => editor?.dispose())
 
 .cutout-modes {
   width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cutout-modes :deep(.el-radio-button) {
+  min-width: 0;
+}
+
+.cutout-modes :deep(.el-radio-button__inner) {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 5px;
+  white-space: normal;
+  line-height: 1.2;
+  font-size: 12px;
 }
 
 .hint {

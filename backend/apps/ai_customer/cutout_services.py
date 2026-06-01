@@ -5,6 +5,7 @@ from datetime import datetime
 
 import requests
 from django.conf import settings
+from PIL import Image
 from qcloud_cos import CosConfig, CosS3Client
 
 from apps.ai_customer.models import PositionStickerAsset
@@ -92,6 +93,31 @@ def _remove_bg_cutout(raw: bytes, filename: str, content_type: str) -> tuple[byt
     png_bytes = response.content
     _, width, height = _decode_image(png_bytes)
     return png_bytes, width, height
+
+
+def _direct_transparent_upload(raw: bytes) -> tuple[bytes, int, int]:
+    try:
+        image = Image.open(io.BytesIO(raw))
+        image.load()
+    except Exception as exc:
+        raise CutoutError("无法读取图片文件，请上传 JPG、PNG 或 WebP 图片") from exc
+
+    has_alpha = "A" in image.getbands() or "transparency" in image.info
+    if not has_alpha:
+        raise CutoutError("请上传带透明通道的 PNG 或 WebP 图片")
+    image = image.convert("RGBA")
+    width, height = image.size
+    if width < 2 or height < 2:
+        raise CutoutError("图片尺寸无效")
+    if image.getchannel("A").getextrema()[0] >= 255:
+        raise CutoutError("图片没有透明区域，请上传透明图片或选择抠图模式")
+
+    output = io.BytesIO()
+    try:
+        image.save(output, format="PNG", compress_level=6)
+    except Exception as exc:
+        raise CutoutError("透明 PNG 处理失败", 500)
+    return output.getvalue(), width, height
 
 
 def _upload_transparent_png(png_bytes: bytes, user) -> tuple[dict, UploadedFileRecord]:
@@ -187,7 +213,7 @@ def get_cutout_asset(key: str, user) -> bytes:
 
 def cutout_character(file_obj, mode: str, user, *, save_to_library: bool = False) -> dict:
     normalized_mode = str(mode or "fast").strip().lower()
-    if normalized_mode not in {"fast", "ai"}:
+    if normalized_mode not in {"fast", "ai", "transparent"}:
         raise CutoutError("抠图模式不支持")
     if not file_obj:
         raise CutoutError("请上传角色图片")
@@ -200,7 +226,9 @@ def cutout_character(file_obj, mode: str, user, *, save_to_library: bool = False
         raise CutoutError("仅支持图片文件", 415)
 
     raw = file_obj.read()
-    if normalized_mode == "fast":
+    if normalized_mode == "transparent":
+        png_bytes, width, height = _direct_transparent_upload(raw)
+    elif normalized_mode == "fast":
         png_bytes, width, height = _fast_white_background_cutout(raw)
     else:
         png_bytes, width, height = _remove_bg_cutout(raw, filename, content_type)

@@ -5,9 +5,11 @@ from django.db import models
 class PositionStickerAsset(models.Model):
     MODE_FAST = "fast"
     MODE_AI = "ai"
+    MODE_TRANSPARENT = "transparent"
     MODE_CHOICES = [
         (MODE_FAST, "免费快速抠图"),
         (MODE_AI, "AI 精细抠图"),
+        (MODE_TRANSPARENT, "透明图直传"),
     ]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="position_sticker_assets")

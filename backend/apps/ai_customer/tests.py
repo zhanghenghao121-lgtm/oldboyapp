@@ -2,6 +2,7 @@ from unittest.mock import patch
 import io
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from PIL import Image
 from rest_framework.test import APIClient
@@ -9,6 +10,7 @@ from rest_framework.test import APIClient
 from apps.ai_customer.llm_clients import LLMClientError, chat_completion
 from apps.ai_customer.ai_image_services import _task_result_images
 from apps.ai_customer.models import (
+    PositionStickerAsset,
     SceneInferenceJob,
     SceneInferenceProject,
     StoryboardAsset,
@@ -16,6 +18,7 @@ from apps.ai_customer.models import (
     StoryboardProject,
     StorySegment,
 )
+from apps.ai_customer.cutout_services import CutoutError, cutout_character
 from apps.ai_customer.scene_inference_services import (
     create_scene_inference_project,
     enhance_scene_screenshot,
@@ -34,6 +37,56 @@ from apps.ai_customer.storyboard_services import (
     save_asset,
 )
 from apps.storage.models import UploadedFileRecord
+
+
+def _image_upload(name: str, image: Image.Image, content_type: str = "image/png") -> SimpleUploadedFile:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type=content_type)
+
+
+class CutoutServicesTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="sticker-user", password="pass1234")
+
+    @patch("apps.ai_customer.cutout_services._upload_transparent_png")
+    def test_transparent_mode_uploads_png_without_cutout(self, upload_png):
+        def fake_upload(png_bytes, user):
+            record = UploadedFileRecord.objects.create(
+                user=user,
+                key="images/cutouts/test/direct.png",
+                url="https://cdn.example.com/direct.png",
+                content_type="image/png",
+                size=len(png_bytes),
+            )
+            saved = Image.open(io.BytesIO(png_bytes))
+            self.assertEqual(saved.mode, "RGBA")
+            self.assertLess(saved.getpixel((0, 0))[3], 255)
+            return {"url": record.url, "key": record.key, "content_type": record.content_type, "size": record.size}, record
+
+        upload_png.side_effect = fake_upload
+        image = Image.new("RGBA", (8, 6), (255, 0, 0, 0))
+        image.putpixel((4, 3), (0, 128, 255, 255))
+
+        result = cutout_character(
+            _image_upload("already-transparent.png", image),
+            "transparent",
+            self.user,
+            save_to_library=True,
+        )
+
+        self.assertEqual(result["mode"], "transparent")
+        self.assertEqual(result["width"], 8)
+        self.assertEqual(result["height"], 6)
+        asset = PositionStickerAsset.objects.get(user=self.user)
+        self.assertEqual(asset.cutout_mode, "transparent")
+        self.assertEqual(result["library_asset"]["mode"], "transparent")
+
+    def test_transparent_mode_rejects_opaque_images(self):
+        image = Image.new("RGB", (8, 6), (255, 255, 255))
+
+        with self.assertRaisesMessage(CutoutError, "请上传带透明通道"):
+            cutout_character(_image_upload("opaque.png", image), "transparent", self.user)
 
 
 class StoryboardServicesTests(TestCase):

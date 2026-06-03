@@ -24,6 +24,22 @@ class PositionStickerAsset(models.Model):
         ordering = ["-created_at"]
 
 
+class PositionStickerComposition(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="position_sticker_compositions")
+    scene_file_record = models.ForeignKey("storage.UploadedFileRecord", on_delete=models.PROTECT, related_name="+")
+    result_file_record = models.ForeignKey("storage.UploadedFileRecord", on_delete=models.PROTECT, related_name="+")
+    title = models.CharField(max_length=120, blank=True, default="")
+    scene_name = models.CharField(max_length=255, blank=True, default="")
+    canvas_width = models.PositiveIntegerField(default=760)
+    canvas_height = models.PositiveIntegerField(default=500)
+    layers_json = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+
+
 class StoryboardProject(models.Model):
     STATUS_DRAFT = "draft"
     STATUS_ANALYZED = "analyzed"

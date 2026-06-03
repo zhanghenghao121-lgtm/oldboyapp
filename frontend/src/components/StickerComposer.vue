@@ -70,9 +70,30 @@
         </div>
       </div>
 
+      <div class="control-card history-card">
+        <div class="card-head">
+          <h3>5. 历史记录</h3>
+          <el-button text size="small" :loading="historyLoading" @click="loadCompositionHistory">刷新</el-button>
+        </div>
+        <div v-if="historyLoading && !compositionHistory.length" class="no-layer">正在加载历史...</div>
+        <div v-else-if="!compositionHistory.length" class="no-layer">合成图片后会自动保存可编辑记录。</div>
+        <div v-else class="history-list">
+          <div v-for="item in compositionHistory" :key="item.id" class="history-row">
+            <img :src="historyPreviewUrl(item)" :alt="item.title || item.scene_name || '站位贴图'" />
+            <div class="history-info">
+              <strong>{{ item.title || item.scene_name || '站位贴图' }}</strong>
+              <small>{{ formatHistoryTime(item.updated_at || item.created_at) }}</small>
+            </div>
+            <el-button text size="small" :loading="editingHistoryId === item.id" @click="editHistory(item)">编辑</el-button>
+            <el-button text size="small" @click="previewHistory(item)">预览</el-button>
+            <el-button text size="small" class="remove-asset" :loading="deletingHistoryId === item.id" @click="deleteHistory(item)">删除</el-button>
+          </div>
+        </div>
+      </div>
+
       <div class="compose-actions">
         <el-button plain @click="resetComposer">清空画布</el-button>
-        <el-button class="generate-btn" type="primary" :loading="composing" :disabled="!hasScene || !layers.length" @click="composeImage">
+        <el-button class="generate-btn" type="primary" :loading="composing" :disabled="!hasScene || sceneUploading || !layers.length" @click="composeImage">
           合成图片
         </el-button>
       </div>
@@ -86,7 +107,7 @@
         </div>
         <el-button v-if="compositeUrl" type="primary" plain @click="openComposite">打开合成图</el-button>
       </header>
-      <div class="canvas-frame" v-loading="cutting || composing">
+      <div class="canvas-frame" v-loading="cutting || composing || sceneUploading || !!editingHistoryId">
         <canvas ref="canvasElement"></canvas>
       </div>
       <div v-if="compositeUrl" class="composite-result">
@@ -104,22 +125,32 @@ import { Canvas, FabricImage } from 'fabric'
 
 import {
   aiImageCutoutAssetUrl,
+  createAiImageStickerComposition,
   cutoutAiImageCharacter,
+  deleteAiImageStickerComposition,
   deleteAiImageCutoutAsset,
   getAiImageCutoutAssets,
+  getAiImageStickerCompositions,
 } from '../api/aiImage'
-import { uploadToCos } from '../api/storage'
+import { storageFileUrl, uploadToCos } from '../api/storage'
 
 const canvasElement = ref(null)
 const sceneName = ref('')
+const sceneKey = ref('')
+const sceneUrl = ref('')
 const hasScene = ref(false)
 const cutoutMode = ref('fast')
 const saveToLibrary = ref(false)
 const cutting = ref(false)
 const composing = ref(false)
+const sceneUploading = ref(false)
 const libraryLoading = ref(false)
+const historyLoading = ref(false)
 const assetLibrary = ref([])
+const compositionHistory = ref([])
 const addingAssetId = ref('')
+const editingHistoryId = ref('')
+const deletingHistoryId = ref('')
 const layers = ref([])
 const selectedId = ref('')
 const compositeUrl = ref('')
@@ -155,6 +186,68 @@ const imageDataUrl = (file) =>
     reader.readAsDataURL(file)
   })
 
+const historyPreviewUrl = (item) => storageFileUrl(item.result_key || item.result_url || '')
+
+const formatHistoryTime = (value) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+const applyEditableStyle = (image) => {
+  image.set({
+    cornerColor: '#6ee7ac',
+    borderColor: '#6ee7ac',
+    transparentCorners: false,
+  })
+}
+
+const setSceneBackground = async (source, width, height) => {
+  const image = await FabricImage.fromURL(source)
+  editor.clear()
+  editor.setDimensions({ width, height })
+  image.set({
+    left: 0,
+    top: 0,
+    scaleX: width / image.width,
+    scaleY: height / image.height,
+    selectable: false,
+    evented: false,
+  })
+  editor.backgroundImage = image
+  editor.backgroundColor = '#0b1213'
+  editor.requestRenderAll()
+}
+
+const normalizeCanvasDimension = (value, fallback) => {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? Math.round(number) : fallback
+}
+
+const captureCanvasSnapshot = () => ({
+  scene_name: sceneName.value,
+  scene_key: sceneKey.value,
+  scene_url: sceneUrl.value,
+  canvas_width: normalizeCanvasDimension(editor.width, 760),
+  canvas_height: normalizeCanvasDimension(editor.height, 500),
+  layers: editor.getObjects().map((object) => ({
+    id: object.stickerId,
+    name: object.stickerName,
+    key: object.stickerKey,
+    url: object.stickerUrl,
+    mode: object.cutoutMode,
+    left: object.left || 0,
+    top: object.top || 0,
+    scale_x: object.scaleX || 1,
+    scale_y: object.scaleY || 1,
+    angle: object.angle || 0,
+    opacity: object.opacity ?? 1,
+    flip_x: !!object.flipX,
+    flip_y: !!object.flipY,
+  })),
+})
+
 const initializeCanvas = () => {
   editor = new Canvas(canvasElement.value, {
     backgroundColor: '#0b1213',
@@ -167,6 +260,10 @@ const initializeCanvas = () => {
   editor.on('selection:updated', syncSelection)
   editor.on('selection:cleared', () => {
     selectedId.value = ''
+  })
+  editor.on('object:modified', () => {
+    compositeUrl.value = ''
+    refreshLayers()
   })
 }
 
@@ -212,19 +309,37 @@ const handleSceneUpload = async (event) => {
     const scale = Math.min(1040 / image.width, 680 / image.height, 1)
     const width = Math.max(Math.round(image.width * scale), 1)
     const height = Math.max(Math.round(image.height * scale), 1)
-    editor.clear()
-    editor.setDimensions({ width, height })
     image.scale(scale)
     image.set({ left: 0, top: 0, selectable: false, evented: false })
+    editor.clear()
+    editor.setDimensions({ width, height })
     editor.backgroundImage = image
     editor.requestRenderAll()
     sceneName.value = file.name
     hasScene.value = true
+    sceneKey.value = ''
+    sceneUrl.value = ''
     selectedId.value = ''
     compositeUrl.value = ''
     refreshLayers()
+    sceneUploading.value = true
+    try {
+      const uploaded = await uploadToCos(file, 'images/sticker-scenes', { timeout: 120000 })
+      sceneKey.value = uploaded.data.key
+      sceneUrl.value = uploaded.data.url
+    } catch (uploadError) {
+      ElMessage.error(String(uploadError || '场景图上传失败，请重新上传后再合成'))
+    } finally {
+      sceneUploading.value = false
+    }
   } catch (error) {
     ElMessage.error(String(error || '场景图加载失败'))
+    if (!hasScene.value) {
+      sceneName.value = ''
+      sceneKey.value = ''
+      sceneUrl.value = ''
+    }
+    sceneUploading.value = false
   }
 }
 
@@ -262,16 +377,16 @@ const addCharacterLayer = async (item, name) => {
   layerCounter += 1
   image.stickerId = `character-${layerCounter}`
   image.stickerName = name || item.name || `角色 ${layerCounter}`
+  image.stickerKey = item.key
+  image.stickerUrl = item.url || ''
   image.cutoutMode = item.mode
   const targetHeight = Math.min(editor.height * 0.62, image.height)
   image.scaleToHeight(targetHeight)
   image.set({
     left: (editor.width - image.getScaledWidth()) / 2,
     top: Math.max(editor.height - image.getScaledHeight() - 12, 0),
-    cornerColor: '#6ee7ac',
-    borderColor: '#6ee7ac',
-    transparentCorners: false,
   })
+  applyEditableStyle(image)
   editor.add(image)
   editor.setActiveObject(image)
   editor.requestRenderAll()
@@ -340,6 +455,8 @@ const resetComposer = () => {
   editor.setDimensions({ width: 760, height: 500 })
   editor.requestRenderAll()
   sceneName.value = ''
+  sceneKey.value = ''
+  sceneUrl.value = ''
   hasScene.value = false
   selectedId.value = ''
   compositeUrl.value = ''
@@ -357,20 +474,128 @@ const downloadComposite = (blob, filename) => {
   URL.revokeObjectURL(objectUrl)
 }
 
+const loadCompositionHistory = async () => {
+  historyLoading.value = true
+  try {
+    const res = await getAiImageStickerCompositions()
+    compositionHistory.value = res.data.list || []
+  } catch (error) {
+    ElMessage.error(String(error || '历史记录加载失败'))
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+const updateLayerCounterFromHistory = (historyLayers) => {
+  const maxId = historyLayers.reduce((max, layer) => {
+    const match = String(layer.id || '').match(/(\d+)$/)
+    return match ? Math.max(max, Number(match[1])) : max
+  }, 0)
+  layerCounter = Math.max(layerCounter, maxId)
+}
+
+const editHistory = async (item) => {
+  editingHistoryId.value = item.id
+  try {
+    const width = normalizeCanvasDimension(item.canvas_width, 760)
+    const height = normalizeCanvasDimension(item.canvas_height, 500)
+    const sceneSource = storageFileUrl(item.scene_key || item.scene_url || '')
+    if (!sceneSource) throw new Error('历史记录缺少场景图')
+    await setSceneBackground(sceneSource, width, height)
+    const historyLayers = Array.isArray(item.layers) ? item.layers : []
+    for (const layer of historyLayers) {
+      if (!layer.key) continue
+      const image = await FabricImage.fromURL(aiImageCutoutAssetUrl(layer.key))
+      image.stickerId = layer.id || `character-${layerCounter + 1}`
+      image.stickerName = layer.name || '素材'
+      image.stickerKey = layer.key
+      image.stickerUrl = layer.url || ''
+      image.cutoutMode = layer.mode || 'fast'
+      image.set({
+        left: Number(layer.left || 0),
+        top: Number(layer.top || 0),
+        scaleX: Number(layer.scale_x || 1),
+        scaleY: Number(layer.scale_y || 1),
+        angle: Number(layer.angle || 0),
+        opacity: Number(layer.opacity ?? 1),
+        flipX: !!layer.flip_x,
+        flipY: !!layer.flip_y,
+      })
+      applyEditableStyle(image)
+      editor.add(image)
+    }
+    updateLayerCounterFromHistory(historyLayers)
+    sceneName.value = item.scene_name || item.title || '历史场景'
+    sceneKey.value = item.scene_key || ''
+    sceneUrl.value = item.scene_url || ''
+    compositeUrl.value = item.result_url || ''
+    hasScene.value = true
+    selectedId.value = ''
+    editor.discardActiveObject()
+    editor.requestRenderAll()
+    refreshLayers()
+    ElMessage.success('历史记录已载入，可继续编辑')
+  } catch (error) {
+    ElMessage.error(String(error || '历史记录载入失败'))
+  } finally {
+    editingHistoryId.value = ''
+  }
+}
+
+const previewHistory = (item) => {
+  const url = storageFileUrl(item.result_key || item.result_url || '')
+  if (url) window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+const deleteHistory = async (item) => {
+  try {
+    await ElMessageBox.confirm(`确认删除历史记录“${item.title || item.scene_name || '站位贴图'}”？`, '删除历史记录', { type: 'warning' })
+    deletingHistoryId.value = item.id
+    await deleteAiImageStickerComposition(item.id)
+    compositionHistory.value = compositionHistory.value.filter((history) => history.id !== item.id)
+    ElMessage.success('历史记录已删除')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(String(error || '删除历史记录失败'))
+  } finally {
+    deletingHistoryId.value = ''
+  }
+}
+
 const composeImage = async () => {
   if (!editor || !hasScene.value || !layers.value.length) return
+  if (sceneUploading.value) {
+    ElMessage.warning('场景图还在上传，请稍后再合成')
+    return
+  }
+  if (!sceneKey.value) {
+    ElMessage.warning('场景图上传未完成，请重新上传场景图后再合成')
+    return
+  }
   composing.value = true
   try {
     editor.discardActiveObject()
     editor.requestRenderAll()
+    const snapshot = captureCanvasSnapshot()
     const blob = await editor.toBlob({ format: 'png', multiplier: 1 })
     if (!blob) throw new Error('生成合成图失败')
     const filename = `scene-composite-${Date.now()}.png`
     const file = new File([blob], filename, { type: 'image/png' })
     const res = await uploadToCos(file, 'images/composites', { timeout: 120000 })
     compositeUrl.value = res.data.url
+    const saved = await createAiImageStickerComposition({
+      title: sceneName.value ? `${sceneName.value} 合成` : '站位贴图',
+      scene_name: snapshot.scene_name,
+      scene_key: snapshot.scene_key,
+      scene_url: snapshot.scene_url,
+      result_key: res.data.key,
+      result_url: res.data.url,
+      canvas_width: snapshot.canvas_width,
+      canvas_height: snapshot.canvas_height,
+      layers: snapshot.layers,
+    })
+    compositionHistory.value = [saved.data, ...compositionHistory.value.filter((item) => item.id !== saved.data.id)]
     downloadComposite(blob, filename)
-    ElMessage.success('合成图片已上传并开始下载')
+    ElMessage.success('合成图片已上传，历史记录已保存')
   } catch (error) {
     ElMessage.error(String(error || '合成失败'))
   } finally {
@@ -385,6 +610,7 @@ const openComposite = () => {
 onMounted(() => {
   initializeCanvas()
   loadAssetLibrary()
+  loadCompositionHistory()
 })
 onBeforeUnmount(() => editor?.dispose())
 </script>
@@ -510,7 +736,15 @@ onBeforeUnmount(() => editor?.dispose())
   overflow-y: auto;
 }
 
-.asset-row {
+.history-list {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.asset-row,
+.history-row {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -520,7 +754,8 @@ onBeforeUnmount(() => editor?.dispose())
   background: #0b1414;
 }
 
-.asset-row img {
+.asset-row img,
+.history-row img {
   width: 46px;
   height: 46px;
   flex: none;
@@ -529,20 +764,28 @@ onBeforeUnmount(() => editor?.dispose())
   background: repeating-conic-gradient(#152020 0 25%, #1d2c2b 0 50%) 50% / 14px 14px;
 }
 
-.asset-info {
+.history-row img {
+  object-fit: cover;
+}
+
+.asset-info,
+.history-info {
   min-width: 0;
   flex: 1;
 }
 
 .asset-info strong,
-.asset-info small {
+.asset-info small,
+.history-info strong,
+.history-info small {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.asset-info small {
+.asset-info small,
+.history-info small {
   margin-top: 3px;
   color: #91a8a0;
 }

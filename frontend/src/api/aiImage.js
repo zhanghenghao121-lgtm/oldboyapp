@@ -13,6 +13,13 @@ export const getAiImageCutoutAssets = () => http.get('/ai-image/cutout-assets')
 
 export const deleteAiImageCutoutAsset = (assetId) => http.delete(`/ai-image/cutout-assets/${encodeURIComponent(assetId)}`)
 
+export const getAiImageStickerCompositions = () => http.get('/ai-image/sticker-compositions')
+
+export const createAiImageStickerComposition = (payload) => http.post('/ai-image/sticker-compositions', payload)
+
+export const deleteAiImageStickerComposition = (compositionId) =>
+  http.delete(`/ai-image/sticker-compositions/${encodeURIComponent(compositionId)}`)
+
 export const getSceneInferenceProjects = () => http.get('/scene-inference/projects', { timeout: 30000 })
 
 export const createSceneInferenceProject = (payload) => http.post('/scene-inference/projects', payload, { timeout: 30000 })

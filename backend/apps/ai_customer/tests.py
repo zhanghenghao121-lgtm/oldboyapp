@@ -11,6 +11,7 @@ from apps.ai_customer.llm_clients import LLMClientError, chat_completion
 from apps.ai_customer.ai_image_services import _task_result_images
 from apps.ai_customer.models import (
     PositionStickerAsset,
+    PositionStickerComposition,
     SceneInferenceJob,
     SceneInferenceProject,
     StoryboardAsset,
@@ -18,7 +19,7 @@ from apps.ai_customer.models import (
     StoryboardProject,
     StorySegment,
 )
-from apps.ai_customer.cutout_services import CutoutError, cutout_character
+from apps.ai_customer.cutout_services import CutoutError, create_sticker_composition, cutout_character, list_sticker_compositions
 from apps.ai_customer.scene_inference_services import (
     create_scene_inference_project,
     enhance_scene_screenshot,
@@ -87,6 +88,86 @@ class CutoutServicesTests(TestCase):
 
         with self.assertRaisesMessage(CutoutError, "请上传带透明通道"):
             cutout_character(_image_upload("opaque.png", image), "transparent", self.user)
+
+    def test_sticker_composition_history_persists_editable_snapshot(self):
+        scene = UploadedFileRecord.objects.create(
+            user=self.user,
+            key="images/sticker-scenes/scene.png",
+            url="https://cdn.example.com/scene.png",
+            content_type="image/png",
+            size=100,
+        )
+        result = UploadedFileRecord.objects.create(
+            user=self.user,
+            key="images/composites/result.png",
+            url="https://cdn.example.com/result.png",
+            content_type="image/png",
+            size=100,
+        )
+        layer = UploadedFileRecord.objects.create(
+            user=self.user,
+            key="images/cutouts/layer.png",
+            url="https://cdn.example.com/layer.png",
+            content_type="image/png",
+            size=100,
+        )
+
+        saved = create_sticker_composition(
+            self.user,
+            {
+                "title": "站位贴图",
+                "scene_name": "场景.png",
+                "scene_key": scene.key,
+                "result_key": result.key,
+                "canvas_width": 960,
+                "canvas_height": 540,
+                "layers": [{"id": "character-1", "name": "角色", "key": layer.key, "left": 12, "scale_x": 0.8}],
+            },
+        )
+
+        self.assertEqual(saved["scene_key"], scene.key)
+        self.assertEqual(saved["layers"][0]["key"], layer.key)
+        histories = list_sticker_compositions(self.user)
+        self.assertEqual(histories[0]["result_key"], result.key)
+        self.assertEqual(PositionStickerComposition.objects.filter(user=self.user).count(), 1)
+
+    def test_sticker_composition_rejects_unowned_layer(self):
+        scene = UploadedFileRecord.objects.create(
+            user=self.user,
+            key="images/sticker-scenes/scene.png",
+            url="https://cdn.example.com/scene.png",
+            content_type="image/png",
+            size=100,
+        )
+        result = UploadedFileRecord.objects.create(
+            user=self.user,
+            key="images/composites/result.png",
+            url="https://cdn.example.com/result.png",
+            content_type="image/png",
+            size=100,
+        )
+        other = get_user_model().objects.create_user(
+            username="other-sticker-user",
+            email="other-sticker-user@example.com",
+            password="pass1234",
+        )
+        other_layer = UploadedFileRecord.objects.create(
+            user=other,
+            key="images/cutouts/other.png",
+            url="https://cdn.example.com/other.png",
+            content_type="image/png",
+            size=100,
+        )
+
+        with self.assertRaisesMessage(CutoutError, "图层素材不存在或无权访问"):
+            create_sticker_composition(
+                self.user,
+                {
+                    "scene_key": scene.key,
+                    "result_key": result.key,
+                    "layers": [{"key": other_layer.key}],
+                },
+            )
 
 
 class StoryboardServicesTests(TestCase):

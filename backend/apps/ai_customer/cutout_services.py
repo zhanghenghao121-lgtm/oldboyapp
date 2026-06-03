@@ -8,7 +8,7 @@ from django.conf import settings
 from PIL import Image
 from qcloud_cos import CosConfig, CosS3Client
 
-from apps.ai_customer.models import PositionStickerAsset
+from apps.ai_customer.models import PositionStickerAsset, PositionStickerComposition
 from apps.ai_customer.runtime_config import get_remove_bg_api_key
 from apps.storage.models import UploadedFileRecord
 
@@ -177,6 +177,113 @@ def _serialize_sticker_asset(asset: PositionStickerAsset) -> dict:
 def list_sticker_assets(user) -> list[dict]:
     assets = PositionStickerAsset.objects.filter(user=user).select_related("file_record")[:100]
     return [_serialize_sticker_asset(asset) for asset in assets]
+
+
+def _serialize_sticker_composition(composition: PositionStickerComposition) -> dict:
+    scene_record = composition.scene_file_record
+    result_record = composition.result_file_record
+    return {
+        "id": composition.id,
+        "title": composition.title,
+        "scene_name": composition.scene_name,
+        "scene_key": scene_record.key,
+        "scene_url": scene_record.url,
+        "result_key": result_record.key,
+        "result_url": result_record.url,
+        "canvas_width": composition.canvas_width,
+        "canvas_height": composition.canvas_height,
+        "layers": composition.layers_json if isinstance(composition.layers_json, list) else [],
+        "created_at": composition.created_at,
+        "updated_at": composition.updated_at,
+    }
+
+
+def list_sticker_compositions(user) -> list[dict]:
+    compositions = PositionStickerComposition.objects.filter(user=user).select_related("scene_file_record", "result_file_record")[:50]
+    return [_serialize_sticker_composition(composition) for composition in compositions]
+
+
+def _owned_upload_record(user, key: str, *, field_name: str) -> UploadedFileRecord:
+    normalized_key = str(key or "").strip()
+    if not normalized_key:
+        raise CutoutError(f"缺少{field_name}")
+    record = UploadedFileRecord.objects.filter(user=user, key=normalized_key).first()
+    if not record:
+        raise CutoutError(f"{field_name}不存在或无权访问", 404)
+    return record
+
+
+def _normalize_canvas_size(value, fallback: int) -> int:
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        size = fallback
+    return min(max(size, 1), 10000)
+
+
+def _normalize_float(value, fallback: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _normalize_sticker_layers(layers, user) -> list[dict]:
+    if not isinstance(layers, list):
+        raise CutoutError("图层数据格式错误")
+    normalized = []
+    for index, layer in enumerate(layers[:80], start=1):
+        if not isinstance(layer, dict):
+            continue
+        key = str(layer.get("key") or "").strip()
+        if not key.startswith("images/cutouts/"):
+            raise CutoutError("图层素材格式不支持")
+        _owned_upload_record(user, key, field_name="图层素材")
+        normalized.append(
+            {
+                "id": str(layer.get("id") or f"layer-{index}")[:80],
+                "name": str(layer.get("name") or f"素材 {index}")[:120],
+                "key": key,
+                "url": str(layer.get("url") or "")[:1000],
+                "mode": str(layer.get("mode") or "fast")[:20],
+                "left": _normalize_float(layer.get("left"), 0.0),
+                "top": _normalize_float(layer.get("top"), 0.0),
+                "scale_x": _normalize_float(layer.get("scale_x"), 1.0),
+                "scale_y": _normalize_float(layer.get("scale_y"), 1.0),
+                "angle": _normalize_float(layer.get("angle"), 0.0),
+                "opacity": _normalize_float(layer.get("opacity"), 1.0),
+                "flip_x": bool(layer.get("flip_x")),
+                "flip_y": bool(layer.get("flip_y")),
+            }
+        )
+    if not normalized:
+        raise CutoutError("请至少保留一个图层后再保存历史")
+    return normalized
+
+
+def create_sticker_composition(user, payload: dict) -> dict:
+    scene_record = _owned_upload_record(user, payload.get("scene_key"), field_name="场景图")
+    result_record = _owned_upload_record(user, payload.get("result_key"), field_name="合成图")
+    layers = _normalize_sticker_layers(payload.get("layers"), user)
+    title = str(payload.get("title") or "").strip()[:120]
+    composition = PositionStickerComposition.objects.create(
+        user=user,
+        scene_file_record=scene_record,
+        result_file_record=result_record,
+        title=title or str(payload.get("scene_name") or "站位贴图")[:120],
+        scene_name=str(payload.get("scene_name") or "")[:255],
+        canvas_width=_normalize_canvas_size(payload.get("canvas_width"), 760),
+        canvas_height=_normalize_canvas_size(payload.get("canvas_height"), 500),
+        layers_json=layers,
+    )
+    return _serialize_sticker_composition(composition)
+
+
+def remove_sticker_composition(composition_id: int, user):
+    composition = PositionStickerComposition.objects.filter(id=composition_id, user=user).first()
+    if not composition:
+        raise CutoutError("历史记录不存在", 404)
+    composition.delete()
 
 
 def remove_sticker_asset(asset_id: int, user):

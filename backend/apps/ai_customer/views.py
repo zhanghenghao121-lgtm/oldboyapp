@@ -6,10 +6,13 @@ from rest_framework.response import Response
 
 from apps.ai_customer.cutout_services import (
     CutoutError,
+    create_sticker_composition,
     cutout_character,
     get_cutout_asset,
     list_sticker_assets,
+    list_sticker_compositions,
     remove_sticker_asset,
+    remove_sticker_composition,
 )
 from apps.ai_customer.models import SceneInferenceProject, StoryboardPanel, StoryboardProject, StorySegment
 from apps.ai_customer.runtime_config import (
@@ -143,6 +146,32 @@ def ai_image_cutout_asset_delete(request, asset_id):
         return _feature_denied()
     try:
         remove_sticker_asset(asset_id, request.user)
+        return ok()
+    except CutoutError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def ai_image_sticker_compositions(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    try:
+        if request.method == "GET":
+            return ok({"list": list_sticker_compositions(request.user)})
+        return ok(create_sticker_composition(request.user, request.data))
+    except CutoutError as exc:
+        return bad(str(exc), exc.status)
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def ai_image_sticker_composition_delete(request, composition_id):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    try:
+        remove_sticker_composition(composition_id, request.user)
         return ok()
     except CutoutError as exc:
         return bad(str(exc), exc.status)

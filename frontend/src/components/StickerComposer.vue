@@ -474,6 +474,164 @@ const downloadComposite = (blob, filename) => {
   URL.revokeObjectURL(objectUrl)
 }
 
+const imageFromUrl = (source) =>
+  new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('图片加载失败'))
+    image.src = source
+  })
+
+const canvasToPngBlob = (canvas) =>
+  new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'))
+
+const clampChannel = (value) => Math.min(255, Math.max(0, Math.round(value)))
+
+const getAverageTone = (imageData, alphaAware = false) => {
+  const data = imageData.data
+  let r = 0
+  let g = 0
+  let b = 0
+  let count = 0
+  const step = Math.max(4, Math.floor(data.length / 24000) * 4)
+  for (let i = 0; i < data.length; i += step) {
+    const alpha = alphaAware ? data[i + 3] / 255 : 1
+    if (alphaAware && alpha < 0.12) continue
+    r += data[i] * alpha
+    g += data[i + 1] * alpha
+    b += data[i + 2] * alpha
+    count += alpha
+  }
+  if (!count) return { r: 128, g: 128, b: 128, luma: 128 }
+  const tone = { r: r / count, g: g / count, b: b / count }
+  tone.luma = tone.r * 0.2126 + tone.g * 0.7152 + tone.b * 0.0722
+  return tone
+}
+
+const sampleSceneTone = (context, rect) => {
+  const x = Math.max(0, Math.floor(rect.left))
+  const y = Math.max(0, Math.floor(rect.top))
+  const width = Math.max(1, Math.min(context.canvas.width - x, Math.ceil(rect.width)))
+  const height = Math.max(1, Math.min(context.canvas.height - y, Math.ceil(rect.height)))
+  if (width <= 0 || height <= 0) return { r: 128, g: 128, b: 128, luma: 128 }
+  return getAverageTone(context.getImageData(x, y, width, height))
+}
+
+const processLayerForNaturalBlend = (sourceImage, sceneTone) => {
+  const canvas = document.createElement('canvas')
+  canvas.width = sourceImage.naturalWidth || sourceImage.width
+  canvas.height = sourceImage.naturalHeight || sourceImage.height
+  const context = canvas.getContext('2d')
+  context.drawImage(sourceImage, 0, 0, canvas.width, canvas.height)
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
+  const layerTone = getAverageTone(imageData, true)
+  const data = imageData.data
+  const brightnessShift = (sceneTone.luma - layerTone.luma) * 0.18
+  const toneStrength = 0.12
+  const ambientStrength = 0.06
+
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3] / 255
+    if (alpha <= 0) continue
+
+    if (alpha < 0.98) {
+      const safeAlpha = Math.max(alpha, 0.18)
+      data[i] = clampChannel((data[i] - 255 * (1 - safeAlpha)) / safeAlpha)
+      data[i + 1] = clampChannel((data[i + 1] - 255 * (1 - safeAlpha)) / safeAlpha)
+      data[i + 2] = clampChannel((data[i + 2] - 255 * (1 - safeAlpha)) / safeAlpha)
+    }
+
+    data[i] = clampChannel(data[i] + (sceneTone.r - layerTone.r) * toneStrength + brightnessShift)
+    data[i + 1] = clampChannel(data[i + 1] + (sceneTone.g - layerTone.g) * toneStrength + brightnessShift)
+    data[i + 2] = clampChannel(data[i + 2] + (sceneTone.b - layerTone.b) * toneStrength + brightnessShift)
+
+    const gray = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722
+    data[i] = clampChannel(gray + (data[i] - gray) * 0.96 + sceneTone.r * ambientStrength * alpha)
+    data[i + 1] = clampChannel(gray + (data[i + 1] - gray) * 0.96 + sceneTone.g * ambientStrength * alpha)
+    data[i + 2] = clampChannel(gray + (data[i + 2] - gray) * 0.96 + sceneTone.b * ambientStrength * alpha)
+  }
+
+  context.putImageData(imageData, 0, 0)
+  return canvas
+}
+
+const drawContactShadow = (context, object) => {
+  const bounds = object.getBoundingRect()
+  const width = Math.max(18, Math.min(bounds.width * 0.58, context.canvas.width * 0.32))
+  const height = Math.max(6, Math.min(bounds.height * 0.075, 34))
+  const centerX = bounds.left + bounds.width / 2
+  const centerY = bounds.top + bounds.height - height * 0.08
+
+  context.save()
+  context.globalAlpha = Math.min(0.36, Math.max(0.16, Number(object.opacity ?? 1) * 0.32))
+  context.filter = `blur(${Math.max(5, Math.min(18, height * 1.15))}px)`
+  context.fillStyle = '#050505'
+  context.beginPath()
+  context.ellipse(centerX, centerY, width / 2, height / 2, 0, 0, Math.PI * 2)
+  context.fill()
+  context.restore()
+}
+
+const drawNaturalLayer = async (context, object) => {
+  if (!object?.stickerKey) return
+  const source = aiImageCutoutAssetUrl(object.stickerKey)
+  const image = await imageFromUrl(source)
+  const bounds = object.getBoundingRect()
+  const sceneTone = sampleSceneTone(context, bounds)
+  const processed = processLayerForNaturalBlend(image, sceneTone)
+  const center = object.getCenterPoint()
+  const angle = ((Number(object.angle) || 0) * Math.PI) / 180
+  const scaleX = (Number(object.scaleX) || 1) * (object.flipX ? -1 : 1)
+  const scaleY = (Number(object.scaleY) || 1) * (object.flipY ? -1 : 1)
+
+  drawContactShadow(context, object)
+
+  context.save()
+  context.globalAlpha = Number(object.opacity ?? 1)
+  context.translate(center.x, center.y)
+  context.rotate(angle)
+  context.scale(scaleX, scaleY)
+  context.filter = 'blur(0.35px)'
+  context.drawImage(processed, -processed.width / 2, -processed.height / 2)
+  context.restore()
+}
+
+const addSubtleGrain = (context) => {
+  const imageData = context.getImageData(0, 0, context.canvas.width, context.canvas.height)
+  const data = imageData.data
+  for (let i = 0; i < data.length; i += 4) {
+    const noise = Math.round((Math.random() - 0.5) * 3)
+    data[i] = clampChannel(data[i] + noise)
+    data[i + 1] = clampChannel(data[i + 1] + noise)
+    data[i + 2] = clampChannel(data[i + 2] + noise)
+  }
+  context.putImageData(imageData, 0, 0)
+}
+
+const createNaturalCompositeBlob = async () => {
+  const width = normalizeCanvasDimension(editor.width, 760)
+  const height = normalizeCanvasDimension(editor.height, 500)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  const sceneSource = storageFileUrl(sceneKey.value || sceneUrl.value)
+  if (!sceneSource) throw new Error('缺少场景图')
+
+  const background = await imageFromUrl(sceneSource)
+  context.fillStyle = '#0b1213'
+  context.fillRect(0, 0, width, height)
+  context.drawImage(background, 0, 0, width, height)
+
+  for (const object of editor.getObjects()) {
+    await drawNaturalLayer(context, object)
+  }
+
+  addSubtleGrain(context)
+  return canvasToPngBlob(canvas)
+}
+
 const loadCompositionHistory = async () => {
   historyLoading.value = true
   try {
@@ -576,7 +734,14 @@ const composeImage = async () => {
     editor.discardActiveObject()
     editor.requestRenderAll()
     const snapshot = captureCanvasSnapshot()
-    const blob = await editor.toBlob({ format: 'png', multiplier: 1 })
+    let blob = null
+    try {
+      blob = await createNaturalCompositeBlob()
+    } catch (blendError) {
+      console.warn('Natural blend failed, falling back to canvas export.', blendError)
+      blob = await editor.toBlob({ format: 'png', multiplier: 1 })
+      ElMessage.warning('自然融合处理失败，已使用普通合成导出')
+    }
     if (!blob) throw new Error('生成合成图失败')
     const filename = `scene-composite-${Date.now()}.png`
     const file = new File([blob], filename, { type: 'image/png' })

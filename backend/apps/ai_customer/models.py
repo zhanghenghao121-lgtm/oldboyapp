@@ -25,11 +25,19 @@ class PositionStickerAsset(models.Model):
 
 
 class PositionStickerComposition(models.Model):
+    BLEND_NORMAL = "normal"
+    BLEND_NATURAL = "natural"
+    BLEND_MODE_CHOICES = [
+        (BLEND_NORMAL, "普通合成"),
+        (BLEND_NATURAL, "自然融合"),
+    ]
+
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="position_sticker_compositions")
     scene_file_record = models.ForeignKey("storage.UploadedFileRecord", on_delete=models.PROTECT, related_name="+")
     result_file_record = models.ForeignKey("storage.UploadedFileRecord", on_delete=models.PROTECT, related_name="+")
     title = models.CharField(max_length=120, blank=True, default="")
     scene_name = models.CharField(max_length=255, blank=True, default="")
+    blend_mode = models.CharField(max_length=16, choices=BLEND_MODE_CHOICES, default=BLEND_NORMAL)
     canvas_width = models.PositiveIntegerField(default=760)
     canvas_height = models.PositiveIntegerField(default=500)
     layers_json = models.JSONField(default=list)

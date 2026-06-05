@@ -72,7 +72,18 @@
 
       <div class="control-card history-card">
         <div class="card-head">
-          <h3>5. 历史记录</h3>
+          <h3>5. 合成方式</h3>
+        </div>
+        <el-radio-group v-model="blendMode" class="blend-modes">
+          <el-radio-button value="normal">普通合成</el-radio-button>
+          <el-radio-button value="natural">自然融合</el-radio-button>
+        </el-radio-group>
+        <p class="hint compact">{{ blendModeHint }}</p>
+      </div>
+
+      <div class="control-card history-card">
+        <div class="card-head">
+          <h3>6. 历史记录</h3>
           <el-button text size="small" :loading="historyLoading" @click="loadCompositionHistory">刷新</el-button>
         </div>
         <div v-if="historyLoading && !compositionHistory.length" class="no-layer">正在加载历史...</div>
@@ -82,7 +93,7 @@
             <img :src="historyPreviewUrl(item)" :alt="item.title || item.scene_name || '站位贴图'" />
             <div class="history-info">
               <strong>{{ item.title || item.scene_name || '站位贴图' }}</strong>
-              <small>{{ formatHistoryTime(item.updated_at || item.created_at) }}</small>
+              <small>{{ blendModeLabel(item.blend_mode) }} · {{ formatHistoryTime(item.updated_at || item.created_at) }}</small>
             </div>
             <el-button text size="small" :loading="editingHistoryId === item.id" @click="editHistory(item)">编辑</el-button>
             <el-button text size="small" @click="previewHistory(item)">预览</el-button>
@@ -94,7 +105,7 @@
       <div class="compose-actions">
         <el-button plain @click="resetComposer">清空画布</el-button>
         <el-button class="generate-btn" type="primary" :loading="composing" :disabled="!hasScene || sceneUploading || !layers.length" @click="composeImage">
-          合成图片
+          开始合成
         </el-button>
       </div>
     </aside>
@@ -140,6 +151,7 @@ const sceneKey = ref('')
 const sceneUrl = ref('')
 const hasScene = ref(false)
 const cutoutMode = ref('fast')
+const blendMode = ref('natural')
 const saveToLibrary = ref(false)
 const cutting = ref(false)
 const composing = ref(false)
@@ -165,6 +177,11 @@ const cutoutHint = computed(() => {
 const uploadActionText = computed(() => (cutoutMode.value === 'transparent' ? '上传透明图片' : '添加角色图片'))
 const uploadBusyText = computed(() => (cutoutMode.value === 'transparent' ? '正在上传透明图...' : '正在抠图并上传...'))
 const uploadTipText = computed(() => (cutoutMode.value === 'transparent' ? '可直接添加已抠除背景的透明素材' : '可连续添加多个角色'))
+const blendModeHint = computed(() =>
+  blendMode.value === 'natural'
+    ? '添加脚底接触阴影、柔化透明边缘、减少白边，并让人物亮度和色温更接近背景。'
+    : '只按当前图层位置、大小、旋转和透明度直接叠加，适合快速站位草稿。'
+)
 
 const cutoutModeLabel = (mode) => {
   if (mode === 'transparent') return '透明图直传'
@@ -177,6 +194,8 @@ const layerModeLabel = (mode) => {
   if (mode === 'ai') return 'AI'
   return '免费'
 }
+
+const blendModeLabel = (mode) => (mode === 'natural' ? '自然融合' : '普通合成')
 
 const imageDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -229,6 +248,7 @@ const captureCanvasSnapshot = () => ({
   scene_name: sceneName.value,
   scene_key: sceneKey.value,
   scene_url: sceneUrl.value,
+  blend_mode: blendMode.value,
   canvas_width: normalizeCanvasDimension(editor.width, 760),
   canvas_height: normalizeCanvasDimension(editor.height, 500),
   layers: editor.getObjects().map((object) => ({
@@ -556,16 +576,59 @@ const processLayerForNaturalBlend = (sourceImage, sceneTone) => {
   return canvas
 }
 
+const softenAlphaEdges = (sourceCanvas, radius = 1.2) => {
+  const canvas = document.createElement('canvas')
+  canvas.width = sourceCanvas.width
+  canvas.height = sourceCanvas.height
+  const context = canvas.getContext('2d')
+  context.drawImage(sourceCanvas, 0, 0)
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
+  const maskCanvas = document.createElement('canvas')
+  maskCanvas.width = canvas.width
+  maskCanvas.height = canvas.height
+  const maskContext = maskCanvas.getContext('2d')
+  const maskData = maskContext.createImageData(canvas.width, canvas.height)
+
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    const alpha = imageData.data[i + 3]
+    maskData.data[i] = 255
+    maskData.data[i + 1] = 255
+    maskData.data[i + 2] = 255
+    maskData.data[i + 3] = alpha
+  }
+  maskContext.putImageData(maskData, 0, 0)
+
+  const blurCanvas = document.createElement('canvas')
+  blurCanvas.width = canvas.width
+  blurCanvas.height = canvas.height
+  const blurContext = blurCanvas.getContext('2d')
+  blurContext.filter = `blur(${radius}px)`
+  blurContext.drawImage(maskCanvas, 0, 0)
+  const blurData = blurContext.getImageData(0, 0, canvas.width, canvas.height)
+
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    const originalAlpha = imageData.data[i + 3]
+    if (originalAlpha <= 0) continue
+    const blurredAlpha = blurData.data[i + 3]
+    const softenedAlpha = Math.min(originalAlpha, Math.round(blurredAlpha * 1.08))
+    imageData.data[i + 3] = originalAlpha > 248 && softenedAlpha > 236 ? originalAlpha : softenedAlpha
+  }
+
+  context.putImageData(imageData, 0, 0)
+  return canvas
+}
+
 const drawContactShadow = (context, object) => {
   const bounds = object.getBoundingRect()
-  const width = Math.max(18, Math.min(bounds.width * 0.58, context.canvas.width * 0.32))
-  const height = Math.max(6, Math.min(bounds.height * 0.075, 34))
+  const width = Math.max(22, Math.min(bounds.width * 0.62, context.canvas.width * 0.34))
+  const height = Math.max(7, Math.min(bounds.height * 0.085, 40))
   const centerX = bounds.left + bounds.width / 2
-  const centerY = bounds.top + bounds.height - height * 0.08
+  const centerY = bounds.top + bounds.height - height * 0.04
 
   context.save()
-  context.globalAlpha = Math.min(0.36, Math.max(0.16, Number(object.opacity ?? 1) * 0.32))
-  context.filter = `blur(${Math.max(5, Math.min(18, height * 1.15))}px)`
+  context.globalAlpha = Math.min(0.38, Math.max(0.18, Number(object.opacity ?? 1) * 0.34))
+  context.filter = `blur(${Math.max(6, Math.min(20, height * 1.2))}px)`
   context.fillStyle = '#050505'
   context.beginPath()
   context.ellipse(centerX, centerY, width / 2, height / 2, 0, 0, Math.PI * 2)
@@ -579,7 +642,7 @@ const drawNaturalLayer = async (context, object) => {
   const image = await imageFromUrl(source)
   const bounds = object.getBoundingRect()
   const sceneTone = sampleSceneTone(context, bounds)
-  const processed = processLayerForNaturalBlend(image, sceneTone)
+  const processed = softenAlphaEdges(processLayerForNaturalBlend(image, sceneTone))
   const center = object.getCenterPoint()
   const angle = ((Number(object.angle) || 0) * Math.PI) / 180
   const scaleX = (Number(object.scaleX) || 1) * (object.flipX ? -1 : 1)
@@ -592,7 +655,6 @@ const drawNaturalLayer = async (context, object) => {
   context.translate(center.x, center.y)
   context.rotate(angle)
   context.scale(scaleX, scaleY)
-  context.filter = 'blur(0.35px)'
   context.drawImage(processed, -processed.width / 2, -processed.height / 2)
   context.restore()
 }
@@ -686,6 +748,7 @@ const editHistory = async (item) => {
     sceneName.value = item.scene_name || item.title || '历史场景'
     sceneKey.value = item.scene_key || ''
     sceneUrl.value = item.scene_url || ''
+    blendMode.value = item.blend_mode === 'natural' ? 'natural' : 'normal'
     compositeUrl.value = item.result_url || ''
     hasScene.value = true
     selectedId.value = ''
@@ -735,12 +798,16 @@ const composeImage = async () => {
     editor.requestRenderAll()
     const snapshot = captureCanvasSnapshot()
     let blob = null
-    try {
-      blob = await createNaturalCompositeBlob()
-    } catch (blendError) {
-      console.warn('Natural blend failed, falling back to canvas export.', blendError)
+    if (blendMode.value === 'natural') {
+      try {
+        blob = await createNaturalCompositeBlob()
+      } catch (blendError) {
+        console.warn('Natural blend failed, falling back to canvas export.', blendError)
+        blob = await editor.toBlob({ format: 'png', multiplier: 1 })
+        ElMessage.warning('自然融合处理失败，已使用普通合成导出')
+      }
+    } else {
       blob = await editor.toBlob({ format: 'png', multiplier: 1 })
-      ElMessage.warning('自然融合处理失败，已使用普通合成导出')
     }
     if (!blob) throw new Error('生成合成图失败')
     const filename = `scene-composite-${Date.now()}.png`
@@ -752,6 +819,7 @@ const composeImage = async () => {
       scene_name: snapshot.scene_name,
       scene_key: snapshot.scene_key,
       scene_url: snapshot.scene_url,
+      blend_mode: snapshot.blend_mode,
       result_key: res.data.key,
       result_url: res.data.url,
       canvas_width: snapshot.canvas_width,
@@ -760,7 +828,7 @@ const composeImage = async () => {
     })
     compositionHistory.value = [saved.data, ...compositionHistory.value.filter((item) => item.id !== saved.data.id)]
     downloadComposite(blob, filename)
-    ElMessage.success('合成图片已上传，历史记录已保存')
+    ElMessage.success(`${blendModeLabel(blendMode.value)}图片已上传，历史记录已保存`)
   } catch (error) {
     ElMessage.error(String(error || '合成失败'))
   } finally {
@@ -841,17 +909,27 @@ onBeforeUnmount(() => editor?.dispose())
   font-size: 13px;
 }
 
-.cutout-modes {
+.cutout-modes,
+.blend-modes {
   width: 100%;
   display: grid;
+}
+
+.cutout-modes {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.cutout-modes :deep(.el-radio-button) {
+.blend-modes {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cutout-modes :deep(.el-radio-button),
+.blend-modes :deep(.el-radio-button) {
   min-width: 0;
 }
 
-.cutout-modes :deep(.el-radio-button__inner) {
+.cutout-modes :deep(.el-radio-button__inner),
+.blend-modes :deep(.el-radio-button__inner) {
   width: 100%;
   min-height: 40px;
   display: flex;
@@ -867,6 +945,11 @@ onBeforeUnmount(() => editor?.dispose())
   min-height: 38px;
   margin: 10px 0;
   line-height: 1.5;
+}
+
+.hint.compact {
+  min-height: 0;
+  margin-bottom: 0;
 }
 
 .save-option {

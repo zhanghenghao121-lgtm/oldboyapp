@@ -119,6 +119,7 @@ class CutoutServicesTests(TestCase):
                 "scene_name": "场景.png",
                 "scene_key": scene.key,
                 "result_key": result.key,
+                "blend_mode": "natural",
                 "canvas_width": 960,
                 "canvas_height": 540,
                 "layers": [{"id": "character-1", "name": "角色", "key": layer.key, "left": 12, "scale_x": 0.8}],
@@ -126,9 +127,11 @@ class CutoutServicesTests(TestCase):
         )
 
         self.assertEqual(saved["scene_key"], scene.key)
+        self.assertEqual(saved["blend_mode"], "natural")
         self.assertEqual(saved["layers"][0]["key"], layer.key)
         histories = list_sticker_compositions(self.user)
         self.assertEqual(histories[0]["result_key"], result.key)
+        self.assertEqual(histories[0]["blend_mode"], "natural")
         self.assertEqual(PositionStickerComposition.objects.filter(user=self.user).count(), 1)
 
     def test_sticker_composition_rejects_unowned_layer(self):

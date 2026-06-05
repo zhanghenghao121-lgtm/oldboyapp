@@ -190,6 +190,7 @@ def _serialize_sticker_composition(composition: PositionStickerComposition) -> d
         "scene_url": scene_record.url,
         "result_key": result_record.key,
         "result_url": result_record.url,
+        "blend_mode": composition.blend_mode,
         "canvas_width": composition.canvas_width,
         "canvas_height": composition.canvas_height,
         "layers": composition.layers_json if isinstance(composition.layers_json, list) else [],
@@ -219,6 +220,13 @@ def _normalize_canvas_size(value, fallback: int) -> int:
     except (TypeError, ValueError):
         size = fallback
     return min(max(size, 1), 10000)
+
+
+def _normalize_blend_mode(value) -> str:
+    mode = str(value or PositionStickerComposition.BLEND_NORMAL).strip().lower()
+    if mode not in {PositionStickerComposition.BLEND_NORMAL, PositionStickerComposition.BLEND_NATURAL}:
+        raise CutoutError("合成方式不支持")
+    return mode
 
 
 def _normalize_float(value, fallback: float = 0.0) -> float:
@@ -272,6 +280,7 @@ def create_sticker_composition(user, payload: dict) -> dict:
         result_file_record=result_record,
         title=title or str(payload.get("scene_name") or "站位贴图")[:120],
         scene_name=str(payload.get("scene_name") or "")[:255],
+        blend_mode=_normalize_blend_mode(payload.get("blend_mode")),
         canvas_width=_normalize_canvas_size(payload.get("canvas_width"), 760),
         canvas_height=_normalize_canvas_size(payload.get("canvas_height"), 500),
         layers_json=layers,

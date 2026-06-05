@@ -140,6 +140,7 @@ import {
   cutoutAiImageCharacter,
   deleteAiImageStickerComposition,
   deleteAiImageCutoutAsset,
+  enhanceAiImageStickerComposition,
   getAiImageCutoutAssets,
   getAiImageStickerCompositions,
 } from '../api/aiImage'
@@ -179,7 +180,7 @@ const uploadBusyText = computed(() => (cutoutMode.value === 'transparent' ? '正
 const uploadTipText = computed(() => (cutoutMode.value === 'transparent' ? '可直接添加已抠除背景的透明素材' : '可连续添加多个角色'))
 const blendModeHint = computed(() =>
   blendMode.value === 'natural'
-    ? '添加脚底接触阴影、柔化透明边缘、减少白边，并让人物亮度和色温更接近背景。'
+    ? '先生成带阴影、边缘和色温处理的草图，再调用 Seedream 统一融合光影与质感。'
     : '只按当前图层位置、大小、旋转和透明度直接叠加，适合快速站位草稿。'
 )
 
@@ -671,6 +672,18 @@ const addSubtleGrain = (context) => {
   context.putImageData(imageData, 0, 0)
 }
 
+const enhanceNaturalComposite = async ({ key, url, snapshot }) => {
+  const res = await enhanceAiImageStickerComposition({
+    composite_key: key,
+    composite_url: url,
+    scene_key: snapshot.scene_key,
+    canvas_width: snapshot.canvas_width,
+    canvas_height: snapshot.canvas_height,
+    layers: snapshot.layers,
+  })
+  return res.data
+}
+
 const createNaturalCompositeBlob = async () => {
   const width = normalizeCanvasDimension(editor.width, 760)
   const height = normalizeCanvasDimension(editor.height, 500)
@@ -813,15 +826,28 @@ const composeImage = async () => {
     const filename = `scene-composite-${Date.now()}.png`
     const file = new File([blob], filename, { type: 'image/png' })
     const res = await uploadToCos(file, 'images/composites', { timeout: 120000 })
-    compositeUrl.value = res.data.url
+    let resultKey = res.data.key
+    let resultUrl = res.data.url
+    if (blendMode.value === 'natural') {
+      try {
+        ElMessage.info('正在调用 Seedream 进行自然融合精修...')
+        const enhanced = await enhanceNaturalComposite({ key: resultKey, url: resultUrl, snapshot })
+        resultKey = enhanced.key || resultKey
+        resultUrl = enhanced.url || resultUrl
+      } catch (enhanceError) {
+        console.warn('Seedream natural blend failed, keeping local composite.', enhanceError)
+        ElMessage.warning(String(enhanceError || 'Seedream 自然融合失败，已保留本地自然合成图'))
+      }
+    }
+    compositeUrl.value = resultUrl
     const saved = await createAiImageStickerComposition({
       title: sceneName.value ? `${sceneName.value} 合成` : '站位贴图',
       scene_name: snapshot.scene_name,
       scene_key: snapshot.scene_key,
       scene_url: snapshot.scene_url,
       blend_mode: snapshot.blend_mode,
-      result_key: res.data.key,
-      result_url: res.data.url,
+      result_key: resultKey,
+      result_url: resultUrl,
       canvas_width: snapshot.canvas_width,
       canvas_height: snapshot.canvas_height,
       layers: snapshot.layers,

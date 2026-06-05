@@ -8,6 +8,7 @@ from apps.ai_customer.cutout_services import (
     CutoutError,
     create_sticker_composition,
     cutout_character,
+    enhance_sticker_composite,
     get_cutout_asset,
     list_sticker_assets,
     list_sticker_compositions,
@@ -161,6 +162,18 @@ def ai_image_sticker_compositions(request):
         if request.method == "GET":
             return ok({"list": list_sticker_compositions(request.user)})
         return ok(create_sticker_composition(request.user, request.data))
+    except CutoutError as exc:
+        return bad(str(exc), exc.status)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def ai_image_sticker_composition_enhance(request):
+    if not _feature_allowed(request):
+        return _feature_denied()
+    try:
+        return ok(enhance_sticker_composite(request.user, request.data))
     except CutoutError as exc:
         return bad(str(exc), exc.status)
 

@@ -1,5 +1,6 @@
 import io
 import os
+import time
 import uuid
 from datetime import datetime
 
@@ -8,9 +9,24 @@ from django.conf import settings
 from PIL import Image
 from qcloud_cos import CosConfig, CosS3Client
 
+from apps.ai_customer.ai_image_services import AIImageError, get_ai_image_task_result, submit_ai_image_generation
 from apps.ai_customer.models import PositionStickerAsset, PositionStickerComposition
 from apps.ai_customer.runtime_config import get_remove_bg_api_key
+from apps.ai_customer.storyboard_services import StoryboardError, _persist_storyboard_png, _reference_image_data_url
 from apps.storage.models import UploadedFileRecord
+
+STICKER_NATURAL_BLEND_MODEL = "doubao-seedream-5-0-260128"
+STICKER_NATURAL_BLEND_PROMPT = """请在不改变画面构图的前提下，对这张站位合成图进行自然融合处理。
+
+必须严格遵守：
+1. 保持所有人物的身份、五官、发型、服装、配饰、姿势、站位、大小和数量不变。
+2. 保持背景场景结构、家具、门窗、墙体、地面、道具、透视关系不变。
+3. 不增加人物，不删除人物，不改变人物动作，不重绘人物面部和服装细节。
+4. 只优化人物和场景之间的融合感。
+5. 为人物脚底添加符合地面的自然接触阴影，让脚底真实落地。
+6. 统一人物与背景的光照方向、明暗关系、色温、边缘过渡、清晰度和颗粒质感。
+7. 明显减少人物边缘白边和贴纸感，让人物自然融入底层场景。
+8. 输出真实自然、高清干净的最终剧照图，不要出现文字、水印、UI 或额外边框。"""
 
 
 class CutoutError(Exception):
@@ -214,6 +230,39 @@ def _owned_upload_record(user, key: str, *, field_name: str) -> UploadedFileReco
     return record
 
 
+def _uploaded_record_by_url(user, url: str) -> UploadedFileRecord | None:
+    return UploadedFileRecord.objects.filter(user=user, url=str(url or "").strip()).first()
+
+
+def _first_completed_ai_image(result: dict) -> str:
+    return str((result.get("images") or [""])[0] or "").strip()
+
+
+def _resolve_ai_image_ref(result: dict, model: str) -> str:
+    image_ref = _first_completed_ai_image(result)
+    if image_ref:
+        return image_ref
+
+    task_id = str(result.get("task_id") or "").strip()
+    if not task_id:
+        raise CutoutError("Seedream 融合未返回图片")
+
+    for _ in range(6):
+        time.sleep(2)
+        try:
+            task = get_ai_image_task_result(task_id, model)
+        except AIImageError as exc:
+            raise CutoutError(f"Seedream 融合任务查询失败：{exc}", exc.status) from exc
+        image_ref = _first_completed_ai_image(task)
+        if image_ref:
+            return image_ref
+        status = str(task.get("status") or "").strip().lower()
+        if status in {"failed", "failure", "error", "cancelled", "canceled"}:
+            raise CutoutError(f"Seedream 融合失败：{task.get('error') or '任务失败'}", 502)
+
+    raise CutoutError("Seedream 融合仍在处理中，请稍后重试", 202)
+
+
 def _normalize_canvas_size(value, fallback: int) -> int:
     try:
         size = int(value)
@@ -286,6 +335,51 @@ def create_sticker_composition(user, payload: dict) -> dict:
         layers_json=layers,
     )
     return _serialize_sticker_composition(composition)
+
+
+def enhance_sticker_composite(user, payload: dict) -> dict:
+    source_record = _owned_upload_record(user, payload.get("composite_key") or payload.get("result_key"), field_name="合成草图")
+    references = [
+        {
+            "field": "sticker_composite",
+            "label": "当前站位合成草图",
+            "name": "当前站位合成草图",
+            "data_url": _reference_image_data_url(source_record.key, user),
+        }
+    ]
+    try:
+        result = submit_ai_image_generation(
+            prompt=STICKER_NATURAL_BLEND_PROMPT,
+            model=STICKER_NATURAL_BLEND_MODEL,
+            size="16:9",
+            resolution="2k",
+            reference_images=references,
+        )
+        image_ref = _resolve_ai_image_ref(result, STICKER_NATURAL_BLEND_MODEL)
+        final_url = _persist_storyboard_png(
+            image_ref,
+            user,
+            "sticker_fusions",
+            STICKER_NATURAL_BLEND_MODEL,
+            allow_remote_fallback=False,
+        )
+    except AIImageError as exc:
+        raise CutoutError(f"Seedream 自然融合失败：{exc}", exc.status) from exc
+    except StoryboardError as exc:
+        raise CutoutError(str(exc), exc.status) from exc
+
+    final_record = _uploaded_record_by_url(user, final_url)
+    if not final_record:
+        raise CutoutError("Seedream 融合结果保存失败", 502)
+    return {
+        "url": final_record.url,
+        "key": final_record.key,
+        "content_type": final_record.content_type,
+        "size": final_record.size,
+        "model": STICKER_NATURAL_BLEND_MODEL,
+        "prompt": STICKER_NATURAL_BLEND_PROMPT,
+        "source_key": source_record.key,
+    }
 
 
 def remove_sticker_composition(composition_id: int, user):

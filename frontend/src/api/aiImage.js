@@ -17,6 +17,9 @@ export const getAiImageStickerCompositions = () => http.get('/ai-image/sticker-c
 
 export const createAiImageStickerComposition = (payload) => http.post('/ai-image/sticker-compositions', payload)
 
+export const enhanceAiImageStickerComposition = (payload) =>
+  http.post('/ai-image/sticker-compositions/enhance', payload, { timeout: 600000 })
+
 export const deleteAiImageStickerComposition = (compositionId) =>
   http.delete(`/ai-image/sticker-compositions/${encodeURIComponent(compositionId)}`)
 

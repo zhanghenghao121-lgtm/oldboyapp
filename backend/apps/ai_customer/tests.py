@@ -19,7 +19,13 @@ from apps.ai_customer.models import (
     StoryboardProject,
     StorySegment,
 )
-from apps.ai_customer.cutout_services import CutoutError, create_sticker_composition, cutout_character, list_sticker_compositions
+from apps.ai_customer.cutout_services import (
+    CutoutError,
+    create_sticker_composition,
+    cutout_character,
+    enhance_sticker_composite,
+    list_sticker_compositions,
+)
 from apps.ai_customer.scene_inference_services import (
     create_scene_inference_project,
     enhance_scene_screenshot,
@@ -171,6 +177,43 @@ class CutoutServicesTests(TestCase):
                     "layers": [{"key": other_layer.key}],
                 },
             )
+
+    @patch("apps.ai_customer.cutout_services._reference_image_data_url")
+    @patch("apps.ai_customer.cutout_services._persist_storyboard_png")
+    @patch("apps.ai_customer.cutout_services.submit_ai_image_generation")
+    def test_enhance_sticker_composite_uses_seedream_model(self, submit_image, persist_png, reference_data_url):
+        source = UploadedFileRecord.objects.create(
+            user=self.user,
+            key="images/composites/source.png",
+            url="https://cdn.example.com/source.png",
+            content_type="image/png",
+            size=100,
+        )
+        enhanced = UploadedFileRecord.objects.create(
+            user=self.user,
+            key="images/storyboards/sticker_fusions/enhanced.png",
+            url="https://cdn.example.com/enhanced.png",
+            content_type="image/png",
+            size=120,
+        )
+        reference_data_url.return_value = "data:image/png;base64,abc"
+        submit_image.return_value = {"status": "completed", "images": ["https://seedream.example.com/fused.png"]}
+        persist_png.return_value = enhanced.url
+
+        result = enhance_sticker_composite(self.user, {"composite_key": source.key})
+
+        self.assertEqual(result["key"], enhanced.key)
+        self.assertEqual(result["model"], "doubao-seedream-5-0-260128")
+        self.assertEqual(submit_image.call_args.kwargs["model"], "doubao-seedream-5-0-260128")
+        self.assertIn("不改变画面构图", submit_image.call_args.kwargs["prompt"])
+        self.assertEqual(submit_image.call_args.kwargs["reference_images"][0]["data_url"], "data:image/png;base64,abc")
+        persist_png.assert_called_once_with(
+            "https://seedream.example.com/fused.png",
+            self.user,
+            "sticker_fusions",
+            "doubao-seedream-5-0-260128",
+            allow_remote_fallback=False,
+        )
 
 
 class StoryboardServicesTests(TestCase):

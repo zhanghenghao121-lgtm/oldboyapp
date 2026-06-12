@@ -2,6 +2,7 @@ import logging
 
 import requests
 from django.conf import settings
+from requests import Timeout
 
 
 logger = logging.getLogger(__name__)
@@ -66,8 +67,11 @@ def image_generation(base_url: str, api_key: str, payload: dict, *, service_name
             f"{base_url.rstrip('/')}/images/generations",
             json=payload,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            timeout=max(int(getattr(settings, "AI_IMAGE_SUBMIT_TIMEOUT", 60)), 20),
+            timeout=max(int(getattr(settings, "AI_IMAGE_SUBMIT_TIMEOUT", 180)), 60),
         )
+    except Timeout as exc:
+        logger.exception("%s提交超时", service_name)
+        raise LLMClientError(f"{service_name}提交超时，请稍后刷新任务或降低参考图尺寸后重试", 504) from exc
     except Exception as exc:
         logger.exception("%s请求失败", service_name)
         raise LLMClientError(f"{service_name}请求失败，请稍后重试", 502) from exc

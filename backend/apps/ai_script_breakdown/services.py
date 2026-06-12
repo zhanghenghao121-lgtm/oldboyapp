@@ -24,6 +24,12 @@ from apps.ai_script_breakdown.models import (
     AiScriptShotLine,
     AiScriptShotSegment,
 )
+from apps.ai_script_breakdown.duration_engine import (
+    dialogue_duration_config_json,
+    load_dialogue_duration_config,
+    prepare_segment_item,
+    split_segment_item,
+)
 from apps.ai_script_breakdown.prompts import (
     DEFAULT_SCRIPT_ANIME_3D_STYLE_PROMPT,
     DEFAULT_SCRIPT_ASSET_EXTRACT_PROMPT,
@@ -54,6 +60,7 @@ PROMPT_DEFAULTS = {
 ALLOWED_STYLES = {item[0] for item in AiScriptBreakdownProject.STYLE_CHOICES}
 ALLOWED_ASSET_TYPES = {item[0] for item in AiScriptAsset.TYPE_CHOICES}
 ALLOWED_VIEWS = {item[0] for item in AiScriptShotSegment.VIEW_CHOICES}
+DIALOGUE_DURATION_CONFIG_KEY = "ai_script_dialogue_duration_config"
 
 
 class ScriptBreakdownError(Exception):
@@ -77,6 +84,10 @@ def _style_prompt(style: str) -> str:
 
 def _prompt(key: str) -> str:
     return _config_value(key, PROMPT_DEFAULTS[key])
+
+
+def _dialogue_duration_config() -> dict:
+    return load_dialogue_duration_config(_config_value(DIALOGUE_DURATION_CONFIG_KEY, dialogue_duration_config_json()))
 
 
 def _render_template(template: str, context: dict) -> str:
@@ -317,15 +328,11 @@ def _lines_from_copy_text(copy_text: str) -> list[str]:
     return [line.strip() for line in str(copy_text or "").splitlines() if line.strip()]
 
 
-def _normalize_copy_text(style_prompt: str, shot_lines: list[dict], copy_text: str, previous_anchor: str = "") -> str:
-    lines = _lines_from_copy_text(copy_text)
-    if not lines or lines[0] != style_prompt:
-        lines = [style_prompt] + [line for line in lines if line != style_prompt]
-    if previous_anchor and previous_anchor not in lines[1:2]:
-        lines.insert(1, previous_anchor)
-    has_body_line = any(line not in {style_prompt, previous_anchor} for line in lines)
-    if not has_body_line:
-        lines.extend(str(item.get("line_text") or "").strip() for item in shot_lines if str(item.get("line_text") or "").strip())
+def _normalize_copy_text(style_prompt: str, shot_lines: list[dict], copy_text: str = "", previous_anchor: str = "") -> str:
+    lines = [style_prompt]
+    if previous_anchor:
+        lines.append(previous_anchor)
+    lines.extend(str(item.get("line_text") or "").strip() for item in shot_lines if str(item.get("line_text") or "").strip())
     return "\n".join(lines)
 
 
@@ -335,20 +342,17 @@ def _last_non_anchor_line(segment: AiScriptShotSegment) -> str:
 
 
 def _save_segment(scene: AiScriptSceneBlock, item: dict, index: int, style_prompt: str, previous_last_line: str) -> AiScriptShotSegment:
+    item = prepare_segment_item(item, _dialogue_duration_config())
     scene_view = str(item.get("scene_view") or AiScriptShotSegment.VIEW_FRONT).strip()
     if scene_view not in ALLOWED_VIEWS:
         scene_view = AiScriptShotSegment.VIEW_MIXED
-    try:
-        duration = int(item.get("estimated_duration") or 0)
-    except (TypeError, ValueError):
-        duration = 0
-    duration = min(max(duration, 0), scene.project.max_segment_seconds)
+    duration = int(item.get("estimated_duration") or 0)
     continuity = bool(item.get("continuity_from_previous"))
     previous_anchor = str(item.get("previous_anchor_line") or "").strip()
     if continuity and previous_last_line and not previous_anchor:
         previous_anchor = previous_last_line
     shot_lines = [line for line in (item.get("shot_lines") or []) if isinstance(line, dict)]
-    copy_text = _normalize_copy_text(style_prompt, shot_lines, str(item.get("copy_text") or ""), previous_anchor if continuity else "")
+    copy_text = _normalize_copy_text(style_prompt, shot_lines, previous_anchor=previous_anchor if continuity else "")
     segment = AiScriptShotSegment.objects.create(
         project=scene.project,
         scene_block=scene,
@@ -398,7 +402,12 @@ def _save_segment(scene: AiScriptSceneBlock, item: dict, index: int, style_promp
 
 def _save_scene_segments(scene: AiScriptSceneBlock, data: dict, style_prompt: str) -> None:
     previous_last_line = ""
-    for index, item in enumerate([row for row in (data.get("segments") or []) if isinstance(row, dict)], start=1):
+    duration_config = _dialogue_duration_config()
+    raw_items = [row for row in (data.get("segments") or []) if isinstance(row, dict)]
+    segment_items = []
+    for item in raw_items:
+        segment_items.extend(split_segment_item(item, scene.project.max_segment_seconds, duration_config))
+    for index, item in enumerate(segment_items, start=1):
         segment = _save_segment(scene, item, index, style_prompt, previous_last_line)
         previous_last_line = _last_non_anchor_line(segment)
 

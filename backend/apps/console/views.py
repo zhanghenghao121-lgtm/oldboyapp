@@ -32,6 +32,7 @@ from apps.ai_script_breakdown.prompts import (
     DEFAULT_SCRIPT_SHOT_SEGMENT_PROMPT,
     DEFAULT_SCRIPT_VALIDATE_PROMPT,
 )
+from apps.ai_script_breakdown.duration_engine import dialogue_duration_config_json
 from apps.ai_customer.scene_inference_prompts import (
     DEFAULT_SCENE_INFERENCE_LEFT_PROMPT,
     DEFAULT_SCENE_INFERENCE_PANORAMA_PROMPT,
@@ -77,6 +78,7 @@ def _config_defaults():
         SiteConfig.KEY_AI_SCRIPT_ASSET_EXTRACT_PROMPT: DEFAULT_SCRIPT_ASSET_EXTRACT_PROMPT,
         SiteConfig.KEY_AI_SCRIPT_SCENE_SPLIT_PROMPT: DEFAULT_SCRIPT_SCENE_SPLIT_PROMPT,
         SiteConfig.KEY_AI_SCRIPT_SHOT_SEGMENT_PROMPT: DEFAULT_SCRIPT_SHOT_SEGMENT_PROMPT,
+        SiteConfig.KEY_AI_SCRIPT_DIALOGUE_DURATION_CONFIG: dialogue_duration_config_json(),
         SiteConfig.KEY_AI_SCRIPT_POSITION_PROMPT: DEFAULT_SCRIPT_POSITION_PROMPT,
         SiteConfig.KEY_AI_SCRIPT_VALIDATE_PROMPT: DEFAULT_SCRIPT_VALIDATE_PROMPT,
         SiteConfig.KEY_SCENE_INFERENCE_LEFT_PROMPT: DEFAULT_SCENE_INFERENCE_LEFT_PROMPT,

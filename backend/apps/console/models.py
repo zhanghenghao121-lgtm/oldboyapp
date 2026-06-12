@@ -56,6 +56,7 @@ class SiteConfig(models.Model):
     KEY_AI_SCRIPT_ASSET_EXTRACT_PROMPT = "ai_script_asset_extract_prompt"
     KEY_AI_SCRIPT_SCENE_SPLIT_PROMPT = "ai_script_scene_split_prompt"
     KEY_AI_SCRIPT_SHOT_SEGMENT_PROMPT = "ai_script_shot_segment_prompt"
+    KEY_AI_SCRIPT_DIALOGUE_DURATION_CONFIG = "ai_script_dialogue_duration_config"
     KEY_AI_SCRIPT_POSITION_PROMPT = "ai_script_position_prompt"
     KEY_AI_SCRIPT_VALIDATE_PROMPT = "ai_script_validate_prompt"
     KEY_SCENE_INFERENCE_LEFT_PROMPT = "scene_inference_left_prompt"
@@ -88,6 +89,7 @@ class SiteConfig(models.Model):
         (KEY_AI_SCRIPT_ASSET_EXTRACT_PROMPT, "AI拆剧资产提取提示词"),
         (KEY_AI_SCRIPT_SCENE_SPLIT_PROMPT, "AI拆剧场景拆解提示词"),
         (KEY_AI_SCRIPT_SHOT_SEGMENT_PROMPT, "AI拆剧小段落分镜提示词"),
+        (KEY_AI_SCRIPT_DIALOGUE_DURATION_CONFIG, "AI拆剧台词时长计算配置"),
         (KEY_AI_SCRIPT_POSITION_PROMPT, "AI拆剧站位图提示词"),
         (KEY_AI_SCRIPT_VALIDATE_PROMPT, "AI拆剧校验提示词"),
         (KEY_SCENE_INFERENCE_LEFT_PROMPT, "场景推理左侧面提示词"),

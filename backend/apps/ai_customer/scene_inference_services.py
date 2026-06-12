@@ -119,6 +119,13 @@ def _prompt_for(project: SceneInferenceProject, job_type: str) -> str:
     return _render_template(_read_prompt(job_type), context)
 
 
+def _generation_reference_url(image_url: str, user) -> str:
+    text = _clean_text(image_url)
+    if text.startswith(("http://", "https://", "data:image/")):
+        return text
+    return _reference_image_data_url(text, user)
+
+
 def _references(project: SceneInferenceProject, job_type: str) -> list[dict]:
     items = [
         ("正面图", "front", project.front_image_url),
@@ -141,7 +148,7 @@ def _references(project: SceneInferenceProject, job_type: str) -> list[dict]:
                 "field": field,
                 "label": label,
                 "name": label,
-                "data_url": _reference_image_data_url(url, project.user),
+                "data_url": _generation_reference_url(url, project.user),
             }
         )
     return refs
@@ -231,7 +238,7 @@ def enhance_scene_screenshot(project: SceneInferenceProject, payload: dict) -> d
             "field": "panorama_screenshot",
             "label": "当前全景视角截屏",
             "name": "当前全景视角截屏",
-            "data_url": _reference_image_data_url(image_url, project.user),
+            "data_url": _generation_reference_url(image_url, project.user),
         }
     ]
     job = SceneInferenceJob.objects.create(

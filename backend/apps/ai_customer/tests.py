@@ -5,9 +5,10 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from PIL import Image
+from requests import Timeout
 from rest_framework.test import APIClient
 
-from apps.ai_customer.llm_clients import LLMClientError, chat_completion
+from apps.ai_customer.llm_clients import LLMClientError, chat_completion, image_generation
 from apps.ai_customer.ai_image_services import _task_result_images
 from apps.ai_customer.models import (
     PositionStickerAsset,
@@ -641,6 +642,11 @@ class SceneInferenceServicesTests(TestCase):
         self.assertEqual(SceneInferenceJob.objects.filter(project=project, status=SceneInferenceJob.STATUS_SUCCESS).count(), 3)
         self.assertEqual(submit_image.call_args_list[0].kwargs["size"], "16:9")
         self.assertEqual(len(submit_image.call_args_list[0].kwargs["reference_images"]), 2)
+        self.assertEqual(
+            [item["data_url"] for item in submit_image.call_args_list[0].kwargs["reference_images"]],
+            ["https://assets.example.com/front.png", "https://assets.example.com/back.png"],
+        )
+        reference_data_url.assert_not_called()
 
     @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
     @patch("apps.ai_customer.scene_inference_services._persist_storyboard_png")
@@ -668,6 +674,7 @@ class SceneInferenceServicesTests(TestCase):
         self.assertEqual(result["panorama_image_url"], "https://assets.example.com/panorama.png")
         self.assertEqual(submit_image.call_args.kwargs["size"], "2:1")
         self.assertEqual(len(submit_image.call_args.kwargs["reference_images"]), 5)
+        self.assertEqual(submit_image.call_args.kwargs["reference_images"][0]["data_url"], "https://assets.example.com/front.png")
 
     @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
     @patch("apps.ai_customer.scene_inference_services.submit_ai_image_generation")
@@ -694,6 +701,7 @@ class SceneInferenceServicesTests(TestCase):
         self.assertEqual(submit_image.call_args.kwargs["resolution"], "4k")
         self.assertIn("保持原图的场景构图", submit_image.call_args.kwargs["prompt"])
         self.assertEqual(len(submit_image.call_args.kwargs["reference_images"]), 1)
+        self.assertEqual(submit_image.call_args.kwargs["reference_images"][0]["data_url"], "https://assets.example.com/screenshot.png")
 
     @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
     @patch("apps.ai_customer.scene_inference_services._persist_storyboard_png")
@@ -734,6 +742,18 @@ class LLMClientErrorTests(TestCase):
                 {"base_url": "https://api.example.com/v1", "api_key": "invalid"},
                 {"model": "deepseek-v4-pro", "messages": []},
                 service_name="故事板场景拆解模型（DeepSeek V4 Pro / deepseek-v4-pro）",
+            )
+
+    @patch("apps.ai_customer.llm_clients.requests.post")
+    def test_image_generation_timeout_returns_actionable_message(self, post):
+        post.side_effect = Timeout("read timed out")
+
+        with self.assertRaisesMessage(LLMClientError, "生图模型提交超时，请稍后刷新任务或降低参考图尺寸后重试"):
+            image_generation(
+                "https://api.example.com/v1",
+                "sk-test",
+                {"model": "gpt-image-2", "prompt": "生成场景图"},
+                service_name="生图模型",
             )
 
 

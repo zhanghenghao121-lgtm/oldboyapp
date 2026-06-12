@@ -219,6 +219,14 @@
                   placeholder="设置每个场景大段如何拆为 15 秒以内视频小段"
                 />
               </el-form-item>
+              <el-form-item label="台词时长计算配置">
+                <el-input
+                  v-model="forms.ai_script_dialogue_duration_config"
+                  type="textarea"
+                  :rows="12"
+                  placeholder="设置台词语速、标点停顿、情绪停顿、动作时长和镜头停顿的 JSON 配置"
+                />
+              </el-form-item>
               <el-form-item label="站位图提示词">
                 <el-input
                   v-model="forms.ai_script_position_prompt"
@@ -430,6 +438,7 @@ const forms = reactive({
   ai_script_asset_extract_prompt: '',
   ai_script_scene_split_prompt: '',
   ai_script_shot_segment_prompt: '',
+  ai_script_dialogue_duration_config: '',
   ai_script_position_prompt: '',
   ai_script_validate_prompt: '',
   scene_inference_left_prompt: '',
@@ -532,6 +541,7 @@ const savePromptConfigs = async () => {
       'ai_script_asset_extract_prompt',
       'ai_script_scene_split_prompt',
       'ai_script_shot_segment_prompt',
+      'ai_script_dialogue_duration_config',
       'ai_script_position_prompt',
       'ai_script_validate_prompt',
       'scene_inference_left_prompt',

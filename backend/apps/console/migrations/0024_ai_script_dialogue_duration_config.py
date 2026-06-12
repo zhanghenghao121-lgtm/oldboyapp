@@ -1,0 +1,64 @@
+from django.db import migrations, models
+
+from apps.ai_script_breakdown.duration_engine import dialogue_duration_config_json
+
+
+def seed_dialogue_duration_config(apps, schema_editor):
+    SiteConfig = apps.get_model("console", "SiteConfig")
+    SiteConfig.objects.get_or_create(
+        key="ai_script_dialogue_duration_config",
+        defaults={"value": dialogue_duration_config_json()},
+    )
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("console", "0023_alter_siteconfig_key"),
+    ]
+
+    operations = [
+        migrations.AlterField(
+            model_name="siteconfig",
+            name="key",
+            field=models.CharField(
+                choices=[
+                    ("default_avatar_url", "默认头像URL"),
+                    ("storyboard_deepseek_base_url", "故事板 DeepSeek API地址"),
+                    ("storyboard_deepseek_api_key", "故事板 DeepSeek API Key"),
+                    ("storyboard_deepseek_model", "故事板 DeepSeek 模型名称"),
+                    ("storyboard_doubao_base_url", "故事板 Doubao API地址"),
+                    ("storyboard_doubao_api_key", "故事板 Doubao API Key"),
+                    ("storyboard_doubao_model", "故事板 Doubao 模型名称"),
+                    ("ai_image_base_url", "生图模型API地址"),
+                    ("ai_image_api_key", "生图模型API Key"),
+                    ("ai_image_model", "生图模型名称"),
+                    ("ai_image_doubao_base_url", "豆包生图API地址"),
+                    ("ai_image_doubao_api_key", "豆包生图API Key"),
+                    ("ai_image_doubao_model", "豆包生图模型名称"),
+                    ("remove_bg_api_key", "remove.bg API Key"),
+                    ("storyboard_scene_split_prompt", "故事板场景拆分提示词"),
+                    ("storyboard_leaf_split_prompt", "故事板分镜适配提示词"),
+                    ("storyboard_asset_prompt", "故事板素材提取提示词"),
+                    ("storyboard_panel_prompt", "故事板分镜生成提示词"),
+                    ("storyboard_single_panel_prompt", "故事板单格重生成提示词"),
+                    ("storyboard_video_prompt", "故事板视频分镜提示词"),
+                    ("ai_script_live_action_style_prompt", "AI拆剧真人写实风格提示词"),
+                    ("ai_script_anime_3d_style_prompt", "AI拆剧3D动漫风格提示词"),
+                    ("ai_script_asset_extract_prompt", "AI拆剧资产提取提示词"),
+                    ("ai_script_scene_split_prompt", "AI拆剧场景拆解提示词"),
+                    ("ai_script_shot_segment_prompt", "AI拆剧小段落分镜提示词"),
+                    ("ai_script_dialogue_duration_config", "AI拆剧台词时长计算配置"),
+                    ("ai_script_position_prompt", "AI拆剧站位图提示词"),
+                    ("ai_script_validate_prompt", "AI拆剧校验提示词"),
+                    ("scene_inference_left_prompt", "场景推理左侧面提示词"),
+                    ("scene_inference_right_prompt", "场景推理右侧面提示词"),
+                    ("scene_inference_top_prompt", "场景推理俯瞰图提示词"),
+                    ("scene_inference_panorama_prompt", "场景推理全景图提示词"),
+                ],
+                max_length=64,
+                unique=True,
+            ),
+        ),
+        migrations.RunPython(seed_dialogue_duration_config, migrations.RunPython.noop),
+    ]

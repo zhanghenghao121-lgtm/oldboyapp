@@ -1,9 +1,11 @@
+import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
+from apps.console.models import SiteConfig
 from apps.ai_script_breakdown.models import AiScriptAsset, AiScriptBreakdownProject, AiScriptSceneBlock, AiScriptShotSegment
 from apps.ai_script_breakdown.prompts import DEFAULT_SCRIPT_LIVE_ACTION_STYLE_PROMPT
 from apps.ai_script_breakdown.services import (
@@ -12,6 +14,7 @@ from apps.ai_script_breakdown.services import (
     generate_position_image,
     run_project,
     update_asset,
+    _save_scene_segments,
 )
 
 
@@ -126,9 +129,12 @@ class AiScriptBreakdownServicesTests(TestCase):
         self.assertEqual(scene.location, "龙吟堂")
         self.assertEqual(scene.time_of_day, "日")
         self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[0].estimated_duration, 4)
+        self.assertEqual(segments[1].estimated_duration, 3)
         self.assertTrue(segments[0].copy_text.startswith(DEFAULT_SCRIPT_LIVE_ACTION_STYLE_PROMPT))
         self.assertIn("【近景】【主角发现地上的灰烬", segments[0].copy_text)
-        self.assertEqual(segments[1].previous_anchor_line, "【近景】【主角发现地上的灰烬呈现奇怪符号，低声说“这是什么？”】")
+        self.assertIn("【1.4秒】", segments[0].copy_text)
+        self.assertEqual(segments[1].previous_anchor_line, "【近景】【主角发现地上的灰烬呈现奇怪符号，低声说“这是什么？”】【1.4秒】")
         self.assertIn(segments[1].previous_anchor_line, segments[1].copy_text)
         self.assertIn("【中景】【门外传来钟声", segments[1].copy_text)
         self.assertEqual(segments[0].position_layout_json, {})
@@ -212,6 +218,64 @@ class AiScriptBreakdownServicesTests(TestCase):
         project.refresh_from_db()
         self.assertEqual(project.status, AiScriptBreakdownProject.STATUS_FAILED)
         self.assertIn("模型未返回可用的场景大段落", project.error_message)
+
+    def test_save_scene_segments_uses_backend_duration_config_and_splits_over_limit(self):
+        SiteConfig.objects.update_or_create(
+            key="ai_script_dialogue_duration_config",
+            defaults={
+                "value": json.dumps(
+                    {
+                        "base": {"zh_chars_per_second": 1, "min_dialogue_seconds": 0.1, "non_dialogue_line_seconds": 1.2},
+                        "punctuation_pauses": {"。": 0},
+                        "action_durations": {"none": 0, "fallback": 0},
+                        "pause": {"needed_seconds": 0, "not_needed_seconds": 0},
+                    },
+                    ensure_ascii=False,
+                )
+            },
+        )
+        project = create_project(self.user, {"title": "规则时长拆分", "script_text": self.script_text})
+        scene = AiScriptSceneBlock.objects.create(project=project, scene_name="龙吟堂")
+        data = {
+            "segments": [
+                {
+                    "segment_title": "长台词段落",
+                    "estimated_duration": 1,
+                    "shot_lines": [
+                        {
+                            "shot_size": "近景",
+                            "description": "主角说“天地玄黄宇宙洪荒日月盈昃”。",
+                            "dialogue": "天地玄黄宇宙洪荒日月盈昃",
+                            "character": "主角",
+                            "emotion": "neutral",
+                            "speech_speed": "normal",
+                            "action": "none",
+                            "needs_pause": False,
+                            "line_text": "【近景】【主角说“天地玄黄宇宙洪荒日月盈昃”。】",
+                        },
+                        {
+                            "shot_size": "近景",
+                            "description": "长老说“辰宿列张寒来暑往秋收冬藏”。",
+                            "dialogue": "辰宿列张寒来暑往秋收冬藏",
+                            "character": "长老",
+                            "emotion": "neutral",
+                            "speech_speed": "normal",
+                            "action": "none",
+                            "needs_pause": False,
+                            "line_text": "【近景】【长老说“辰宿列张寒来暑往秋收冬藏”。】",
+                        },
+                    ],
+                }
+            ]
+        }
+
+        _save_scene_segments(scene, data, DEFAULT_SCRIPT_LIVE_ACTION_STYLE_PROMPT)
+
+        segments = list(AiScriptShotSegment.objects.filter(project=project).order_by("order_index"))
+        self.assertEqual(len(segments), 2)
+        self.assertEqual([segment.estimated_duration for segment in segments], [12, 12])
+        self.assertIn("【12秒】", segments[0].copy_text)
+        self.assertLessEqual(max(segment.estimated_duration for segment in segments), project.max_segment_seconds)
 
 
 class AiScriptBreakdownAssetApiTests(TestCase):

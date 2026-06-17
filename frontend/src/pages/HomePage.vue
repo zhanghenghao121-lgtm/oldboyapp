@@ -7,13 +7,13 @@
       </div>
 
       <section class="desk-actions" aria-label="工作台入口">
-        <button class="desk-button space-button" type="button" @click="router.push('/octopus-space')">
+        <button class="desk-button space-button" type="button" @click="enterFeature('workbench', '/octopus-space')">
           <span class="button-mark">O</span>
           <strong>章鱼空间</strong>
           <small>等待开发</small>
         </button>
 
-        <button class="desk-button storyboard-button" type="button" @click="router.push('/storyboard')">
+        <button class="desk-button storyboard-button" type="button" @click="enterFeature('storyboard', '/storyboard')">
           <span class="button-mark">AI</span>
           <strong>AI故事板</strong>
           <small>进入创作台</small>
@@ -26,11 +26,14 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessageBox } from 'element-plus'
+import { me } from '../api/auth'
 import { getSiteBackgrounds } from '../api/site'
 
 const router = useRouter()
 const fallbackBg = 'https://zy2000zh-1257453885.cos.ap-shanghai.myqcloud.com/image/1.png'
 const backgroundUrl = ref('')
+const currentUser = ref(null)
 
 const withVersion = (url, version) => {
   if (!url) return ''
@@ -56,7 +59,42 @@ const loadBackground = async () => {
   }
 }
 
-onMounted(loadBackground)
+const loadUser = async () => {
+  try {
+    const res = await me()
+    currentUser.value = res.data?.user || null
+  } catch {
+    currentUser.value = null
+  }
+}
+
+const hasFeature = (feature) => {
+  const user = currentUser.value || {}
+  if (user.is_staff || user.is_superuser) return true
+  if (feature === 'workbench') return Boolean(user.can_access_workbench || user.features?.workbench)
+  if (feature === 'storyboard') return Boolean(user.can_access_storyboard || user.features?.storyboard)
+  return false
+}
+
+const showPermissionDenied = () => {
+  ElMessageBox.alert('账号无此功能权限', '权限提示', {
+    type: 'warning',
+    confirmButtonText: '知道了',
+    customClass: 'anime-neon-message-box',
+  })
+}
+
+const enterFeature = (feature, path) => {
+  if (!hasFeature(feature)) {
+    showPermissionDenied()
+    return
+  }
+  router.push(path)
+}
+
+onMounted(async () => {
+  await Promise.all([loadBackground(), loadUser()])
+})
 </script>
 
 <style scoped>

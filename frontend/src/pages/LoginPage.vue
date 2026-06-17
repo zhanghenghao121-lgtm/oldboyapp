@@ -80,16 +80,9 @@ const submit = async () => {
   if (!valid) return
 
   try {
-    const res = await login(form)
-    const user = res.data?.user || {}
+    await login(form)
     ElMessage.success('登录成功')
-    if (user.can_access_workbench || user.features?.workbench || user.is_staff || user.is_superuser) {
-      router.push('/')
-    } else if (user.can_access_storyboard || user.features?.storyboard) {
-      router.push('/storyboard')
-    } else {
-      router.push('/profile')
-    }
+    router.push('/')
   } catch (e) {
     ElMessage.error(e)
   }

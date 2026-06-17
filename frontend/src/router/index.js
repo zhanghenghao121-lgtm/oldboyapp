@@ -18,7 +18,7 @@ import { consoleMe } from '../api/console'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: HomePage, meta: { requiresAuth: true, requiredFeature: 'workbench' } },
+    { path: '/', component: HomePage, meta: { requiresAuth: true } },
     { path: '/login', component: LoginPage },
     { path: '/register', component: RegisterPage },
     { path: '/forgot', component: ForgotPage },
@@ -71,7 +71,7 @@ router.beforeEach(async (to) => {
       const res = await me()
       if (!hasFeature(res.data?.user || {}, to.meta.requiredFeature)) {
         showPermissionDenied()
-        return '/profile'
+        return '/'
       }
       return true
     } catch {

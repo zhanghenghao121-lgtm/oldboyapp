@@ -75,6 +75,15 @@ def _image_ref_values(value) -> list[str]:
 
 def _image_urls(body: dict) -> list[str]:
     urls = []
+    for candidate in [
+        body.get("images"),
+        body.get("image_urls"),
+        body.get("url"),
+        body.get("image_url"),
+        (body.get("result") or {}).get("images") if isinstance(body.get("result"), dict) else None,
+        (body.get("output") or {}).get("images") if isinstance(body.get("output"), dict) else None,
+    ]:
+        urls.extend(_image_ref_values(candidate))
     data = body.get("data") or []
     for item in data if isinstance(data, list) else [data]:
         if not isinstance(item, dict):

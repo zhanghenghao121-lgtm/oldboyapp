@@ -5,11 +5,11 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from PIL import Image
-from requests import Timeout
+from requests import ConnectionError, Timeout
 from rest_framework.test import APIClient
 
 from apps.ai_customer.llm_clients import LLMClientError, chat_completion, image_generation
-from apps.ai_customer.ai_image_services import _task_result_images
+from apps.ai_customer.ai_image_services import _image_urls, _task_result_images
 from apps.ai_customer.models import (
     PositionStickerAsset,
     PositionStickerComposition,
@@ -756,8 +756,31 @@ class LLMClientErrorTests(TestCase):
                 service_name="生图模型",
             )
 
+    @patch("apps.ai_customer.llm_clients.requests.post")
+    def test_image_generation_connection_failure_returns_actionable_message(self, post):
+        post.side_effect = ConnectionError("name resolution failed")
+
+        with self.assertRaisesMessage(LLMClientError, "生图模型请求失败：无法连接到模型服务"):
+            image_generation(
+                "https://api.example.com/v1",
+                "sk-test",
+                {"model": "gpt-image-2", "prompt": "生成场景图"},
+                service_name="生图模型",
+            )
+
 
 class AIImageResultParsingTests(TestCase):
+    def test_image_urls_extracts_top_level_images(self):
+        result = _image_urls(
+            {
+                "images": [
+                    {"url": "https://upload.apimart.ai/f/image/top-level.png"},
+                ],
+            }
+        )
+
+        self.assertEqual(result, ["https://upload.apimart.ai/f/image/top-level.png"])
+
     def test_task_result_images_extracts_url_from_stringified_list(self):
         result = _task_result_images(
             {

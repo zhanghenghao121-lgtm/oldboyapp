@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import LoginPage from '../pages/LoginPage.vue'
 import RegisterPage from '../pages/RegisterPage.vue'
 import ForgotPage from '../pages/ForgotPage.vue'
+import HomePage from '../pages/HomePage.vue'
+import OctopusSpacePage from '../pages/OctopusSpacePage.vue'
 import ProfilePage from '../pages/ProfilePage.vue'
 import ChangePasswordPage from '../pages/ChangePasswordPage.vue'
 import StoryboardPage from '../pages/StoryboardPage.vue'
@@ -15,10 +17,11 @@ import { consoleMe } from '../api/console'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/storyboard' },
+    { path: '/', component: HomePage, meta: { requiresAuth: true } },
     { path: '/login', component: LoginPage },
     { path: '/register', component: RegisterPage },
     { path: '/forgot', component: ForgotPage },
+    { path: '/octopus-space', component: OctopusSpacePage, meta: { requiresAuth: true } },
     { path: '/profile', component: ProfilePage, meta: { requiresAuth: true } },
     { path: '/change-password', component: ChangePasswordPage, meta: { requiresAuth: true } },
     { path: '/storyboard', component: StoryboardPage, meta: { requiresAuth: true, requiresWhitelist: true } },
@@ -27,7 +30,7 @@ const router = createRouter({
     { path: '/script-breakdown', component: ScriptBreakdownPage, meta: { requiresAuth: true, requiresWhitelist: true } },
     { path: '/admin/login', component: AdminLoginPage },
     { path: '/admin/dashboard', component: AdminDashboardPage, meta: { requiresConsoleAuth: true } },
-    { path: '/:pathMatch(.*)*', redirect: '/storyboard' },
+    { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
 

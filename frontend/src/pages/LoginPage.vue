@@ -82,7 +82,7 @@ const submit = async () => {
   try {
     await login(form)
     ElMessage.success('登录成功')
-    router.push('/storyboard')
+    router.push('/')
   } catch (e) {
     ElMessage.error(e)
   }

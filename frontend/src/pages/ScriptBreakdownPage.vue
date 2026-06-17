@@ -789,4 +789,247 @@ onMounted(async () => {
   .breakdown-workspace, .detail-grid, .segment-body { grid-template-columns: 1fr; }
   .task-column { border-right: 0; border-bottom: 1px solid #d8d5cc; }
 }
+
+/* Home-aligned neon glass theme */
+.breakdown-shell {
+  color: #f4f6ff;
+  background:
+    radial-gradient(980px 400px at 8% -6%, rgba(97, 205, 255, .22), transparent 62%),
+    radial-gradient(760px 320px at 100% -6%, rgba(255, 84, 206, .2), transparent 60%),
+    linear-gradient(145deg, var(--bg-start), var(--bg-mid) 45%, var(--bg-end));
+}
+
+.breakdown-topbar {
+  border-bottom: 1px solid rgba(154, 188, 255, .28);
+  background: linear-gradient(145deg, rgba(23, 29, 61, .86), rgba(18, 13, 45, .84));
+  box-shadow: 0 16px 42px rgba(4, 12, 42, .28);
+  backdrop-filter: blur(14px);
+}
+
+.brand span {
+  color: #a8dfff;
+  letter-spacing: .16em;
+}
+
+.brand h1 {
+  color: #f4f6ff;
+  font-family: "Orbitron", "ZCOOL KuaiLe", "Plus Jakarta Sans", sans-serif;
+  text-shadow: 0 0 18px rgba(124, 202, 255, .62);
+}
+
+.top-actions :deep(.el-button),
+.project-actions :deep(.el-button),
+.card-actions :deep(.el-button),
+.position-preview-actions :deep(.el-button),
+.upload-mini,
+.asset-delete {
+  border: 1px solid rgba(160, 222, 255, .42);
+  border-radius: 14px;
+  color: #eef8ff;
+  background: rgba(255, 255, 255, .1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+}
+
+.top-actions :deep(.el-button:hover),
+.project-actions :deep(.el-button:hover),
+.card-actions :deep(.el-button:hover),
+.position-preview-actions :deep(.el-button:hover),
+.upload-mini:hover,
+.asset-delete:hover {
+  color: #fff;
+  border-color: rgba(210, 241, 255, .78);
+  background: linear-gradient(135deg, rgba(68, 184, 255, .64), rgba(139, 89, 255, .58), rgba(255, 78, 198, .5));
+  transform: translateY(-1px);
+}
+
+.task-column,
+.detail-column {
+  background: transparent;
+}
+
+.task-column {
+  border-right: 1px solid rgba(154, 188, 255, .22);
+}
+
+.create-card,
+.history-card,
+.project-head,
+.scene-summary,
+.segment-card,
+.processing-card,
+.parsed-assets-panel,
+.position-panel,
+.position-composer,
+.position-preview {
+  border: 1px solid rgba(154, 188, 255, .24);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(23, 29, 61, .72), rgba(18, 13, 45, .68));
+  box-shadow: 0 18px 44px rgba(4, 12, 42, .24);
+  backdrop-filter: blur(10px);
+}
+
+.section-title h2,
+.section-title h3,
+.panel-title h2,
+.asset-group h3,
+.project-head h2,
+.segment-card h3,
+.scene-summary h3,
+.blank-state h2,
+.position-head strong,
+.asset-copy strong,
+.reference-card strong,
+.mention-option span {
+  color: #f4f6ff;
+}
+
+.section-title p,
+.panel-title p,
+.project-head p,
+.scene-summary p,
+.blank-state,
+.processing-card,
+.empty-inline,
+.asset-empty,
+.asset-copy small,
+.position-tip,
+.position-head span,
+.reference-card small,
+.mention-group h4,
+.mention-option small,
+.mention-group p,
+.mention-empty {
+  color: rgba(231, 241, 255, .74);
+}
+
+.panel-title span,
+.task-button small,
+.scene-button small,
+.project-head span,
+.segment-card-head span,
+.position-head,
+.flow-note strong {
+  color: #72d6ff;
+}
+
+.primary-action,
+.position-actions :deep(.el-button--primary),
+.card-actions :deep(.el-button--primary) {
+  border: 1px solid rgba(160, 222, 255, .56);
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(68, 184, 255, .94), rgba(139, 89, 255, .92), rgba(255, 78, 198, .88));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, .16),
+    0 16px 34px rgba(4, 12, 42, .36);
+}
+
+.primary-action:hover,
+.position-actions :deep(.el-button--primary:hover),
+.card-actions :deep(.el-button--primary:hover) {
+  border-color: rgba(210, 241, 255, .84);
+  filter: brightness(1.06);
+}
+
+.task-button,
+.scene-button,
+.parsed-asset-card,
+.reference-card,
+.mention-option,
+.empty-inline,
+.asset-empty,
+.flow-note {
+  border-color: rgba(160, 222, 255, .24);
+  color: #eef8ff;
+  background: rgba(255, 255, 255, .08);
+}
+
+.task-button.active,
+.scene-button.active,
+.parsed-asset-card.uploaded,
+.position-composer.active,
+.mention-option:hover {
+  border-color: rgba(112, 214, 255, .8);
+  background: linear-gradient(135deg, rgba(68, 184, 255, .18), rgba(139, 89, 255, .16));
+  box-shadow: 0 0 24px rgba(91, 184, 255, .18);
+}
+
+.create-card :deep(.el-input__wrapper),
+.create-card :deep(.el-textarea__inner),
+.form-grid :deep(.el-select__wrapper),
+.position-actions :deep(.el-select__wrapper),
+.position-composer :deep(.el-textarea__inner) {
+  color: #f4f6ff;
+  background: rgba(255, 255, 255, .1);
+  box-shadow: 0 0 0 1px rgba(154, 188, 255, .26) inset;
+}
+
+.create-card :deep(.el-input__inner),
+.create-card :deep(.el-textarea__inner::placeholder),
+.form-grid :deep(.el-select__placeholder),
+.position-actions :deep(.el-select__placeholder),
+.position-composer :deep(.el-textarea__inner::placeholder) {
+  color: rgba(231, 241, 255, .64);
+}
+
+.form-grid :deep(.el-segmented),
+.direction-panel :deep(.el-segmented) {
+  --el-segmented-bg-color: rgba(255, 255, 255, .1);
+  --el-segmented-item-selected-bg-color: rgba(68, 184, 255, .9);
+  --el-segmented-item-selected-color: #fff;
+  --el-segmented-item-hover-bg-color: rgba(255, 255, 255, .12);
+  --el-segmented-item-hover-color: #fff;
+  color: rgba(231, 241, 255, .78);
+}
+
+.segment-card-head {
+  border-bottom: 1px solid rgba(154, 188, 255, .24);
+  background: rgba(255, 255, 255, .06);
+}
+
+.segment-body pre {
+  border: 1px solid rgba(154, 188, 255, .2);
+  background: rgba(4, 8, 24, .72);
+  color: #edf6ff;
+}
+
+.asset-thumb {
+  color: #a8dfff;
+  background: rgba(255, 255, 255, .08);
+}
+
+.asset-delete {
+  border-color: rgba(255, 140, 188, .44);
+  color: #ffd9e7;
+}
+
+.mention-panel {
+  border-color: rgba(154, 188, 255, .24);
+  background: rgba(18, 13, 45, .96);
+  box-shadow: 0 24px 58px rgba(4, 12, 42, .58);
+}
+
+.mention-head {
+  color: #a8dfff;
+}
+
+.mention-head button,
+.meta-line {
+  color: rgba(231, 241, 255, .7);
+}
+
+.position-frame {
+  background: rgba(4, 8, 24, .84);
+}
+
+.position-placeholder {
+  background: linear-gradient(135deg, rgba(4, 8, 24, .9), rgba(40, 32, 80, .84));
+}
+
+@media (max-width: 1180px) {
+  .task-column {
+    border-right: 0;
+    border-bottom: 1px solid rgba(154, 188, 255, .22);
+  }
+}
 </style>

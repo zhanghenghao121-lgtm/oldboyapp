@@ -4,6 +4,7 @@
       <div class="brand">
         <span>DIRECTOR DESK</span>
         <h1>AI故事板</h1>
+        <el-button class="home-link-btn" plain @click="$router.push('/')">返回首页</el-button>
       </div>
       <div class="top-actions">
         <el-button plain @click="$router.push('/script-breakdown')">AI拆剧</el-button>
@@ -735,5 +736,230 @@ onBeforeUnmount(() => {
   .production-column { padding: 20px; }
   .direction-panel { grid-template-columns: 1fr; }
   .shot-grid, .shot-grid.grid-12 { grid-template-columns: 1fr; }
+}
+
+/* Home-aligned neon glass theme */
+.storyboard-shell {
+  color: #f4f6ff;
+  background:
+    radial-gradient(980px 400px at 8% -6%, rgba(97, 205, 255, .22), transparent 62%),
+    radial-gradient(760px 320px at 100% -6%, rgba(255, 84, 206, .2), transparent 60%),
+    linear-gradient(145deg, var(--bg-start), var(--bg-mid) 45%, var(--bg-end));
+}
+
+.topbar {
+  border-bottom: 1px solid rgba(154, 188, 255, .28);
+  background: linear-gradient(145deg, rgba(23, 29, 61, .86), rgba(18, 13, 45, .84));
+  box-shadow: 0 16px 42px rgba(4, 12, 42, .28);
+  backdrop-filter: blur(14px);
+}
+
+.brand {
+  align-items: center;
+}
+
+.brand span {
+  color: #a8dfff;
+  letter-spacing: .16em;
+}
+
+.brand h1 {
+  color: #f4f6ff;
+  font-family: "Orbitron", "ZCOOL KuaiLe", "Plus Jakarta Sans", sans-serif;
+  text-shadow: 0 0 18px rgba(124, 202, 255, .62);
+}
+
+.home-link-btn,
+.top-actions :deep(.el-button),
+.asset-tools :deep(.el-button),
+.board-actions :deep(.el-button),
+.shot-actions :deep(.el-button),
+.result-download,
+.replace-button {
+  border: 1px solid rgba(160, 222, 255, .42);
+  border-radius: 14px;
+  color: #eef8ff;
+  background: rgba(255, 255, 255, .1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+}
+
+.home-link-btn:hover,
+.top-actions :deep(.el-button:hover),
+.asset-tools :deep(.el-button:hover),
+.board-actions :deep(.el-button:hover),
+.shot-actions :deep(.el-button:hover),
+.result-download:hover,
+.replace-button:hover {
+  color: #fff;
+  border-color: rgba(210, 241, 255, .78);
+  background: linear-gradient(135deg, rgba(68, 184, 255, .64), rgba(139, 89, 255, .58), rgba(255, 78, 198, .5));
+  transform: translateY(-1px);
+}
+
+.story-column,
+.control-section,
+.segment-section,
+.production-column {
+  background: transparent;
+}
+
+.story-column {
+  border-right: 1px solid rgba(154, 188, 255, .22);
+}
+
+.control-section,
+.segment-section,
+.asset-panel,
+.panel-board,
+.grid-result,
+.segment-head,
+.direction-panel,
+.shot-card,
+.storyboard-prompt-panel {
+  border: 1px solid rgba(154, 188, 255, .24);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(23, 29, 61, .72), rgba(18, 13, 45, .68));
+  box-shadow: 0 18px 44px rgba(4, 12, 42, .24);
+  backdrop-filter: blur(10px);
+}
+
+.control-section,
+.segment-section,
+.asset-panel,
+.panel-board,
+.grid-result,
+.segment-head {
+  padding: 18px;
+}
+
+.segment-section {
+  margin-top: 18px;
+  border-top: 1px solid rgba(154, 188, 255, .24);
+}
+
+.control-section h2,
+.segment-section h2,
+.section-title h2,
+.section-title h3,
+.segment-head h2,
+.blank-state h2,
+.prompt-head strong {
+  color: #f4f6ff;
+}
+
+.section-title p,
+.segment-head p,
+.analyze-hint,
+.dialog-note,
+.prompt-head span,
+.storyboard-prompt-panel pre,
+.blank-state,
+.asset-card p,
+.scene-label small,
+.score small {
+  color: rgba(231, 241, 255, .74);
+}
+
+.section-title > span,
+.segment-head span,
+.asset-tools,
+.download-link,
+.asset-upload span,
+.score {
+  color: #72d6ff;
+}
+
+.leaf-button,
+.asset-card,
+.empty-inline {
+  border-color: rgba(160, 222, 255, .24);
+  color: #eef8ff;
+  background: rgba(255, 255, 255, .08);
+}
+
+.leaf-button.active,
+.asset-card.uploaded {
+  border-color: rgba(112, 214, 255, .8);
+  background: linear-gradient(135deg, rgba(68, 184, 255, .18), rgba(139, 89, 255, .16));
+  box-shadow: 0 0 24px rgba(91, 184, 255, .18);
+}
+
+.asset-placeholder {
+  color: #a8dfff;
+  background: rgba(255, 255, 255, .08);
+}
+
+.primary-action,
+.asset-panel :deep(.el-button--primary) {
+  border: 1px solid rgba(160, 222, 255, .56);
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(68, 184, 255, .94), rgba(139, 89, 255, .92), rgba(255, 78, 198, .88));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, .16),
+    0 16px 34px rgba(4, 12, 42, .36);
+}
+
+.primary-action:hover,
+.asset-panel :deep(.el-button--primary:hover) {
+  border-color: rgba(210, 241, 255, .84);
+  filter: brightness(1.06);
+}
+
+.cancel-action {
+  border-radius: 16px;
+  color: #eef8ff;
+  border-color: rgba(160, 222, 255, .34);
+  background: rgba(255, 255, 255, .08);
+}
+
+.control-section :deep(.el-input__wrapper),
+.control-section :deep(.el-textarea__inner),
+.select-grid :deep(.el-select__wrapper),
+.brief-field :deep(.el-textarea__inner),
+.shot-description :deep(.el-textarea__inner) {
+  color: #f4f6ff;
+  background: rgba(255, 255, 255, .1);
+  box-shadow: 0 0 0 1px rgba(154, 188, 255, .26) inset;
+}
+
+.control-section :deep(.el-input__inner),
+.control-section :deep(.el-textarea__inner::placeholder),
+.select-grid :deep(.el-select__placeholder),
+.brief-field :deep(.el-textarea__inner::placeholder) {
+  color: rgba(231, 241, 255, .64);
+}
+
+.direction-panel label,
+.scene-label strong,
+.asset-card strong {
+  color: #f4f6ff;
+}
+
+.shot-image {
+  background: rgba(4, 8, 24, .84);
+  border-radius: 12px;
+}
+
+.shot-image strong {
+  background: linear-gradient(135deg, rgba(68, 184, 255, .92), rgba(139, 89, 255, .88));
+}
+
+.prompt-head {
+  border-bottom: 1px solid rgba(154, 188, 255, .24);
+  background: rgba(255, 255, 255, .06);
+}
+
+.delete-mini {
+  color: #fff;
+  border-color: rgba(255, 255, 255, .24);
+  background: rgba(8, 12, 34, .78);
+}
+
+@media (max-width: 980px) {
+  .story-column {
+    border-right: 0;
+    border-bottom: 1px solid rgba(154, 188, 255, .22);
+  }
 }
 </style>

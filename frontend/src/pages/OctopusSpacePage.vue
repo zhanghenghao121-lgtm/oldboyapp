@@ -882,12 +882,13 @@ onBeforeUnmount(() => {
 
 .editor-card {
   width: min(1040px, 100%);
-  max-height: calc(100vh - 56px);
+  height: min(860px, calc(100vh - 56px));
   border-radius: 30px;
   padding: 20px;
   display: grid;
-  grid-template-rows: auto auto minmax(320px, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 14px;
+  overflow: hidden;
 }
 
 .title-input {
@@ -918,8 +919,8 @@ onBeforeUnmount(() => {
 }
 
 .note-editor {
-  min-height: 360px;
-  max-height: min(58vh, 620px);
+  min-height: 0;
+  height: 100%;
   overflow: auto;
   border: 1px solid rgba(127, 240, 255, .22);
   border-radius: 24px;
@@ -950,7 +951,12 @@ onBeforeUnmount(() => {
 }
 
 .editor-actions {
+  position: relative;
+  z-index: 2;
+  padding-top: 6px;
+  border-top: 1px solid rgba(147, 223, 255, .16);
   justify-content: flex-end;
+  background: linear-gradient(180deg, rgba(7, 16, 36, .1), rgba(7, 16, 36, .72));
 }
 
 .editor-pop-enter-active,

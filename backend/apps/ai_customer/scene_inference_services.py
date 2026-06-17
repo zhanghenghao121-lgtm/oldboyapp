@@ -110,18 +110,34 @@ def _model_label(model_key: str) -> str:
 
 def _prompt_for(project: SceneInferenceProject, job_type: str) -> str:
     output_size = "2:1" if job_type == SceneInferenceJob.TYPE_PANORAMA else "16:9"
+    target_view = JOB_LABEL.get(job_type, "目标视角")
+    reference_order = (
+        "参考图顺序：第 1 张是用户上传的正面图，第 2 张是用户上传的反打图。"
+        if job_type != SceneInferenceJob.TYPE_PANORAMA
+        else "参考图顺序：第 1 张正面图，第 2 张反打图，第 3 张左侧面图，第 4 张右侧面图，第 5 张俯瞰图。"
+    )
+    source_lock = (
+        "\n\n【同一场景硬性约束】\n"
+        f"{reference_order}\n"
+        f"目标：只补全这个同一空间的{target_view}，输入图是唯一事实来源。\n"
+        "必须保留输入图中的空间类型、室内/室外属性、建筑结构、地面材质、门窗/院墙/屋檐/家具/道具的位置关系和光线方向。\n"
+        "如果输入是室外院落，就必须仍然是同一室外院落；如果输入是室内房间，就必须仍然是同一室内房间。\n"
+        "严禁生成与输入图无关的新地点、新房间、新院落、新建筑风格或新的主体物件；严禁把室外改成室内，或把室内改成室外。\n"
+        "无法从正反打确认的区域只能做最小、低存在感的合理补全，不能凭空重建一个全新场景。\n"
+        "最终画面应像真实摄影机在同一个场地换到目标方位拍摄，而不是重新设计的概念图。"
+    )
     context = {
-        "scene_style": "保持正面图与反打图的画风、材质、光线、色调和时代背景一致",
+        "scene_style": "严格保持正面图与反打图的空间类型、建筑结构、画风、材质、光线、色调和时代背景一致",
         "output_size": output_size,
         "model_name": _model_label(project.model_key),
-        "extra_requirements": "画面无人物、无文字、无水印、无 UI，空间关系稳定可信",
+        "extra_requirements": "画面无人物、无文字、无水印、无 UI，空间关系稳定可信，不得生成与输入图不一致的新场景",
     }
-    return _render_template(_read_prompt(job_type), context)
+    return f"{_render_template(_read_prompt(job_type), context)}{source_lock}"
 
 
 def _generation_reference_url(image_url: str, user) -> str:
     text = _clean_text(image_url)
-    if text.startswith(("http://", "https://", "data:image/")):
+    if text.startswith("data:image/"):
         return text
     return _reference_image_data_url(text, user)
 

@@ -644,9 +644,11 @@ class SceneInferenceServicesTests(TestCase):
         self.assertEqual(len(submit_image.call_args_list[0].kwargs["reference_images"]), 2)
         self.assertEqual(
             [item["data_url"] for item in submit_image.call_args_list[0].kwargs["reference_images"]],
-            ["https://assets.example.com/front.png", "https://assets.example.com/back.png"],
+            ["data:https://assets.example.com/front.png", "data:https://assets.example.com/back.png"],
         )
-        reference_data_url.assert_not_called()
+        self.assertIn("输入图是唯一事实来源", submit_image.call_args_list[0].kwargs["prompt"])
+        self.assertIn("严禁把室外改成室内", submit_image.call_args_list[0].kwargs["prompt"])
+        self.assertEqual(reference_data_url.call_count, 6)
 
     @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
     @patch("apps.ai_customer.scene_inference_services._persist_storyboard_png")
@@ -674,7 +676,8 @@ class SceneInferenceServicesTests(TestCase):
         self.assertEqual(result["panorama_image_url"], "https://assets.example.com/panorama.png")
         self.assertEqual(submit_image.call_args.kwargs["size"], "2:1")
         self.assertEqual(len(submit_image.call_args.kwargs["reference_images"]), 5)
-        self.assertEqual(submit_image.call_args.kwargs["reference_images"][0]["data_url"], "https://assets.example.com/front.png")
+        self.assertEqual(submit_image.call_args.kwargs["reference_images"][0]["data_url"], "data:https://assets.example.com/front.png")
+        self.assertIn("参考图顺序：第 1 张正面图", submit_image.call_args.kwargs["prompt"])
 
     @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
     @patch("apps.ai_customer.scene_inference_services.submit_ai_image_generation")
@@ -701,7 +704,7 @@ class SceneInferenceServicesTests(TestCase):
         self.assertEqual(submit_image.call_args.kwargs["resolution"], "4k")
         self.assertIn("保持原图的场景构图", submit_image.call_args.kwargs["prompt"])
         self.assertEqual(len(submit_image.call_args.kwargs["reference_images"]), 1)
-        self.assertEqual(submit_image.call_args.kwargs["reference_images"][0]["data_url"], "https://assets.example.com/screenshot.png")
+        self.assertEqual(submit_image.call_args.kwargs["reference_images"][0]["data_url"], "data:image/png;base64,abc")
 
     @patch("apps.ai_customer.scene_inference_services._reference_image_data_url")
     @patch("apps.ai_customer.scene_inference_services._persist_storyboard_png")

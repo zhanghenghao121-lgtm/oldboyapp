@@ -28,6 +28,8 @@ class ConsoleUserUpdateSerializer(serializers.Serializer):
     points = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0"), required=False)
     is_active = serializers.BooleanField(required=False)
     is_whitelisted = serializers.BooleanField(required=False)
+    can_access_workbench = serializers.BooleanField(required=False)
+    can_access_storyboard = serializers.BooleanField(required=False)
 
     def validate_username(self, value):
         username = value.strip()

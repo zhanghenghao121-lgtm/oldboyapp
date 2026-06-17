@@ -106,6 +106,7 @@ def _get_admin_user(request):
 
 
 def _serialize_console_user(user):
+    is_admin = bool(user.is_staff or user.is_superuser)
     return {
         "id": user.id,
         "username": user.username,
@@ -113,7 +114,9 @@ def _serialize_console_user(user):
         "avatar_url": user.avatar_url or "",
         "signature": user.signature or "",
         "points": float(user.points or 0),
-        "is_whitelisted": bool(user.is_whitelisted or user.is_staff or user.is_superuser),
+        "is_whitelisted": bool(user.is_whitelisted or is_admin),
+        "can_access_workbench": bool(user.can_access_workbench or is_admin),
+        "can_access_storyboard": bool(user.can_access_storyboard or is_admin),
         "is_active": user.is_active,
         "is_staff": user.is_staff,
         "is_superuser": user.is_superuser,
@@ -151,7 +154,12 @@ def console_login(request):
         password=s.validated_data["password"],
     )
     if not user:
+        candidate = User.objects.filter(username=s.validated_data["username"].strip()).first()
+        if candidate and not candidate.is_active and candidate.check_password(s.validated_data["password"]):
+            return bad("账号状态异常，请联系管理员", 403)
         return bad("用户名或密码错误", 401)
+    if not user.is_active:
+        return bad("账号状态异常，请联系管理员", 403)
     if not user.is_staff:
         return bad("无后台访问权限", 403)
 
@@ -258,6 +266,10 @@ def console_user_update(request, user_id):
         target.is_active = payload["is_active"]
     if "is_whitelisted" in payload:
         target.is_whitelisted = bool(payload["is_whitelisted"] or target.is_staff or target.is_superuser)
+    if "can_access_workbench" in payload:
+        target.can_access_workbench = bool(payload["can_access_workbench"] or target.is_staff or target.is_superuser)
+    if "can_access_storyboard" in payload:
+        target.can_access_storyboard = bool(payload["can_access_storyboard"] or target.is_staff or target.is_superuser)
 
     target.save()
     return ok({"user": _serialize_console_user(target)})

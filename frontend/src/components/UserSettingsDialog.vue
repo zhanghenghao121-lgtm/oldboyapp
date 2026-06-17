@@ -15,9 +15,14 @@
       </div>
       <div>
         <span>功能权限</span>
-        <el-tag :type="user.feature_allowed ? 'success' : 'info'" effect="plain">
-          {{ user.feature_allowed ? '白名单已开通' : '未加入白名单' }}
-        </el-tag>
+        <div class="feature-tags">
+          <el-tag :type="user.can_access_workbench ? 'success' : 'info'" effect="plain">
+            工作台{{ user.can_access_workbench ? '已开通' : '未开通' }}
+          </el-tag>
+          <el-tag :type="user.can_access_storyboard ? 'success' : 'info'" effect="plain">
+            故事板{{ user.can_access_storyboard ? '已开通' : '未开通' }}
+          </el-tag>
+        </div>
       </div>
       <div v-if="user.signature">
         <span>用户签名</span>
@@ -50,6 +55,8 @@ const user = reactive({
   signature: '',
   points: 0,
   feature_allowed: false,
+  can_access_workbench: false,
+  can_access_storyboard: false,
 })
 
 const open = async () => {
@@ -128,5 +135,12 @@ defineExpose({ open })
 .settings-list strong {
   color: #e8eefc;
   text-align: right;
+}
+
+.feature-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 </style>

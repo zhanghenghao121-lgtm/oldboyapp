@@ -28,11 +28,11 @@ def bad(message, status=400):
 
 def _feature_allowed(request):
     user = request.user
-    return bool(user and user.is_authenticated and (user.is_whitelisted or user.is_staff or user.is_superuser))
+    return bool(user and user.is_authenticated and (user.can_access_storyboard or user.is_staff or user.is_superuser))
 
 
 def _feature_denied():
-    return bad("当前账号未加入功能白名单，请联系管理员开通", 403)
+    return bad("账号无此功能权限", 403)
 
 
 def _project_queryset(request):

@@ -309,13 +309,13 @@ class AiScriptBreakdownAssetApiTests(TestCase):
             username="asset-owner",
             email="asset-owner@example.com",
             password="pass1234",
-            is_whitelisted=True,
+            can_access_storyboard=True,
         )
         self.other_user = get_user_model().objects.create_user(
             username="asset-other",
             email="asset-other@example.com",
             password="pass1234",
-            is_whitelisted=True,
+            can_access_storyboard=True,
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)

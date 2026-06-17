@@ -573,8 +573,8 @@ class SceneInferenceServicesTests(TestCase):
         self.assertEqual(project.title, "龙吟堂空间")
 
     def test_scene_inference_project_delete_removes_owned_history_record(self):
-        self.user.is_whitelisted = True
-        self.user.save(update_fields=["is_whitelisted"])
+        self.user.can_access_storyboard = True
+        self.user.save(update_fields=["can_access_storyboard"])
         client = APIClient()
         client.force_authenticate(self.user)
         project = create_scene_inference_project(

@@ -8,6 +8,8 @@ class User(AbstractUser):
     signature = models.CharField(max_length=120, blank=True, default="")
     points = models.DecimalField(max_digits=12, decimal_places=2, default=50)
     is_whitelisted = models.BooleanField(default=False)
+    can_access_workbench = models.BooleanField(default=False)
+    can_access_storyboard = models.BooleanField(default=False)
 
 
 class PointsUsageLog(models.Model):

@@ -36,7 +36,9 @@ def bad(message, status=400):
 
 
 def _user_payload(user):
-    feature_allowed = bool(user.is_whitelisted or user.is_staff or user.is_superuser)
+    is_admin = bool(user.is_staff or user.is_superuser)
+    can_access_workbench = bool(is_admin or user.can_access_workbench)
+    can_access_storyboard = bool(is_admin or user.can_access_storyboard)
     return {
         "id": user.id,
         "username": user.username,
@@ -47,7 +49,13 @@ def _user_payload(user):
         "is_whitelisted": bool(user.is_whitelisted),
         "is_staff": bool(user.is_staff),
         "is_superuser": bool(user.is_superuser),
-        "feature_allowed": feature_allowed,
+        "can_access_workbench": can_access_workbench,
+        "can_access_storyboard": can_access_storyboard,
+        "feature_allowed": bool(can_access_workbench or can_access_storyboard),
+        "features": {
+            "workbench": can_access_workbench,
+            "storyboard": can_access_storyboard,
+        },
     }
 
 
@@ -214,8 +222,16 @@ def login_view(request):
 
     user = authenticate(request, username=username, password=password)
     if not user:
+        inactive_user = User.objects.filter(username=username).first()
+        if inactive_user and not inactive_user.is_active and inactive_user.check_password(password):
+            _cache_set(login_limit_key, attempts + 1, 300)
+            return bad("账号状态异常，请联系管理员", 403)
         _cache_set(login_limit_key, attempts + 1, 300)
         return bad("用户名/邮箱或密码错误", 401)
+
+    if not user.is_active:
+        _cache_set(login_limit_key, attempts + 1, 300)
+        return bad("账号状态异常，请联系管理员", 403)
 
     _cache_delete(login_limit_key)
     login(request, user)

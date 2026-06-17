@@ -323,9 +323,14 @@
           <el-table-column label="积分" width="120">
             <template #default="{ row }">{{ formatPoints(row.points) }}</template>
           </el-table-column>
-          <el-table-column label="白名单" width="120">
+          <el-table-column label="工作台" width="110">
             <template #default="{ row }">
-              <el-tag :type="row.is_whitelisted ? 'success' : 'info'" effect="plain">{{ row.is_whitelisted ? '已开通' : '未开通' }}</el-tag>
+              <el-tag :type="row.can_access_workbench ? 'success' : 'info'" effect="plain">{{ row.can_access_workbench ? '已开通' : '未开通' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="AI故事板" width="120">
+            <template #default="{ row }">
+              <el-tag :type="row.can_access_storyboard ? 'success' : 'info'" effect="plain">{{ row.can_access_storyboard ? '已开通' : '未开通' }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="状态" width="110">
@@ -376,8 +381,11 @@
         <el-form-item label="账号状态">
           <el-switch v-model="userForm.is_active" active-text="启用" inactive-text="禁用" />
         </el-form-item>
-        <el-form-item label="功能白名单">
-          <el-switch v-model="userForm.is_whitelisted" :disabled="userForm.is_staff" active-text="已开通" inactive-text="未开通" />
+        <el-form-item label="工作台权限">
+          <el-switch v-model="userForm.can_access_workbench" :disabled="userForm.is_staff" active-text="已开通" inactive-text="未开通" />
+        </el-form-item>
+        <el-form-item label="故事板权限">
+          <el-switch v-model="userForm.can_access_storyboard" :disabled="userForm.is_staff" active-text="已开通" inactive-text="未开通" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -457,6 +465,8 @@ const userForm = reactive({
   is_active: true,
   is_staff: false,
   is_whitelisted: false,
+  can_access_workbench: false,
+  can_access_storyboard: false,
 })
 
 const assignConfigs = (items) => {
@@ -567,6 +577,8 @@ const openUserEditor = (user) => {
   userForm.is_active = Boolean(user.is_active)
   userForm.is_staff = Boolean(user.is_staff)
   userForm.is_whitelisted = Boolean(user.is_whitelisted)
+  userForm.can_access_workbench = Boolean(user.can_access_workbench)
+  userForm.can_access_storyboard = Boolean(user.can_access_storyboard)
   editDialogVisible.value = true
 }
 
@@ -581,7 +593,8 @@ const saveUser = async () => {
       signature: userForm.signature,
       points: userForm.points,
       is_active: userForm.is_active,
-      is_whitelisted: userForm.is_whitelisted,
+      can_access_workbench: userForm.can_access_workbench,
+      can_access_storyboard: userForm.can_access_storyboard,
     }
     const res = await updateConsoleUser(userForm.id, payload)
     const updated = res.data.user

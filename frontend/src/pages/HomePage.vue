@@ -10,7 +10,7 @@
         <button class="desk-button space-button" type="button" @click="enterFeature('workbench', '/octopus-space')">
           <span class="button-mark">O</span>
           <strong>章鱼空间</strong>
-          <small>等待开发</small>
+          <small>进入章鱼记</small>
         </button>
 
         <button class="desk-button storyboard-button" type="button" @click="enterFeature('storyboard', '/storyboard')">

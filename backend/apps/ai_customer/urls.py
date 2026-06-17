@@ -8,6 +8,10 @@ from apps.ai_customer.views import (
     ai_image_sticker_composition_enhance,
     ai_image_sticker_composition_delete,
     ai_image_sticker_compositions,
+    octopus_note_detail,
+    octopus_note_folder_detail,
+    octopus_note_folders,
+    octopus_notes,
     scene_inference_enhance_screenshot,
     scene_inference_generate_panorama,
     scene_inference_generate_views,
@@ -31,6 +35,10 @@ from apps.ai_customer.views import (
 )
 
 urlpatterns = [
+    path("octopus-note/folders", octopus_note_folders),
+    path("octopus-note/folders/<int:folder_id>", octopus_note_folder_detail),
+    path("octopus-note/folders/<int:folder_id>/notes", octopus_notes),
+    path("octopus-note/notes/<int:note_id>", octopus_note_detail),
     path("storyboard/config", storyboard_config),
     path("storyboard/projects", storyboard_projects),
     path("storyboard/projects/<int:project_id>/analyze", storyboard_project_analyze),

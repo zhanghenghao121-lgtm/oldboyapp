@@ -11,6 +11,8 @@ from rest_framework.test import APIClient
 from apps.ai_customer.llm_clients import LLMClientError, chat_completion, image_generation
 from apps.ai_customer.ai_image_services import _image_urls, _task_result_images
 from apps.ai_customer.models import (
+    OctopusNote,
+    OctopusNoteFolder,
     PositionStickerAsset,
     PositionStickerComposition,
     SceneInferenceJob,
@@ -531,6 +533,75 @@ class StoryboardServicesTests(TestCase):
         self.assertEqual(result["image_prompt"], "新提示词")
         references = submit_image.call_args.args[2]
         self.assertEqual(references[0]["name"], "林初")
+
+
+class OctopusNoteApiTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="octopus-writer",
+            email="octopus-writer@example.com",
+            password="pass1234",
+            can_access_workbench=True,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def test_folder_and_note_crud_flow(self):
+        created_folder = self.client.post("/api/v1/octopus-note/folders", {"name": "灵感仓"})
+        self.assertEqual(created_folder.status_code, 200)
+        folder_id = created_folder.data["data"]["id"]
+
+        renamed_folder = self.client.patch(f"/api/v1/octopus-note/folders/{folder_id}", {"name": "项目灵感"})
+        self.assertEqual(renamed_folder.status_code, 200)
+        self.assertEqual(renamed_folder.data["data"]["name"], "项目灵感")
+
+        created_note = self.client.post(f"/api/v1/octopus-note/folders/{folder_id}/notes", {"title": "第一本"})
+        self.assertEqual(created_note.status_code, 200)
+        note_id = created_note.data["data"]["id"]
+
+        saved_note = self.client.patch(
+            f"/api/v1/octopus-note/notes/{note_id}",
+            {
+                "title": "第一本修订",
+                "content": "海底有一束蓝色光",
+                "font_family": "Orbitron",
+                "font_size": 24,
+                "text_color": "#66fff4",
+            },
+        )
+        self.assertEqual(saved_note.status_code, 200)
+        self.assertEqual(saved_note.data["data"]["content"], "海底有一束蓝色光")
+        self.assertEqual(saved_note.data["data"]["font_size"], 24)
+
+        note_list = self.client.get(f"/api/v1/octopus-note/folders/{folder_id}/notes", {"q": "蓝色", "order": "created_asc"})
+        self.assertEqual(note_list.status_code, 200)
+        self.assertEqual(len(note_list.data["data"]["list"]), 1)
+
+        deleted_note = self.client.delete(f"/api/v1/octopus-note/notes/{note_id}")
+        self.assertEqual(deleted_note.status_code, 200)
+        self.assertFalse(OctopusNote.objects.filter(id=note_id).exists())
+
+        deleted_folder = self.client.delete(f"/api/v1/octopus-note/folders/{folder_id}")
+        self.assertEqual(deleted_folder.status_code, 200)
+        self.assertFalse(OctopusNoteFolder.objects.filter(id=folder_id).exists())
+
+    def test_cannot_access_other_users_note(self):
+        other = get_user_model().objects.create_user(
+            username="other-octopus-writer",
+            email="other-octopus-writer@example.com",
+            password="pass1234",
+            can_access_workbench=True,
+        )
+        folder = OctopusNoteFolder.objects.create(user=other, name="别人的文件夹")
+        note = OctopusNote.objects.create(user=other, folder=folder, title="别人的记事本")
+
+        folder_response = self.client.get(f"/api/v1/octopus-note/folders/{folder.id}/notes")
+        note_response = self.client.patch(f"/api/v1/octopus-note/notes/{note.id}", {"title": "不该成功"})
+
+        self.assertEqual(folder_response.status_code, 404)
+        self.assertEqual(note_response.status_code, 404)
+        note.refresh_from_db()
+        self.assertEqual(note.title, "别人的记事本")
 
 
 class SceneInferenceServicesTests(TestCase):

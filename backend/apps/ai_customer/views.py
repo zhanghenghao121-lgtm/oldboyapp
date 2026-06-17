@@ -1,4 +1,5 @@
 from django.http import HttpResponse
+from django.db.models import Count, Q
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -15,7 +16,14 @@ from apps.ai_customer.cutout_services import (
     remove_sticker_asset,
     remove_sticker_composition,
 )
-from apps.ai_customer.models import SceneInferenceProject, StoryboardPanel, StoryboardProject, StorySegment
+from apps.ai_customer.models import (
+    OctopusNote,
+    OctopusNoteFolder,
+    SceneInferenceProject,
+    StoryboardPanel,
+    StoryboardProject,
+    StorySegment,
+)
 from apps.ai_customer.runtime_config import (
     get_ai_image_configs,
     get_storyboard_llm_configs,
@@ -64,6 +72,51 @@ def _feature_denied():
     return bad("账号无此功能权限", 403)
 
 
+def _workbench_allowed(request):
+    user = request.user
+    return bool(user and user.is_authenticated and (user.can_access_workbench or user.is_staff or user.is_superuser))
+
+
+def _workbench_denied():
+    return bad("账号无此功能权限", 403)
+
+
+def _clean_name(value, fallback="未命名"):
+    text = str(value or "").strip()
+    return (text or fallback)[:120]
+
+
+def _serialize_octopus_folder(folder):
+    note_count = getattr(folder, "note_count", None)
+    if note_count is None:
+        note_count = folder.notes.count()
+    return {
+        "id": folder.id,
+        "name": folder.name,
+        "note_count": int(note_count or 0),
+        "created_at": folder.created_at,
+        "updated_at": folder.updated_at,
+    }
+
+
+def _serialize_octopus_note(note):
+    return {
+        "id": note.id,
+        "folder_id": note.folder_id,
+        "title": note.title,
+        "content": note.content,
+        "font_family": note.font_family,
+        "font_size": note.font_size,
+        "text_color": note.text_color,
+        "created_at": note.created_at,
+        "updated_at": note.updated_at,
+    }
+
+
+def _octopus_order(value):
+    return "created_at" if value == "created_asc" else "-created_at"
+
+
 def _serialize_model_option(option_id: str, label: str, runtime: dict):
     return {
         "id": option_id,
@@ -71,6 +124,105 @@ def _serialize_model_option(option_id: str, label: str, runtime: dict):
         "model": str(runtime.get("model") or "").strip(),
         "base_url": str(runtime.get("base_url") or "").strip(),
     }
+
+
+@csrf_exempt
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def octopus_note_folders(request):
+    if not _workbench_allowed(request):
+        return _workbench_denied()
+    if request.method == "GET":
+        folders = OctopusNoteFolder.objects.filter(user=request.user).annotate(note_count=Count("notes"))
+        query = str(request.query_params.get("q") or "").strip()
+        if query:
+            folders = folders.filter(name__icontains=query)
+        order = _octopus_order(request.query_params.get("order"))
+        folders = folders.order_by(order, "id" if order == "created_at" else "-id")
+        return ok({"list": [_serialize_octopus_folder(folder) for folder in folders]})
+    folder = OctopusNoteFolder.objects.create(user=request.user, name=_clean_name(request.data.get("name"), "新文件夹"))
+    return ok(_serialize_octopus_folder(folder))
+
+
+@csrf_exempt
+@api_view(["PATCH", "DELETE"])
+@permission_classes([IsAuthenticated])
+def octopus_note_folder_detail(request, folder_id):
+    if not _workbench_allowed(request):
+        return _workbench_denied()
+    folder = OctopusNoteFolder.objects.filter(id=folder_id, user=request.user).first()
+    if not folder:
+        return bad("文件夹不存在", 404)
+    if request.method == "DELETE":
+        folder.delete()
+        return ok({"deleted": True, "id": folder_id})
+    folder.name = _clean_name(request.data.get("name"), folder.name)
+    folder.save(update_fields=["name", "updated_at"])
+    return ok(_serialize_octopus_folder(folder))
+
+
+@csrf_exempt
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def octopus_notes(request, folder_id):
+    if not _workbench_allowed(request):
+        return _workbench_denied()
+    folder = OctopusNoteFolder.objects.filter(id=folder_id, user=request.user).first()
+    if not folder:
+        return bad("文件夹不存在", 404)
+    if request.method == "GET":
+        notes = OctopusNote.objects.filter(user=request.user, folder=folder)
+        query = str(request.query_params.get("q") or "").strip()
+        if query:
+            notes = notes.filter(Q(title__icontains=query) | Q(content__icontains=query))
+        order = _octopus_order(request.query_params.get("order"))
+        notes = notes.order_by(order, "id" if order == "created_at" else "-id")
+        return ok({"list": [_serialize_octopus_note(note) for note in notes]})
+    note = OctopusNote.objects.create(
+        user=request.user,
+        folder=folder,
+        title=_clean_name(request.data.get("title"), "新记事本"),
+    )
+    return ok(_serialize_octopus_note(note))
+
+
+@csrf_exempt
+@api_view(["GET", "PATCH", "DELETE"])
+@permission_classes([IsAuthenticated])
+def octopus_note_detail(request, note_id):
+    if not _workbench_allowed(request):
+        return _workbench_denied()
+    note = OctopusNote.objects.select_related("folder").filter(id=note_id, user=request.user).first()
+    if not note:
+        return bad("记事本不存在", 404)
+    if request.method == "GET":
+        return ok(_serialize_octopus_note(note))
+    if request.method == "DELETE":
+        note.delete()
+        return ok({"deleted": True, "id": note_id})
+    update_fields = []
+    if "title" in request.data:
+        note.title = _clean_name(request.data.get("title"), note.title)
+        update_fields.append("title")
+    if "content" in request.data:
+        note.content = str(request.data.get("content") or "")
+        update_fields.append("content")
+    if "font_family" in request.data:
+        note.font_family = str(request.data.get("font_family") or "Plus Jakarta Sans").strip()[:120]
+        update_fields.append("font_family")
+    if "font_size" in request.data:
+        try:
+            note.font_size = min(max(int(request.data.get("font_size") or 18), 12), 42)
+        except (TypeError, ValueError):
+            note.font_size = 18
+        update_fields.append("font_size")
+    if "text_color" in request.data:
+        note.text_color = str(request.data.get("text_color") or "#eaf7ff").strip()[:20]
+        update_fields.append("text_color")
+    if update_fields:
+        update_fields.append("updated_at")
+        note.save(update_fields=update_fields)
+    return ok(_serialize_octopus_note(note))
 
 
 @api_view(["GET"])

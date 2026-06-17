@@ -48,6 +48,31 @@ class PositionStickerComposition(models.Model):
         ordering = ["-updated_at", "-id"]
 
 
+class OctopusNoteFolder(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="octopus_note_folders")
+    name = models.CharField(max_length=120)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
+class OctopusNote(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="octopus_notes")
+    folder = models.ForeignKey(OctopusNoteFolder, on_delete=models.CASCADE, related_name="notes")
+    title = models.CharField(max_length=120)
+    content = models.TextField(blank=True, default="")
+    font_family = models.CharField(max_length=120, blank=True, default="Plus Jakarta Sans")
+    font_size = models.PositiveIntegerField(default=18)
+    text_color = models.CharField(max_length=20, blank=True, default="#eaf7ff")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
 class StoryboardProject(models.Model):
     STATUS_DRAFT = "draft"
     STATUS_ANALYZED = "analyzed"

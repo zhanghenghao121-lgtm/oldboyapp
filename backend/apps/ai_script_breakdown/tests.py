@@ -6,6 +6,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from apps.console.models import SiteConfig
+from apps.ai_script_breakdown.duration_engine import load_dialogue_duration_config, prepare_shot_lines
 from apps.ai_script_breakdown.models import AiScriptAsset, AiScriptBreakdownProject, AiScriptSceneBlock, AiScriptShotSegment
 from apps.ai_script_breakdown.prompts import DEFAULT_SCRIPT_LIVE_ACTION_STYLE_PROMPT
 from apps.ai_script_breakdown.services import (
@@ -276,6 +277,30 @@ class AiScriptBreakdownServicesTests(TestCase):
         self.assertEqual([segment.estimated_duration for segment in segments], [12, 12])
         self.assertIn("【12秒】", segments[0].copy_text)
         self.assertLessEqual(max(segment.estimated_duration for segment in segments), project.max_segment_seconds)
+
+    def test_dialogue_duration_is_added_only_to_speaking_lines(self):
+        lines = prepare_shot_lines(
+            [
+                {
+                    "shot_size": "近景",
+                    "description": "主角低声说：这是什么？",
+                    "character": "主角",
+                    "dialogue": "",
+                    "line_text": "",
+                },
+                {
+                    "shot_size": "全景",
+                    "description": "众人从供桌旁退开，镜头缓慢推进。",
+                    "dialogue": "",
+                    "line_text": "",
+                },
+            ],
+            load_dialogue_duration_config(),
+        )
+
+        self.assertEqual(lines[0]["dialogue"], "这是什么？")
+        self.assertRegex(lines[0]["line_text"], r"【近景】【主角低声说：这是什么？】【\d+(?:\.\d)?秒】")
+        self.assertEqual(lines[1]["line_text"], "【全景】【众人从供桌旁退开，镜头缓慢推进。】")
 
 
 class AiScriptBreakdownAssetApiTests(TestCase):

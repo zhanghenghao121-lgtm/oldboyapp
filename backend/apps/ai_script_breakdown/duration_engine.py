@@ -66,6 +66,7 @@ SHOT_LINE_RE = re.compile(r"^\s*【([^】]+)】【([^】]+)】(?:【([^】]+)】
 QUOTE_RE = re.compile(r"[“\"]([^”\"]+)[”\"]|‘([^’]+)’|'([^']+)'")
 EN_WORD_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+SPEECH_VERB_RE = re.compile(r"(?:说|喊|问|答|道|念|叫|嘀咕|低声|高声|怒吼|解释|提醒|追问|回应|开口|喃喃)[^：:]{0,8}[：:]\s*(.+)$")
 
 
 def dialogue_duration_config_json() -> str:
@@ -224,12 +225,36 @@ def _hydrate_line_fields(line: dict) -> None:
             line["description"] = match.group(2)
     if not str(line.get("dialogue") or "").strip():
         text = str(line.get("description") or line_text or "")
-        quote = QUOTE_RE.search(text)
-        if quote:
-            line["dialogue"] = next(group for group in quote.groups() if group)
+        dialogue = _extract_dialogue_from_text(text, line)
+        if dialogue:
+            line["dialogue"] = dialogue
     dialogue = str(line.get("dialogue") or "").strip()
     if match and dialogue and dialogue not in str(line.get("description") or ""):
         line["description"] = match.group(2)
+
+
+def _extract_dialogue_from_text(text: str, line: dict) -> str:
+    content = str(text or "").strip()
+    quote = QUOTE_RE.search(content)
+    if quote:
+        return _clean_dialogue(next(group for group in quote.groups() if group))
+
+    character = str(line.get("character") or "").strip()
+    if character:
+        character_match = re.search(rf"{re.escape(character)}[^：:]{{0,16}}[：:]\s*(.+)$", content)
+        if character_match:
+            return _clean_dialogue(character_match.group(1))
+
+    speech_match = SPEECH_VERB_RE.search(content)
+    if speech_match:
+        return _clean_dialogue(speech_match.group(1))
+    return ""
+
+
+def _clean_dialogue(value: str) -> str:
+    text = str(value or "").strip().strip("“”\"'‘’")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text.strip("，。；：: ")
 
 
 def _base_dialogue_seconds(dialogue: str, config: dict) -> float:

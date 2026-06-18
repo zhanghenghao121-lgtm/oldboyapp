@@ -17,3 +17,6 @@ export const searchOctopusPlanet = (params = {}) =>
 
 export const getOctopusPlanetPublish = (publishId) =>
   http.get(`/octopus-planet/publish/${publishId}`, { timeout: 30000 })
+
+export const unpublishOctopusNote = (publishId) =>
+  http.delete(`/octopus-planet/publish/${publishId}`, { timeout: 30000 })

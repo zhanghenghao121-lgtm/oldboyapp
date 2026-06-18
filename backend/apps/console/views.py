@@ -15,6 +15,7 @@ from apps.console.serializers import (
     SiteConfigSerializer,
     SiteConfigUpdateSerializer,
 )
+from apps.ai_customer.models import OctopusPlanetPublish
 from apps.ai_customer.storyboard_prompts import (
     DEFAULT_STORYBOARD_ASSET_PROMPT,
     DEFAULT_STORYBOARD_LEAF_SPLIT_PROMPT,
@@ -125,6 +126,18 @@ def _serialize_console_user(user):
     }
 
 
+def _serialize_planet_publish(publish):
+    return {
+        "id": publish.id,
+        "notebook_id": publish.note_id,
+        "notebook_title": publish.note.title,
+        "user_id": publish.user_id,
+        "username": publish.user.username,
+        "tags": publish.tags or [publish.tag],
+        "published_at": publish.published_at,
+    }
+
+
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def public_backgrounds(request):
@@ -224,6 +237,17 @@ def console_users(request):
         queryset = queryset.filter(Q(username__icontains=q) | Q(email__icontains=q)).order_by("-id")
     users = queryset[:200]
     return ok({"list": [_serialize_console_user(user) for user in users]})
+
+
+@api_view(["GET"])
+@permission_classes([IsConsoleAdmin])
+def console_octopus_planet_publishes(request):
+    q = str(request.query_params.get("q", "") or "").strip()
+    queryset = OctopusPlanetPublish.objects.select_related("note", "user").filter(is_public=True).order_by("-published_at", "-id")
+    if q:
+        queryset = queryset.filter(Q(user__username__icontains=q) | Q(note__title__icontains=q)).order_by("-published_at", "-id")
+    publishes = queryset[:500]
+    return ok({"list": [_serialize_planet_publish(publish) for publish in publishes]})
 
 
 @csrf_exempt

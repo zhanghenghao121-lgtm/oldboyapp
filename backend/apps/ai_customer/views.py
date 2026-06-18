@@ -32,6 +32,7 @@ from apps.ai_customer.octopus_planet_services import (
     publish_detail,
     publish_note,
     search_particles,
+    unpublish_note,
 )
 from apps.ai_customer.runtime_config import (
     get_ai_image_configs,
@@ -334,12 +335,16 @@ def octopus_planet_search(request):
         return bad(str(exc), exc.status)
 
 
-@api_view(["GET"])
+@csrf_exempt
+@api_view(["GET", "DELETE"])
 @permission_classes([IsAuthenticated])
 def octopus_planet_publish_detail(request, publish_id):
     if not _workbench_allowed(request):
         return _workbench_denied()
     try:
+        if request.method == "DELETE":
+            publish = unpublish_note(request.user, publish_id)
+            return ok({"publish_id": publish.id, "notebook_id": publish.note_id, "is_public": False})
         return ok(publish_detail(publish_id, request.user))
     except OctopusPlanetError as exc:
         return bad(str(exc), exc.status)

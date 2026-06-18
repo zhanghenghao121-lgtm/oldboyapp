@@ -237,7 +237,7 @@
         <label>
           <span>标签</span>
           <div class="tag-add-row">
-            <input v-model.trim="publishTag" maxlength="10" placeholder="最多 10 个字" @keyup.enter.prevent="addPublishTagFromInput" />
+            <input v-model.trim="publishTag" maxlength="5" placeholder="最多 5 个字" @keyup.enter.prevent="addPublishTagFromInput" />
             <button type="button" @click="addPublishTagFromInput">加入标签库</button>
           </div>
         </label>
@@ -254,6 +254,9 @@
         </div>
       </div>
       <template #footer>
+        <button v-if="editorDraft.planet_publish" class="danger-btn" type="button" :disabled="publishing" @click="cancelPublish">
+          取消发布
+        </button>
         <button class="soft-btn" type="button" @click="publishDialogVisible = false">取消</button>
         <button class="primary-glow" type="button" :disabled="publishing" @click="submitPublish">
           {{ publishing ? '发布中...' : '发布' }}
@@ -279,7 +282,7 @@ import {
   updateOctopusFolder,
   updateOctopusNote,
 } from '../api/octopusNotes'
-import { addOctopusPlanetTag, getOctopusPlanetCommonTags, publishOctopusNote } from '../api/octopusPlanet'
+import { addOctopusPlanetTag, getOctopusPlanetCommonTags, publishOctopusNote, unpublishOctopusNote } from '../api/octopusPlanet'
 import { storageFileUrl, uploadToCos } from '../api/storage'
 
 const router = useRouter()
@@ -666,6 +669,16 @@ const replaceNotePublishState = (publish) => {
   }
 }
 
+const clearNotePublishState = () => {
+  editorDraft.value.planet_publish = null
+  notes.value = notes.value.map((item) =>
+    item.id === editorDraft.value.id ? { ...item, planet_publish: null } : item
+  )
+  if (editingNote.value?.id === editorDraft.value.id) {
+    editingNote.value = { ...editingNote.value, planet_publish: null }
+  }
+}
+
 const publishLabel = (publish) => {
   const tags = Array.isArray(publish?.tags) && publish.tags.length ? publish.tags : [publish?.tag].filter(Boolean)
   return tags.map((tag) => `#${tag}`).join(' ')
@@ -691,8 +704,8 @@ const openPublishDialog = async () => {
 const selectPublishTag = (tag) => {
   const nextTag = String(tag || '').trim()
   if (!nextTag) return
-  if (nextTag.length > 10) {
-    ElMessage.error('标签最多 10 个字')
+  if (nextTag.length > 5) {
+    ElMessage.error('标签最多 5 个字')
     return
   }
   if (selectedPublishTags.value.includes(nextTag)) return
@@ -713,8 +726,8 @@ const addPublishTagFromInput = async () => {
     ElMessage.error('请输入标签')
     return
   }
-  if (tag.length > 10) {
-    ElMessage.error('标签最多 10 个字')
+  if (tag.length > 5) {
+    ElMessage.error('标签最多 5 个字')
     return
   }
   try {
@@ -745,6 +758,22 @@ const submitPublish = async () => {
     ElMessage.success(res.data.message || '已发布到章鱼星球')
   } catch (error) {
     ElMessage.error(String(error || '发布失败'))
+  } finally {
+    publishing.value = false
+  }
+}
+
+const cancelPublish = async () => {
+  const publishId = editorDraft.value.planet_publish?.id
+  if (!publishId) return
+  publishing.value = true
+  try {
+    await unpublishOctopusNote(publishId)
+    clearNotePublishState()
+    publishDialogVisible.value = false
+    ElMessage.success('已取消发布')
+  } catch (error) {
+    ElMessage.error(String(error || '取消发布失败'))
   } finally {
     publishing.value = false
   }

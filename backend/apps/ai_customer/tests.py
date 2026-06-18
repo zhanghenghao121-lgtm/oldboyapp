@@ -637,6 +637,13 @@ class OctopusNoteApiTests(TestCase):
         )
         self.assertEqual(too_long.status_code, 400)
 
+        six_char_tag = self.client.post(
+            "/api/v1/octopus-planet/publish",
+            {"notebook_id": note.id, "tag": "abcdef"},
+            format="json",
+        )
+        self.assertEqual(six_char_tag.status_code, 400)
+
         added_tag = self.client.post("/api/v1/octopus-planet/my-common-tags", {"tag": "分镜"}, format="json")
         self.assertEqual(added_tag.status_code, 200)
         self.assertEqual(added_tag.data["data"]["tag"], "分镜")
@@ -686,6 +693,57 @@ class OctopusNoteApiTests(TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.data["data"]["title"], "星球记事")
         self.assertEqual(len(detail.data["data"]["image_urls"]), 2)
+
+        unpublished = self.client.delete(f"/api/v1/octopus-planet/publish/{publish.id}")
+        self.assertEqual(unpublished.status_code, 200)
+        publish.refresh_from_db()
+        self.assertFalse(publish.is_public)
+        particles_after_unpublish = self.client.get("/api/v1/octopus-planet/particles", {"scope": "mine"})
+        self.assertEqual(particles_after_unpublish.data["data"]["items"], [])
+        hidden_detail = self.client.get(f"/api/v1/octopus-planet/publish/{publish.id}")
+        self.assertEqual(hidden_detail.status_code, 404)
+
+    def test_console_lists_public_octopus_planet_publishes(self):
+        folder = OctopusNoteFolder.objects.create(user=self.user, name="星球文件夹")
+        note = OctopusNote.objects.create(user=self.user, folder=folder, title="后台可见记事")
+        hidden_note = OctopusNote.objects.create(user=self.user, folder=folder, title="已取消记事")
+        OctopusPlanetPublish.objects.create(
+            note=note,
+            user=self.user,
+            tag="灵感",
+            tag_normalized="灵感",
+            tags=["灵感"],
+            tags_normalized=["灵感"],
+            qdrant_point_id=str(note.id),
+        )
+        OctopusPlanetPublish.objects.create(
+            note=hidden_note,
+            user=self.user,
+            tag="草稿",
+            tag_normalized="草稿",
+            tags=["草稿"],
+            tags_normalized=["草稿"],
+            is_public=False,
+            qdrant_point_id=str(hidden_note.id),
+        )
+        admin = get_user_model().objects.create_user(
+            username="planet-admin",
+            email="planet-admin@example.com",
+            password="Pass1234A",
+            is_staff=True,
+        )
+        console_client = APIClient()
+        console_client.force_authenticate(admin)
+
+        response = console_client.get(
+            "/api/v1/console/octopus-planet/publishes",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        items = response.data["data"]["list"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["username"], self.user.username)
+        self.assertEqual(items[0]["notebook_title"], "后台可见记事")
 
     def test_octopus_planet_scope_mine_filters_other_users(self):
         folder = OctopusNoteFolder.objects.create(user=self.user, name="我的文件夹")

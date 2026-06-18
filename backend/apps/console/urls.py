@@ -6,6 +6,7 @@ from apps.console.views import (
     console_login,
     console_logout,
     console_me,
+    console_octopus_planet_publishes,
     console_user_update,
     console_users,
     public_backgrounds,
@@ -20,4 +21,5 @@ urlpatterns = [
     path("console/configs/<str:key>", console_config_update),
     path("console/users", console_users),
     path("console/users/<int:user_id>", console_user_update),
+    path("console/octopus-planet/publishes", console_octopus_planet_publishes),
 ]

@@ -11,6 +11,7 @@ from apps.ai_customer.models import OctopusNote, OctopusPlanetPublish, OctopusPl
 
 VECTOR_SIZE = 32
 MAX_TAGS = 5
+MAX_TAG_LENGTH = 5
 
 
 class OctopusPlanetError(Exception):
@@ -21,7 +22,7 @@ class OctopusPlanetError(Exception):
 
 def normalize_tag(value: str) -> str:
     tag = "".join(str(value or "").split())
-    max_length = int(getattr(settings, "OCTOPUS_PLANET_MAX_TAG_LENGTH", 10) or 10)
+    max_length = min(int(getattr(settings, "OCTOPUS_PLANET_MAX_TAG_LENGTH", MAX_TAG_LENGTH) or MAX_TAG_LENGTH), MAX_TAG_LENGTH)
     if not tag:
         raise OctopusPlanetError("标签不能为空")
     if len(tag) > max_length:
@@ -30,7 +31,8 @@ def normalize_tag(value: str) -> str:
 
 
 def display_tag(value: str) -> str:
-    return "".join(str(value or "").split())[: int(getattr(settings, "OCTOPUS_PLANET_MAX_TAG_LENGTH", 10) or 10)]
+    max_length = min(int(getattr(settings, "OCTOPUS_PLANET_MAX_TAG_LENGTH", MAX_TAG_LENGTH) or MAX_TAG_LENGTH), MAX_TAG_LENGTH)
+    return "".join(str(value or "").split())[:max_length]
 
 
 def clean_tags(value) -> tuple[list[str], list[str]]:
@@ -232,8 +234,8 @@ def qdrant_search(query_vector: list[float], scope: str, user, limit: int):
 
 
 def add_tag_to_library(user, tag_value: str):
+    normalized = normalize_tag(tag_value)
     tag = display_tag(tag_value)
-    normalized = normalize_tag(tag)
     stat, _ = OctopusPlanetTagStat.objects.get_or_create(
         user=user,
         tag_normalized=normalized,
@@ -261,6 +263,7 @@ def publish_note(user, note_id: int, tags_value) -> OctopusPlanetPublish:
         "tags": tags,
         "tags_normalized": normalized_tags,
         "is_public": True,
+        "published_at": timezone.now(),
         "tag_vector": vector,
         "particle_color": particle_color(" ".join(normalized_tags)),
         "particle_size": 1.0,
@@ -280,6 +283,7 @@ def publish_note(user, note_id: int, tags_value) -> OctopusPlanetPublish:
             "tags",
             "tags_normalized",
             "is_public",
+            "published_at",
             "tag_vector",
             "particle_x",
             "particle_y",
@@ -301,6 +305,16 @@ def publish_note(user, note_id: int, tags_value) -> OctopusPlanetPublish:
         stat.use_count = F("use_count") + 1
         stat.last_used_at = timezone.now()
         stat.save(update_fields=["tag", "use_count", "last_used_at"])
+    return publish
+
+
+def unpublish_note(user, publish_id: int) -> OctopusPlanetPublish:
+    publish = OctopusPlanetPublish.objects.select_related("note").filter(id=publish_id, user=user, is_public=True).first()
+    if not publish:
+        raise OctopusPlanetError("发布记录不存在", 404)
+    publish.is_public = False
+    publish.save(update_fields=["is_public", "updated_at"])
+    upsert_qdrant_publish(publish)
     return publish
 
 

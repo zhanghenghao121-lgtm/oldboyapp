@@ -11,13 +11,16 @@
       <button class="side-btn" :class="{ active: activeSection === 'users' }" type="button" @click="selectSection('users')">
         用户信息
       </button>
+      <button class="side-btn" :class="{ active: activeSection === 'planet' }" type="button" @click="selectSection('planet')">
+        章鱼星球
+      </button>
     </aside>
 
     <main class="main">
       <header class="main-head">
         <div>
-          <p class="eyebrow">{{ activeSection === 'configs' ? 'MODEL & STORYBOARD SETTINGS' : 'USER MANAGEMENT' }}</p>
-          <h2>{{ activeSection === 'configs' ? 'AI模型配置' : '用户信息管理' }}</h2>
+          <p class="eyebrow">{{ sectionMeta.eyebrow }}</p>
+          <h2>{{ sectionMeta.title }}</h2>
         </div>
         <el-button type="danger" plain @click="handleLogout">退出后台</el-button>
       </header>
@@ -295,7 +298,7 @@
         </section>
       </template>
 
-      <section v-else class="panel">
+      <section v-else-if="activeSection === 'users'" class="panel">
         <div class="panel-head">
           <div>
             <h3>用户信息</h3>
@@ -356,6 +359,34 @@
           </el-table-column>
         </el-table>
       </section>
+
+      <section v-else class="panel">
+        <div class="panel-head">
+          <div>
+            <h3>章鱼星球发布记录</h3>
+            <p>查看当前处于发布状态的记事本。</p>
+          </div>
+          <div class="user-tools">
+            <el-input v-model="planetSearch" clearable placeholder="搜索用户名或记事本名称" @keyup.enter="loadPlanetPublishes" @clear="loadPlanetPublishes" />
+            <el-button class="main-btn" type="primary" :loading="loadingPlanetPublishes" @click="loadPlanetPublishes">查询</el-button>
+          </div>
+        </div>
+
+        <el-table v-loading="loadingPlanetPublishes" :data="planetPublishes" class="user-table" row-key="id">
+          <el-table-column prop="username" label="用户名" min-width="160" />
+          <el-table-column prop="notebook_title" label="记事本名称" min-width="240" />
+          <el-table-column label="标签" min-width="180">
+            <template #default="{ row }">
+              <div class="tag-list">
+                <el-tag v-for="tag in row.tags || []" :key="tag" size="small" effect="plain">#{{ tag }}</el-tag>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="发布时间" min-width="190">
+            <template #default="{ row }">{{ formatDate(row.published_at) }}</template>
+          </el-table-column>
+        </el-table>
+      </section>
     </main>
 
     <el-dialog v-model="editDialogVisible" title="编辑用户信息" width="620px">
@@ -397,7 +428,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
@@ -405,6 +436,7 @@ import {
   consoleLogout,
   consoleMe,
   getConsoleConfigs,
+  getConsoleOctopusPlanetPublishes,
   getConsoleUsers,
   updateConsoleConfig,
   updateConsoleUser,
@@ -416,9 +448,12 @@ const activeSection = ref('configs')
 const savingModels = ref(false)
 const savingPrompts = ref(false)
 const loadingUsers = ref(false)
+const loadingPlanetPublishes = ref(false)
 const savingUser = ref(false)
 const userSearch = ref('')
 const users = ref([])
+const planetSearch = ref('')
+const planetPublishes = ref([])
 const editDialogVisible = ref(false)
 
 const forms = reactive({
@@ -469,6 +504,12 @@ const userForm = reactive({
   can_access_storyboard: false,
 })
 
+const sectionMeta = computed(() => {
+  if (activeSection.value === 'configs') return { eyebrow: 'MODEL & STORYBOARD SETTINGS', title: 'AI模型配置' }
+  if (activeSection.value === 'users') return { eyebrow: 'USER MANAGEMENT', title: '用户信息管理' }
+  return { eyebrow: 'OCTOPUS PLANET', title: '章鱼星球发布管理' }
+})
+
 const assignConfigs = (items) => {
   ;(items || []).forEach((item) => {
     if (Object.prototype.hasOwnProperty.call(forms, item.key)) {
@@ -499,10 +540,25 @@ const loadUsers = async () => {
   }
 }
 
+const loadPlanetPublishes = async () => {
+  loadingPlanetPublishes.value = true
+  try {
+    const res = await getConsoleOctopusPlanetPublishes({ q: planetSearch.value.trim() })
+    planetPublishes.value = res.data.list || []
+  } catch (e) {
+    ElMessage.error(String(e || '章鱼星球发布记录加载失败'))
+  } finally {
+    loadingPlanetPublishes.value = false
+  }
+}
+
 const selectSection = async (section) => {
   activeSection.value = section
   if (section === 'users' && !users.value.length) {
     await loadUsers()
+  }
+  if (section === 'planet' && !planetPublishes.value.length) {
+    await loadPlanetPublishes()
   }
 }
 
@@ -792,6 +848,12 @@ onMounted(async () => {
   background: #1f8fff;
   color: #fff;
   font-weight: 800;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .user-form :deep(.el-input-number) {

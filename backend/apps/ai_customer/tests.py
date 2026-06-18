@@ -575,12 +575,16 @@ class OctopusNoteApiTests(TestCase):
                 "font_size": 24,
                 "text_color": "#66fff4",
                 "cover_url": "https://assets.example.com/note-cover.jpg",
+                "image_urls": [f"https://assets.example.com/note-{index}.jpg" for index in range(12)],
             },
+            format="json",
         )
         self.assertEqual(saved_note.status_code, 200)
         self.assertEqual(saved_note.data["data"]["content"], "海底有一束蓝色光")
         self.assertEqual(saved_note.data["data"]["font_size"], 24)
         self.assertEqual(saved_note.data["data"]["cover_url"], "https://assets.example.com/note-cover.jpg")
+        self.assertEqual(len(saved_note.data["data"]["image_urls"]), 10)
+        self.assertEqual(saved_note.data["data"]["image_urls"][0], "https://assets.example.com/note-0.jpg")
 
         note_list = self.client.get(f"/api/v1/octopus-note/folders/{folder_id}/notes", {"q": "蓝色", "order": "created_asc"})
         self.assertEqual(note_list.status_code, 200)

@@ -64,6 +64,7 @@ class OctopusNote(models.Model):
     folder = models.ForeignKey(OctopusNoteFolder, on_delete=models.CASCADE, related_name="notes")
     title = models.CharField(max_length=120)
     cover_url = models.URLField(max_length=1000, blank=True, default="")
+    image_urls = models.JSONField(default=list, blank=True)
     content = models.TextField(blank=True, default="")
     font_family = models.CharField(max_length=120, blank=True, default="Plus Jakarta Sans")
     font_size = models.PositiveIntegerField(default=18)

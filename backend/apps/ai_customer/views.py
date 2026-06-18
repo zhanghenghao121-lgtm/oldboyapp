@@ -86,6 +86,19 @@ def _clean_name(value, fallback="未命名"):
     return (text or fallback)[:120]
 
 
+def _clean_octopus_image_urls(value):
+    if not isinstance(value, list):
+        return []
+    image_urls = []
+    for item in value:
+        url = str(item or "").strip()
+        if url:
+            image_urls.append(url[:1000])
+        if len(image_urls) >= 10:
+            break
+    return image_urls
+
+
 def _serialize_octopus_folder(folder):
     note_count = getattr(folder, "note_count", None)
     if note_count is None:
@@ -106,6 +119,7 @@ def _serialize_octopus_note(note):
         "folder_id": note.folder_id,
         "title": note.title,
         "cover_url": note.cover_url,
+        "image_urls": _clean_octopus_image_urls(note.image_urls),
         "content": note.content,
         "font_family": note.font_family,
         "font_size": note.font_size,
@@ -217,6 +231,9 @@ def octopus_note_detail(request, note_id):
     if "cover_url" in request.data:
         note.cover_url = str(request.data.get("cover_url") or "").strip()[:1000]
         update_fields.append("cover_url")
+    if "image_urls" in request.data:
+        note.image_urls = _clean_octopus_image_urls(request.data.get("image_urls"))
+        update_fields.append("image_urls")
     if "content" in request.data:
         note.content = str(request.data.get("content") or "")
         update_fields.append("content")

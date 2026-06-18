@@ -152,14 +152,65 @@
             <small>{{ dirty ? '有未保存内容，关闭会自动保存' : '内容已同步' }}</small>
           </div>
 
-          <div
-            ref="editorRef"
-            class="note-editor"
-            contenteditable="true"
-            spellcheck="false"
-            :style="editorStyle"
-            @input="handleEditorInput"
-          ></div>
+          <div class="editor-body">
+            <aside class="note-image-panel" :class="{ expanded: noteImagesExpanded }">
+              <header class="note-image-head">
+                <strong>图片</strong>
+                <span>{{ noteImageUrls.length }}/10</span>
+              </header>
+
+              <label class="note-image-upload" :class="{ disabled: noteImageUploading || noteImageUrls.length >= 10 }">
+                <input
+                  ref="noteImageInputRef"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  :disabled="noteImageUploading || noteImageUrls.length >= 10"
+                  @change="handleNoteImagesChange"
+                />
+                <span>{{ noteImageUploading ? '...' : '+' }}</span>
+                <small>{{ noteImageUploading ? '上传中' : noteImageUrls.length >= 10 ? '已满' : '上传图片' }}</small>
+              </label>
+
+              <button
+                v-if="noteImageUrls.length > 1"
+                class="image-stack"
+                type="button"
+                :aria-label="noteImagesExpanded ? '收起图片' : '展开图片'"
+                @click="toggleNoteImages"
+              >
+                <span
+                  v-for="(url, index) in stackedNoteImages"
+                  :key="`${url}-${index}`"
+                  class="stack-card"
+                  :style="{ transform: `translate(${index * 8}px, ${index * 8}px)` }"
+                >
+                  <img :src="storageFileUrl(url)" alt="记事本图片" />
+                </span>
+                <strong>{{ noteImagesExpanded ? '收起' : `展开 ${noteImageUrls.length} 张` }}</strong>
+              </button>
+
+              <div v-if="noteImagesExpanded || noteImageUrls.length === 1" class="note-image-grid">
+                <div v-for="(url, index) in noteImageUrls" :key="`${url}-${index}`" class="note-image-tile">
+                  <button class="image-open" type="button" @click="openImagePreview(url)">
+                    <img :src="storageFileUrl(url)" alt="记事本图片" />
+                  </button>
+                  <button class="image-delete" type="button" @click.stop="removeNoteImage(index)">×</button>
+                </div>
+              </div>
+
+              <p v-if="!noteImageUrls.length" class="image-empty">还没有图片</p>
+            </aside>
+
+            <div
+              ref="editorRef"
+              class="note-editor"
+              contenteditable="true"
+              spellcheck="false"
+              :style="editorStyle"
+              @input="handleEditorInput"
+            ></div>
+          </div>
 
           <footer class="editor-actions">
             <button class="danger-btn" type="button" :disabled="saving" @click="deleteEditingNote">删除</button>
@@ -170,6 +221,13 @@
     </transition>
 
     <input ref="coverInputRef" class="cover-file-input" type="file" accept="image/*" @change="handleCoverFileChange" />
+
+    <transition name="editor-pop">
+      <section v-if="previewImageUrl" class="image-preview-overlay" @click.self="closeImagePreview">
+        <button class="close-btn preview-close" type="button" @click="closeImagePreview">关闭</button>
+        <img :src="storageFileUrl(previewImageUrl)" alt="图片预览" />
+      </section>
+    </transition>
   </div>
 </template>
 
@@ -210,6 +268,10 @@ const saving = ref(false)
 const coverInputRef = ref(null)
 const coverUploadTarget = ref(null)
 const coverUploading = ref(false)
+const noteImageInputRef = ref(null)
+const noteImageUploading = ref(false)
+const noteImagesExpanded = ref(false)
+const previewImageUrl = ref('')
 let searchTimer = null
 
 const fontOptions = [
@@ -228,6 +290,7 @@ function defaultDraft() {
     font_family: 'Plus Jakarta Sans',
     font_size: 18,
     text_color: '#eaf7ff',
+    image_urls: [],
   }
 }
 
@@ -247,6 +310,15 @@ const pageStyle = computed(() =>
 )
 
 const totalNotes = computed(() => folders.value.reduce((sum, folder) => sum + Number(folder.note_count || 0), 0))
+
+const cleanImageUrls = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((url) => String(url || '').trim())
+    .filter(Boolean)
+    .slice(0, 10)
+
+const noteImageUrls = computed(() => cleanImageUrls(editorDraft.value.image_urls))
+const stackedNoteImages = computed(() => noteImageUrls.value.slice(0, Math.min(noteImageUrls.value.length, 3)))
 
 const editorStyle = computed(() => ({
   fontFamily: `"${editorDraft.value.font_family}", "PingFang SC", "Hiragino Sans GB", sans-serif`,
@@ -448,8 +520,11 @@ const openNote = async (note) => {
     font_family: note.font_family || 'Plus Jakarta Sans',
     font_size: note.font_size || 18,
     text_color: note.text_color || '#eaf7ff',
+    image_urls: cleanImageUrls(note.image_urls),
   }
   dirty.value = false
+  noteImagesExpanded.value = false
+  previewImageUrl.value = ''
   editorVisible.value = true
   await nextTick()
   if (editorRef.value) editorRef.value.textContent = editorDraft.value.content || ''
@@ -467,6 +542,76 @@ const markDirty = () => {
 const replaceNote = (nextNote) => {
   notes.value = notes.value.map((item) => (item.id === nextNote.id ? nextNote : item))
   if (editingNote.value?.id === nextNote.id) editingNote.value = nextNote
+  if (editorDraft.value.id === nextNote.id) {
+    editorDraft.value.image_urls = cleanImageUrls(nextNote.image_urls)
+  }
+}
+
+const persistNoteImages = async (imageUrls) => {
+  if (!editorDraft.value.id) return
+  const res = await updateOctopusNote(editorDraft.value.id, { image_urls: cleanImageUrls(imageUrls) })
+  editorDraft.value.image_urls = cleanImageUrls(res.data.image_urls)
+  replaceNote(res.data)
+}
+
+const handleNoteImagesChange = async (event) => {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (!editorDraft.value.id || !files.length) return
+  const remainingSlots = 10 - noteImageUrls.value.length
+  if (remainingSlots <= 0) {
+    ElMessage.warning('最多上传 10 张图片')
+    return
+  }
+  const imageFiles = files.filter((file) => file.type.startsWith('image/')).slice(0, remainingSlots)
+  if (!imageFiles.length) {
+    ElMessage.error('请选择图片文件')
+    return
+  }
+  if (files.length > remainingSlots) {
+    ElMessage.warning(`最多上传 10 张图片，本次只添加前 ${remainingSlots} 张`)
+  }
+  noteImageUploading.value = true
+  try {
+    const uploaded = await Promise.all(
+      imageFiles.map((file) => uploadToCos(file, 'images/octopus-notes/inline', { timeout: 120000 }))
+    )
+    const nextUrls = [...noteImageUrls.value, ...uploaded.map((item) => item.data.url)].slice(0, 10)
+    await persistNoteImages(nextUrls)
+    noteImagesExpanded.value = false
+    ElMessage.success(uploaded.some((item) => item.data.compressed) ? '图片已压缩并上传' : '图片已上传')
+  } catch (error) {
+    ElMessage.error(String(error || '图片上传失败'))
+  } finally {
+    noteImageUploading.value = false
+  }
+}
+
+const toggleNoteImages = () => {
+  if (noteImageUrls.value.length > 1) {
+    noteImagesExpanded.value = !noteImagesExpanded.value
+    return
+  }
+  if (noteImageUrls.value[0]) openImagePreview(noteImageUrls.value[0])
+}
+
+const removeNoteImage = async (index) => {
+  const nextUrls = noteImageUrls.value.filter((_, itemIndex) => itemIndex !== index)
+  try {
+    await persistNoteImages(nextUrls)
+    if (nextUrls.length <= 1) noteImagesExpanded.value = false
+    ElMessage.success('图片已删除')
+  } catch (error) {
+    ElMessage.error(String(error || '图片删除失败'))
+  }
+}
+
+const openImagePreview = (url) => {
+  previewImageUrl.value = url
+}
+
+const closeImagePreview = () => {
+  previewImageUrl.value = ''
 }
 
 const saveDraft = async ({ silent = false } = {}) => {
@@ -480,6 +625,7 @@ const saveDraft = async ({ silent = false } = {}) => {
       font_family: editorDraft.value.font_family,
       font_size: editorDraft.value.font_size,
       text_color: editorDraft.value.text_color,
+      image_urls: noteImageUrls.value,
     })
     replaceNote(res.data)
     dirty.value = false
@@ -496,6 +642,8 @@ const closeEditor = async () => {
   editorVisible.value = false
   editingNote.value = null
   editorDraft.value = defaultDraft()
+  noteImagesExpanded.value = false
+  previewImageUrl.value = ''
 }
 
 const renameNote = async (note) => {
@@ -969,7 +1117,7 @@ onBeforeUnmount(() => {
 }
 
 .editor-card {
-  width: min(1040px, 100%);
+  width: min(1180px, 100%);
   height: min(860px, calc(100vh - 56px));
   border-radius: 30px;
   padding: 20px;
@@ -1004,6 +1152,178 @@ onBeforeUnmount(() => {
 .font-toolbar small {
   margin-left: auto;
   padding-bottom: 10px;
+}
+
+.editor-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 178px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.note-image-panel {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid rgba(127, 240, 255, .18);
+  border-radius: 22px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: linear-gradient(155deg, rgba(4, 10, 24, .76), rgba(12, 20, 48, .62));
+}
+
+.note-image-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #dffbff;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.note-image-head span,
+.image-empty,
+.note-image-upload small {
+  color: #9fc6da;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.note-image-upload,
+.image-stack,
+.note-image-tile,
+.image-open {
+  aspect-ratio: 1 / 1;
+}
+
+.note-image-upload {
+  width: 100%;
+  border: 1px dashed rgba(126, 236, 255, .42);
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  color: #effcff;
+  background: rgba(255, 255, 255, .05);
+  cursor: pointer;
+}
+
+.note-image-upload:hover {
+  border-color: rgba(255, 78, 198, .72);
+  background: rgba(255, 255, 255, .08);
+}
+
+.note-image-upload.disabled {
+  opacity: .62;
+  cursor: not-allowed;
+}
+
+.note-image-upload input {
+  display: none;
+}
+
+.note-image-upload span {
+  width: 42px;
+  height: 42px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #34d9ff, #ff4ec6);
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.image-stack {
+  position: relative;
+  width: calc(100% - 16px);
+  min-height: 0;
+  border: 0;
+  margin: 0 0 18px;
+  padding: 0;
+  color: #fff;
+  background: transparent;
+  cursor: pointer;
+}
+
+.stack-card {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid rgba(216, 248, 255, .42);
+  border-radius: 18px;
+  background: #071426;
+  box-shadow: 0 14px 34px rgba(0, 7, 24, .34);
+}
+
+.stack-card img,
+.note-image-tile img,
+.image-preview-overlay img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-stack strong {
+  position: absolute;
+  right: -8px;
+  bottom: -22px;
+  z-index: 4;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  color: #06111f;
+  background: #7ff3ff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.note-image-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.note-image-tile {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(216, 248, 255, .28);
+  border-radius: 14px;
+  background: #071426;
+}
+
+.image-open {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  display: block;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.image-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, .36);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(86, 12, 30, .82);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 20px;
+}
+
+.image-empty {
+  margin: 0;
+  text-align: center;
 }
 
 .note-editor {
@@ -1045,6 +1365,31 @@ onBeforeUnmount(() => {
   border-top: 1px solid rgba(147, 223, 255, .16);
   justify-content: flex-end;
   background: linear-gradient(180deg, rgba(7, 16, 36, .1), rgba(7, 16, 36, .72));
+}
+
+.image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  padding: 28px;
+  display: grid;
+  place-items: center;
+  background: rgba(1, 5, 16, .86);
+  backdrop-filter: blur(10px);
+}
+
+.image-preview-overlay img {
+  width: min(92vw, 980px);
+  height: min(82vh, 820px);
+  border: 1px solid rgba(160, 229, 255, .34);
+  border-radius: 22px;
+  box-shadow: 0 28px 80px rgba(0, 8, 30, .58);
+}
+
+.preview-close {
+  position: absolute;
+  top: 24px;
+  right: 28px;
 }
 
 .editor-pop-enter-active,
@@ -1093,6 +1438,23 @@ onBeforeUnmount(() => {
   .head-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .editor-body {
+    grid-template-columns: 1fr;
+  }
+
+  .note-image-panel {
+    max-height: 260px;
+  }
+
+  .note-image-grid {
+    grid-template-columns: repeat(5, minmax(52px, 1fr));
+  }
+
+  .image-stack {
+    width: 120px;
+    min-height: 120px;
   }
 }
 </style>

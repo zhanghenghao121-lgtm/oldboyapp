@@ -555,6 +555,13 @@ class OctopusNoteApiTests(TestCase):
         self.assertEqual(renamed_folder.status_code, 200)
         self.assertEqual(renamed_folder.data["data"]["name"], "项目灵感")
 
+        covered_folder = self.client.patch(
+            f"/api/v1/octopus-note/folders/{folder_id}",
+            {"cover_url": "https://assets.example.com/folder-cover.jpg"},
+        )
+        self.assertEqual(covered_folder.status_code, 200)
+        self.assertEqual(covered_folder.data["data"]["cover_url"], "https://assets.example.com/folder-cover.jpg")
+
         created_note = self.client.post(f"/api/v1/octopus-note/folders/{folder_id}/notes", {"title": "第一本"})
         self.assertEqual(created_note.status_code, 200)
         note_id = created_note.data["data"]["id"]
@@ -567,11 +574,13 @@ class OctopusNoteApiTests(TestCase):
                 "font_family": "Orbitron",
                 "font_size": 24,
                 "text_color": "#66fff4",
+                "cover_url": "https://assets.example.com/note-cover.jpg",
             },
         )
         self.assertEqual(saved_note.status_code, 200)
         self.assertEqual(saved_note.data["data"]["content"], "海底有一束蓝色光")
         self.assertEqual(saved_note.data["data"]["font_size"], 24)
+        self.assertEqual(saved_note.data["data"]["cover_url"], "https://assets.example.com/note-cover.jpg")
 
         note_list = self.client.get(f"/api/v1/octopus-note/folders/{folder_id}/notes", {"q": "蓝色", "order": "created_asc"})
         self.assertEqual(note_list.status_code, 200)

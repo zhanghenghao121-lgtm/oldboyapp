@@ -93,6 +93,7 @@ def _serialize_octopus_folder(folder):
     return {
         "id": folder.id,
         "name": folder.name,
+        "cover_url": folder.cover_url,
         "note_count": int(note_count or 0),
         "created_at": folder.created_at,
         "updated_at": folder.updated_at,
@@ -104,6 +105,7 @@ def _serialize_octopus_note(note):
         "id": note.id,
         "folder_id": note.folder_id,
         "title": note.title,
+        "cover_url": note.cover_url,
         "content": note.content,
         "font_family": note.font_family,
         "font_size": note.font_size,
@@ -156,8 +158,16 @@ def octopus_note_folder_detail(request, folder_id):
     if request.method == "DELETE":
         folder.delete()
         return ok({"deleted": True, "id": folder_id})
-    folder.name = _clean_name(request.data.get("name"), folder.name)
-    folder.save(update_fields=["name", "updated_at"])
+    update_fields = []
+    if "name" in request.data:
+        folder.name = _clean_name(request.data.get("name"), folder.name)
+        update_fields.append("name")
+    if "cover_url" in request.data:
+        folder.cover_url = str(request.data.get("cover_url") or "").strip()[:1000]
+        update_fields.append("cover_url")
+    if update_fields:
+        update_fields.append("updated_at")
+        folder.save(update_fields=update_fields)
     return ok(_serialize_octopus_folder(folder))
 
 
@@ -204,6 +214,9 @@ def octopus_note_detail(request, note_id):
     if "title" in request.data:
         note.title = _clean_name(request.data.get("title"), note.title)
         update_fields.append("title")
+    if "cover_url" in request.data:
+        note.cover_url = str(request.data.get("cover_url") or "").strip()[:1000]
+        update_fields.append("cover_url")
     if "content" in request.data:
         note.content = str(request.data.get("content") or "")
         update_fields.append("content")

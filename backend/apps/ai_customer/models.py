@@ -51,6 +51,7 @@ class PositionStickerComposition(models.Model):
 class OctopusNoteFolder(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="octopus_note_folders")
     name = models.CharField(max_length=120)
+    cover_url = models.URLField(max_length=1000, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -62,6 +63,7 @@ class OctopusNote(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="octopus_notes")
     folder = models.ForeignKey(OctopusNoteFolder, on_delete=models.CASCADE, related_name="notes")
     title = models.CharField(max_length=120)
+    cover_url = models.URLField(max_length=1000, blank=True, default="")
     content = models.TextField(blank=True, default="")
     font_family = models.CharField(max_length=120, blank=True, default="Plus Jakarta Sans")
     font_size = models.PositiveIntegerField(default=18)

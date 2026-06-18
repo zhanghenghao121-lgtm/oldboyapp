@@ -59,7 +59,14 @@
         </div>
 
         <div v-if="!currentFolder" class="card-grid folder-grid" :class="{ loading }">
-          <article v-for="folder in folders" :key="folder.id" class="memory-card folder-card" @click="openFolder(folder)">
+          <article
+            v-for="folder in folders"
+            :key="folder.id"
+            class="memory-card folder-card"
+            :class="{ 'has-cover': folder.cover_url }"
+            :style="coverCardStyle(folder)"
+            @click="openFolder(folder)"
+          >
             <div class="card-orbit"></div>
             <div class="card-icon">F</div>
             <h3>{{ folder.name }}</h3>
@@ -69,6 +76,7 @@
               <button class="dots-btn" type="button" @click.stop>...</button>
               <template #dropdown>
                 <el-dropdown-menu>
+                  <el-dropdown-item command="cover">编辑封面</el-dropdown-item>
                   <el-dropdown-item command="rename">重命名</el-dropdown-item>
                   <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                 </el-dropdown-menu>
@@ -82,7 +90,14 @@
         </div>
 
         <div v-else class="card-grid note-grid" :class="{ loading: noteLoading }">
-          <article v-for="note in notes" :key="note.id" class="memory-card note-card" @click="openNote(note)">
+          <article
+            v-for="note in notes"
+            :key="note.id"
+            class="memory-card note-card"
+            :class="{ 'has-cover': note.cover_url }"
+            :style="coverCardStyle(note)"
+            @click="openNote(note)"
+          >
             <div class="card-orbit"></div>
             <div class="card-icon">N</div>
             <h3>{{ note.title }}</h3>
@@ -93,6 +108,7 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                  <el-dropdown-item command="cover">编辑封面</el-dropdown-item>
                   <el-dropdown-item command="rename">重命名</el-dropdown-item>
                   <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                 </el-dropdown-menu>
@@ -152,6 +168,8 @@
         </article>
       </section>
     </transition>
+
+    <input ref="coverInputRef" class="cover-file-input" type="file" accept="image/*" @change="handleCoverFileChange" />
   </div>
 </template>
 
@@ -171,6 +189,7 @@ import {
   updateOctopusFolder,
   updateOctopusNote,
 } from '../api/octopusNotes'
+import { storageFileUrl, uploadToCos } from '../api/storage'
 
 const router = useRouter()
 const fallbackBg = 'https://zy2000zh-1257453885.cos.ap-shanghai.myqcloud.com/image/1.png'
@@ -188,6 +207,9 @@ const editorDraft = ref(defaultDraft())
 const editorRef = ref(null)
 const dirty = ref(false)
 const saving = ref(false)
+const coverInputRef = ref(null)
+const coverUploadTarget = ref(null)
+const coverUploading = ref(false)
 let searchTimer = null
 
 const fontOptions = [
@@ -231,6 +253,15 @@ const editorStyle = computed(() => ({
   fontSize: `${editorDraft.value.font_size || 18}px`,
   color: editorDraft.value.text_color || '#eaf7ff',
 }))
+
+const coverCardStyle = (item) => {
+  if (!item?.cover_url) return {}
+  return {
+    backgroundImage: `linear-gradient(180deg, rgba(3, 8, 18, 0.22), rgba(3, 8, 18, 0.84)), url("${storageFileUrl(item.cover_url)}")`,
+    backgroundPosition: 'center',
+    backgroundSize: 'cover',
+  }
+}
 
 const loadBackground = async () => {
   try {
@@ -314,6 +345,49 @@ const renameFolder = async (folder) => {
   }
 }
 
+const replaceFolder = (nextFolder) => {
+  folders.value = folders.value.map((item) => (item.id === nextFolder.id ? nextFolder : item))
+  if (currentFolder.value?.id === nextFolder.id) currentFolder.value = nextFolder
+}
+
+const editCover = (type, item) => {
+  if (coverUploading.value) return
+  coverUploadTarget.value = { type, item }
+  if (coverInputRef.value) {
+    coverInputRef.value.value = ''
+    coverInputRef.value.click()
+  }
+}
+
+const handleCoverFileChange = async (event) => {
+  const file = event.target.files?.[0]
+  const target = coverUploadTarget.value
+  event.target.value = ''
+  if (!file || !target?.item?.id) return
+  if (!file.type.startsWith('image/')) {
+    ElMessage.error('请选择图片文件')
+    return
+  }
+  coverUploading.value = true
+  try {
+    const uploaded = await uploadToCos(file, 'images/octopus-notes/covers', { timeout: 120000 })
+    const coverUrl = uploaded.data.url
+    if (target.type === 'folder') {
+      const res = await updateOctopusFolder(target.item.id, { cover_url: coverUrl })
+      replaceFolder(res.data)
+    } else {
+      const res = await updateOctopusNote(target.item.id, { cover_url: coverUrl })
+      replaceNote(res.data)
+    }
+    ElMessage.success(uploaded.data.compressed ? '封面已压缩并上传' : '封面已更新')
+  } catch (error) {
+    ElMessage.error(String(error || '封面上传失败'))
+  } finally {
+    coverUploading.value = false
+    coverUploadTarget.value = null
+  }
+}
+
 const removeFolder = async (folder) => {
   try {
     await ElMessageBox.confirm(`删除“${folder.name}”及其中所有记事本？`, '删除文件夹', {
@@ -332,6 +406,7 @@ const removeFolder = async (folder) => {
 }
 
 const handleFolderCommand = (command, folder) => {
+  if (command === 'cover') editCover('folder', folder)
   if (command === 'rename') renameFolder(folder)
   if (command === 'delete') removeFolder(folder)
 }
@@ -462,6 +537,7 @@ const deleteEditingNote = async () => {
 
 const handleNoteCommand = (command, note) => {
   if (command === 'edit') openNote(note)
+  if (command === 'cover') editCover('note', note)
   if (command === 'rename') renameNote(note)
   if (command === 'delete') removeNote(note)
 }
@@ -783,6 +859,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 24px 60px rgba(37, 206, 255, .2);
 }
 
+.memory-card.has-cover {
+  border-color: rgba(183, 238, 255, .36);
+}
+
+.memory-card.has-cover .card-orbit {
+  display: none;
+}
+
 .card-orbit {
   position: absolute;
   inset: -40% -20% auto auto;
@@ -851,6 +935,10 @@ onBeforeUnmount(() => {
   background: rgba(2, 8, 18, .62);
   cursor: pointer;
   letter-spacing: 2px;
+}
+
+.cover-file-input {
+  display: none;
 }
 
 .empty-state {

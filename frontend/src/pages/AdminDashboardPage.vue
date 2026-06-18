@@ -305,8 +305,8 @@
             <p>查看站内用户资料、账号状态和积分余额。</p>
           </div>
           <div class="user-tools">
-            <el-input v-model="userSearch" clearable placeholder="搜索用户名或邮箱" @keyup.enter="loadUsers" @clear="loadUsers" />
-            <el-button class="main-btn" type="primary" :loading="loadingUsers" @click="loadUsers">查询</el-button>
+            <el-input v-model="userSearch" clearable placeholder="搜索用户名或邮箱" @keyup.enter="searchUsers" @clear="searchUsers" />
+            <el-button class="main-btn" type="primary" :loading="loadingUsers" @click="searchUsers">查询</el-button>
           </div>
         </div>
 
@@ -358,6 +358,17 @@
             </template>
           </el-table-column>
         </el-table>
+        <div class="table-pagination">
+          <el-pagination
+            v-model:current-page="userPagination.page"
+            v-model:page-size="userPagination.pageSize"
+            :page-sizes="pageSizeOptions"
+            :total="userPagination.total"
+            layout="total, sizes, prev, pager, next, jumper"
+            @size-change="handleUserPageSizeChange"
+            @current-change="handleUserPageChange"
+          />
+        </div>
       </section>
 
       <section v-else class="panel">
@@ -367,8 +378,8 @@
             <p>查看当前处于发布状态的记事本。</p>
           </div>
           <div class="user-tools">
-            <el-input v-model="planetSearch" clearable placeholder="搜索用户名或记事本名称" @keyup.enter="loadPlanetPublishes" @clear="loadPlanetPublishes" />
-            <el-button class="main-btn" type="primary" :loading="loadingPlanetPublishes" @click="loadPlanetPublishes">查询</el-button>
+            <el-input v-model="planetSearch" clearable placeholder="搜索用户名或记事本名称" @keyup.enter="searchPlanetPublishes" @clear="searchPlanetPublishes" />
+            <el-button class="main-btn" type="primary" :loading="loadingPlanetPublishes" @click="searchPlanetPublishes">查询</el-button>
           </div>
         </div>
 
@@ -386,6 +397,17 @@
             <template #default="{ row }">{{ formatDate(row.published_at) }}</template>
           </el-table-column>
         </el-table>
+        <div class="table-pagination">
+          <el-pagination
+            v-model:current-page="planetPagination.page"
+            v-model:page-size="planetPagination.pageSize"
+            :page-sizes="pageSizeOptions"
+            :total="planetPagination.total"
+            layout="total, sizes, prev, pager, next, jumper"
+            @size-change="handlePlanetPageSizeChange"
+            @current-change="handlePlanetPageChange"
+          />
+        </div>
       </section>
     </main>
 
@@ -455,6 +477,9 @@ const users = ref([])
 const planetSearch = ref('')
 const planetPublishes = ref([])
 const editDialogVisible = ref(false)
+const pageSizeOptions = [10, 20, 50]
+const userPagination = reactive({ page: 1, pageSize: 10, total: 0 })
+const planetPagination = reactive({ page: 1, pageSize: 10, total: 0 })
 
 const forms = reactive({
   storyboard_deepseek_base_url: '',
@@ -528,11 +553,19 @@ const loadConfigs = async () => {
   assignConfigs(res.data || [])
 }
 
-const loadUsers = async () => {
+const loadUsers = async ({ resetPage = false } = {}) => {
+  if (resetPage) userPagination.page = 1
   loadingUsers.value = true
   try {
-    const res = await getConsoleUsers({ q: userSearch.value.trim() })
+    const res = await getConsoleUsers({
+      q: userSearch.value.trim(),
+      page: userPagination.page,
+      page_size: userPagination.pageSize,
+    })
     users.value = res.data.list || []
+    userPagination.total = Number(res.data.total || 0)
+    userPagination.page = Number(res.data.page || userPagination.page)
+    userPagination.pageSize = Number(res.data.page_size || userPagination.pageSize)
   } catch (e) {
     ElMessage.error(String(e || '用户列表加载失败'))
   } finally {
@@ -540,16 +573,50 @@ const loadUsers = async () => {
   }
 }
 
-const loadPlanetPublishes = async () => {
+const loadPlanetPublishes = async ({ resetPage = false } = {}) => {
+  if (resetPage) planetPagination.page = 1
   loadingPlanetPublishes.value = true
   try {
-    const res = await getConsoleOctopusPlanetPublishes({ q: planetSearch.value.trim() })
+    const res = await getConsoleOctopusPlanetPublishes({
+      q: planetSearch.value.trim(),
+      page: planetPagination.page,
+      page_size: planetPagination.pageSize,
+    })
     planetPublishes.value = res.data.list || []
+    planetPagination.total = Number(res.data.total || 0)
+    planetPagination.page = Number(res.data.page || planetPagination.page)
+    planetPagination.pageSize = Number(res.data.page_size || planetPagination.pageSize)
   } catch (e) {
     ElMessage.error(String(e || '章鱼星球发布记录加载失败'))
   } finally {
     loadingPlanetPublishes.value = false
   }
+}
+
+const searchUsers = () => loadUsers({ resetPage: true })
+
+const searchPlanetPublishes = () => loadPlanetPublishes({ resetPage: true })
+
+const handleUserPageChange = (page) => {
+  userPagination.page = page
+  loadUsers()
+}
+
+const handleUserPageSizeChange = (pageSize) => {
+  userPagination.pageSize = pageSize
+  userPagination.page = 1
+  loadUsers()
+}
+
+const handlePlanetPageChange = (page) => {
+  planetPagination.page = page
+  loadPlanetPublishes()
+}
+
+const handlePlanetPageSizeChange = (pageSize) => {
+  planetPagination.pageSize = pageSize
+  planetPagination.page = 1
+  loadPlanetPublishes()
 }
 
 const selectSection = async (section) => {
@@ -856,6 +923,20 @@ onMounted(async () => {
   gap: 6px;
 }
 
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.table-pagination :deep(.el-pagination) {
+  --el-pagination-bg-color: #0a1222;
+  --el-pagination-button-disabled-bg-color: #0a1222;
+  --el-pagination-hover-color: #7fb8ff;
+  --el-text-color-primary: #dce8f8;
+  --el-text-color-regular: #94a8c2;
+}
+
 .user-form :deep(.el-input-number) {
   width: 180px;
 }
@@ -894,8 +975,14 @@ onMounted(async () => {
   }
 
   .user-tools,
-  .user-tools .el-input {
+  .user-tools .el-input,
+  .table-pagination {
     width: 100%;
+  }
+
+  .table-pagination {
+    justify-content: flex-start;
+    overflow-x: auto;
   }
 }
 </style>

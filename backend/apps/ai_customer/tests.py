@@ -705,17 +705,18 @@ class OctopusNoteApiTests(TestCase):
 
     def test_console_lists_public_octopus_planet_publishes(self):
         folder = OctopusNoteFolder.objects.create(user=self.user, name="星球文件夹")
-        note = OctopusNote.objects.create(user=self.user, folder=folder, title="后台可见记事")
+        for index in range(12):
+            note = OctopusNote.objects.create(user=self.user, folder=folder, title=f"published-{index}")
+            OctopusPlanetPublish.objects.create(
+                note=note,
+                user=self.user,
+                tag="灵感",
+                tag_normalized="灵感",
+                tags=["灵感"],
+                tags_normalized=["灵感"],
+                qdrant_point_id=str(note.id),
+            )
         hidden_note = OctopusNote.objects.create(user=self.user, folder=folder, title="已取消记事")
-        OctopusPlanetPublish.objects.create(
-            note=note,
-            user=self.user,
-            tag="灵感",
-            tag_normalized="灵感",
-            tags=["灵感"],
-            tags_normalized=["灵感"],
-            qdrant_point_id=str(note.id),
-        )
         OctopusPlanetPublish.objects.create(
             note=hidden_note,
             user=self.user,
@@ -737,13 +738,46 @@ class OctopusNoteApiTests(TestCase):
 
         response = console_client.get(
             "/api/v1/console/octopus-planet/publishes",
+            {"page": 1, "page_size": 10},
         )
 
         self.assertEqual(response.status_code, 200)
         items = response.data["data"]["list"]
-        self.assertEqual(len(items), 1)
+        self.assertEqual(response.data["data"]["total"], 12)
+        self.assertEqual(response.data["data"]["page_size"], 10)
+        self.assertEqual(len(items), 10)
         self.assertEqual(items[0]["username"], self.user.username)
-        self.assertEqual(items[0]["notebook_title"], "后台可见记事")
+        self.assertTrue(items[0]["notebook_title"].startswith("published-"))
+
+        second_page = console_client.get(
+            "/api/v1/console/octopus-planet/publishes",
+            {"page": 2, "page_size": 10},
+        )
+        self.assertEqual(second_page.status_code, 200)
+        self.assertEqual(len(second_page.data["data"]["list"]), 2)
+
+    def test_console_users_are_paginated(self):
+        admin = get_user_model().objects.create_user(
+            username="users-admin",
+            email="users-admin@example.com",
+            password="Pass1234A",
+            is_staff=True,
+        )
+        for index in range(23):
+            get_user_model().objects.create_user(
+                username=f"page-user-{index}",
+                email=f"page-user-{index}@example.com",
+                password="Pass1234A",
+            )
+        console_client = APIClient()
+        console_client.force_authenticate(admin)
+
+        response = console_client.get("/api/v1/console/users", {"page": 1, "page_size": 20})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["total"], 25)
+        self.assertEqual(response.data["data"]["page_size"], 20)
+        self.assertEqual(len(response.data["data"]["list"]), 20)
 
     def test_octopus_planet_scope_mine_filters_other_users(self):
         folder = OctopusNoteFolder.objects.create(user=self.user, name="我的文件夹")

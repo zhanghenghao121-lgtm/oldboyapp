@@ -138,6 +138,33 @@ def _serialize_planet_publish(publish):
     }
 
 
+def _pagination_params(request):
+    try:
+        page = max(int(request.query_params.get("page", 1) or 1), 1)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.query_params.get("page_size", 10) or 10)
+    except (TypeError, ValueError):
+        page_size = 10
+    if page_size not in (10, 20, 50):
+        page_size = 10
+    offset = (page - 1) * page_size
+    return page, page_size, offset
+
+
+def _paginated_response(queryset, request, serializer):
+    page, page_size, offset = _pagination_params(request)
+    total = queryset.count()
+    rows = queryset[offset : offset + page_size]
+    return {
+        "list": [serializer(item) for item in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def public_backgrounds(request):
@@ -235,8 +262,7 @@ def console_users(request):
     queryset = User.objects.all().order_by("-id")
     if q:
         queryset = queryset.filter(Q(username__icontains=q) | Q(email__icontains=q)).order_by("-id")
-    users = queryset[:200]
-    return ok({"list": [_serialize_console_user(user) for user in users]})
+    return ok(_paginated_response(queryset, request, _serialize_console_user))
 
 
 @api_view(["GET"])
@@ -246,8 +272,7 @@ def console_octopus_planet_publishes(request):
     queryset = OctopusPlanetPublish.objects.select_related("note", "user").filter(is_public=True).order_by("-published_at", "-id")
     if q:
         queryset = queryset.filter(Q(user__username__icontains=q) | Q(note__title__icontains=q)).order_by("-published_at", "-id")
-    publishes = queryset[:500]
-    return ok({"list": [_serialize_planet_publish(publish) for publish in publishes]})
+    return ok(_paginated_response(queryset, request, _serialize_planet_publish))
 
 
 @csrf_exempt

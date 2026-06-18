@@ -1,5 +1,9 @@
 <template>
   <div class="home-shell page-shell" :style="pageStyle">
+    <button class="logout-button" type="button" :disabled="loggingOut" @click="handleLogout">
+      {{ loggingOut ? '退出中...' : '退出' }}
+    </button>
+
     <main class="home-panel">
       <div class="title-block home-title">
         <span>OCTOPUS WORKBENCH</span>
@@ -26,14 +30,15 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
-import { me } from '../api/auth'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { logout, me } from '../api/auth'
 import { getSiteBackgrounds } from '../api/site'
 
 const router = useRouter()
 const fallbackBg = 'https://zy2000zh-1257453885.cos.ap-shanghai.myqcloud.com/image/1.png'
 const backgroundUrl = ref('')
 const currentUser = ref(null)
+const loggingOut = ref(false)
 
 const withVersion = (url, version) => {
   if (!url) return ''
@@ -92,6 +97,19 @@ const enterFeature = (feature, path) => {
   router.push(path)
 }
 
+const handleLogout = async () => {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  try {
+    await logout()
+    router.push('/login')
+  } catch (error) {
+    ElMessage.error(String(error || '退出登录失败'))
+  } finally {
+    loggingOut.value = false
+  }
+}
+
 onMounted(async () => {
   await Promise.all([loadBackground(), loadUser()])
 })
@@ -99,7 +117,35 @@ onMounted(async () => {
 
 <style scoped>
 .home-shell {
+  position: relative;
   padding: 28px;
+}
+
+.logout-button {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  z-index: 2;
+  min-height: 40px;
+  padding: 0 18px;
+  border: 1px solid rgba(232, 244, 255, 0.42);
+  border-radius: 999px;
+  color: #f7fbff;
+  background: rgba(12, 18, 42, 0.62);
+  box-shadow: 0 14px 32px rgba(4, 12, 42, 0.24);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.logout-button:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.78);
+  background: rgba(34, 44, 86, 0.72);
+}
+
+.logout-button:disabled {
+  opacity: .68;
+  cursor: wait;
 }
 
 .home-panel {
@@ -238,7 +284,12 @@ onMounted(async () => {
 
 @media (max-width: 760px) {
   .home-shell {
-    padding: 18px;
+    padding: 72px 18px 18px;
+  }
+
+  .logout-button {
+    top: 18px;
+    right: 18px;
   }
 
   .desk-actions {

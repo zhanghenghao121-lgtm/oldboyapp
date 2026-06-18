@@ -7,7 +7,10 @@ export const setConsoleToken = (token) => {
   if (token) localStorage.setItem(TOKEN_KEY, token)
 }
 export const clearConsoleToken = () => localStorage.removeItem(TOKEN_KEY)
-const consoleHeaders = () => ({ headers: { 'X-Console-Token': getConsoleToken() } })
+const consoleHeaders = () => {
+  const token = getConsoleToken()
+  return { headers: { 'X-Console-Token': token, Authorization: token ? `Bearer ${token}` : '' } }
+}
 
 export const consoleLogin = async (payload) => {
   const res = await http.post('/console/login', payload)

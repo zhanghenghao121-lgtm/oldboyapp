@@ -4,6 +4,8 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 
+from apps.console.models import SiteConfig
+
 
 @override_settings(
     EMAIL_CODE_IP_LIMIT_PER_MINUTE=10,
@@ -134,3 +136,30 @@ class AccountPermissionTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertIn("无后台访问权限", response.json()["message"])
+
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}})
+    def test_console_config_update_accepts_signed_authorization_token_without_cache(self):
+        User = get_user_model()
+        User.objects.create_user(
+            username="console-admin",
+            email="console-admin@example.com",
+            password="Pass1234A",
+            is_staff=True,
+        )
+
+        login = self.client.post(
+            "/api/v1/console/login",
+            {"username": "console-admin", "password": "Pass1234A"},
+            content_type="application/json",
+        )
+        token = login.json()["data"]["token"]
+
+        response = self.client.put(
+            f"/api/v1/console/configs/{SiteConfig.KEY_AI_IMAGE_DOUBAO_MODEL}",
+            {"value": "doubao-test-model"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["value"], "doubao-test-model")

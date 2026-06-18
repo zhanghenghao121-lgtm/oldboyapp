@@ -76,6 +76,46 @@ class OctopusNote(models.Model):
         ordering = ["-created_at", "-id"]
 
 
+class OctopusPlanetPublish(models.Model):
+    note = models.OneToOneField(OctopusNote, on_delete=models.CASCADE, related_name="planet_publish")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="octopus_planet_publishes")
+    tag = models.CharField(max_length=10)
+    tag_normalized = models.CharField(max_length=20, db_index=True)
+    is_public = models.BooleanField(default=True)
+    is_vector_ready = models.BooleanField(default=False)
+    tag_vector = models.JSONField(default=list, blank=True)
+    particle_x = models.FloatField(null=True, blank=True)
+    particle_y = models.FloatField(null=True, blank=True)
+    particle_z = models.FloatField(null=True, blank=True)
+    particle_color = models.CharField(max_length=20, blank=True, default="")
+    particle_size = models.FloatField(default=1.0)
+    qdrant_point_id = models.CharField(max_length=64, unique=True)
+    published_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-published_at", "-id"]
+        indexes = [
+            models.Index(fields=["user", "-published_at"]),
+            models.Index(fields=["is_public", "-published_at"]),
+            models.Index(fields=["tag_normalized"]),
+        ]
+
+
+class OctopusPlanetTagStat(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="octopus_planet_tag_stats")
+    tag = models.CharField(max_length=10)
+    tag_normalized = models.CharField(max_length=20)
+    use_count = models.PositiveIntegerField(default=1)
+    last_used_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user", "tag_normalized")
+        indexes = [
+            models.Index(fields=["user", "-use_count", "-last_used_at"]),
+        ]
+
+
 class StoryboardProject(models.Model):
     STATUS_DRAFT = "draft"
     STATUS_ANALYZED = "analyzed"

@@ -15,6 +15,8 @@ import AdminDashboardPage from '../pages/AdminDashboardPage.vue'
 import { me } from '../api/auth'
 import { consoleMe } from '../api/console'
 
+const OctopusPlanetPage = () => import('../pages/OctopusPlanetPage.vue')
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -23,6 +25,7 @@ const router = createRouter({
     { path: '/register', component: RegisterPage },
     { path: '/forgot', component: ForgotPage },
     { path: '/octopus-space', component: OctopusSpacePage, meta: { requiresAuth: true, requiredFeature: 'workbench' } },
+    { path: '/octopus-planet', component: OctopusPlanetPage, meta: { requiresAuth: true, requiredFeature: 'workbench' } },
     { path: '/profile', component: ProfilePage, meta: { requiresAuth: true } },
     { path: '/change-password', component: ChangePasswordPage, meta: { requiresAuth: true } },
     { path: '/storyboard', component: StoryboardPage, meta: { requiresAuth: true, requiredFeature: 'storyboard' } },

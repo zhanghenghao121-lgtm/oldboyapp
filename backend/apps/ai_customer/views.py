@@ -24,6 +24,14 @@ from apps.ai_customer.models import (
     StoryboardProject,
     StorySegment,
 )
+from apps.ai_customer.octopus_planet_services import (
+    OctopusPlanetError,
+    common_tags,
+    particles,
+    publish_detail,
+    publish_note,
+    search_particles,
+)
 from apps.ai_customer.runtime_config import (
     get_ai_image_configs,
     get_storyboard_llm_configs,
@@ -114,6 +122,10 @@ def _serialize_octopus_folder(folder):
 
 
 def _serialize_octopus_note(note):
+    try:
+        planet_publish = note.planet_publish
+    except Exception:
+        planet_publish = None
     return {
         "id": note.id,
         "folder_id": note.folder_id,
@@ -124,6 +136,11 @@ def _serialize_octopus_note(note):
         "font_family": note.font_family,
         "font_size": note.font_size,
         "text_color": note.text_color,
+        "planet_publish": {
+            "id": planet_publish.id,
+            "tag": planet_publish.tag,
+            "is_vector_ready": planet_publish.is_vector_ready,
+        } if planet_publish and planet_publish.is_public else None,
         "created_at": note.created_at,
         "updated_at": note.updated_at,
     }
@@ -253,6 +270,67 @@ def octopus_note_detail(request, note_id):
         update_fields.append("updated_at")
         note.save(update_fields=update_fields)
     return ok(_serialize_octopus_note(note))
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def octopus_planet_publish(request):
+    if not _workbench_allowed(request):
+        return _workbench_denied()
+    try:
+        publish = publish_note(request.user, request.data.get("notebook_id"), request.data.get("tag"))
+        return ok(
+            {
+                "publish_id": publish.id,
+                "notebook_id": publish.note_id,
+                "tag": publish.tag,
+                "is_vector_ready": publish.is_vector_ready,
+                "message": "已发布到章鱼星球" if publish.is_vector_ready else "已发布，星球同步中",
+            }
+        )
+    except OctopusPlanetError as exc:
+        return bad(str(exc), exc.status)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def octopus_planet_common_tags(request):
+    if not _workbench_allowed(request):
+        return _workbench_denied()
+    return ok({"items": common_tags(request.user)})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def octopus_planet_particles(request):
+    if not _workbench_allowed(request):
+        return _workbench_denied()
+    scope = "mine" if request.query_params.get("scope") == "mine" else "all"
+    return ok({"items": particles(scope, request.user)})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def octopus_planet_search(request):
+    if not _workbench_allowed(request):
+        return _workbench_denied()
+    scope = "mine" if request.query_params.get("scope") == "mine" else "all"
+    try:
+        return ok({"items": search_particles(request.query_params.get("tag"), scope, request.user)})
+    except OctopusPlanetError as exc:
+        return bad(str(exc), exc.status)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def octopus_planet_publish_detail(request, publish_id):
+    if not _workbench_allowed(request):
+        return _workbench_denied()
+    try:
+        return ok(publish_detail(publish_id, request.user))
+    except OctopusPlanetError as exc:
+        return bad(str(exc), exc.status)
 
 
 @api_view(["GET"])

@@ -213,6 +213,9 @@
           </div>
 
           <footer class="editor-actions">
+            <button class="soft-btn" type="button" :disabled="saving" @click="openPublishDialog">
+              {{ editorDraft.planet_publish ? `已发布 #${editorDraft.planet_publish.tag}` : '发布到章鱼星球' }}
+            </button>
             <button class="danger-btn" type="button" :disabled="saving" @click="deleteEditingNote">删除</button>
             <button class="primary-glow" type="button" :disabled="saving" @click="saveDraft()">{{ saving ? '保存中...' : '保存' }}</button>
           </footer>
@@ -228,6 +231,27 @@
         <img :src="storageFileUrl(previewImageUrl)" alt="图片预览" />
       </section>
     </transition>
+
+    <el-dialog v-model="publishDialogVisible" title="发布到章鱼星球" width="460px" class="planet-publish-dialog">
+      <div class="publish-form">
+        <label>
+          <span>标签</span>
+          <input v-model.trim="publishTag" maxlength="10" placeholder="最多 10 个字" @keyup.enter="submitPublish" />
+        </label>
+        <div v-if="commonTags.length" class="common-tags">
+          <small>常用标签</small>
+          <button v-for="item in commonTags" :key="item.tag" type="button" @click="publishTag = item.tag">
+            #{{ item.tag }}
+          </button>
+        </div>
+      </div>
+      <template #footer>
+        <button class="soft-btn" type="button" @click="publishDialogVisible = false">取消</button>
+        <button class="primary-glow" type="button" :disabled="publishing" @click="submitPublish">
+          {{ publishing ? '发布中...' : '发布' }}
+        </button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -247,6 +271,7 @@ import {
   updateOctopusFolder,
   updateOctopusNote,
 } from '../api/octopusNotes'
+import { getOctopusPlanetCommonTags, publishOctopusNote } from '../api/octopusPlanet'
 import { storageFileUrl, uploadToCos } from '../api/storage'
 
 const router = useRouter()
@@ -272,6 +297,10 @@ const noteImageInputRef = ref(null)
 const noteImageUploading = ref(false)
 const noteImagesExpanded = ref(false)
 const previewImageUrl = ref('')
+const publishDialogVisible = ref(false)
+const publishTag = ref('')
+const commonTags = ref([])
+const publishing = ref(false)
 let searchTimer = null
 
 const fontOptions = [
@@ -291,6 +320,7 @@ function defaultDraft() {
     font_size: 18,
     text_color: '#eaf7ff',
     image_urls: [],
+    planet_publish: null,
   }
 }
 
@@ -521,6 +551,7 @@ const openNote = async (note) => {
     font_size: note.font_size || 18,
     text_color: note.text_color || '#eaf7ff',
     image_urls: cleanImageUrls(note.image_urls),
+    planet_publish: note.planet_publish || null,
   }
   dirty.value = false
   noteImagesExpanded.value = false
@@ -544,6 +575,7 @@ const replaceNote = (nextNote) => {
   if (editingNote.value?.id === nextNote.id) editingNote.value = nextNote
   if (editorDraft.value.id === nextNote.id) {
     editorDraft.value.image_urls = cleanImageUrls(nextNote.image_urls)
+    editorDraft.value.planet_publish = nextNote.planet_publish || editorDraft.value.planet_publish || null
   }
 }
 
@@ -612,6 +644,53 @@ const openImagePreview = (url) => {
 
 const closeImagePreview = () => {
   previewImageUrl.value = ''
+}
+
+const replaceNotePublishState = (publish) => {
+  const planetPublish = { id: publish.publish_id, tag: publish.tag, is_vector_ready: publish.is_vector_ready }
+  editorDraft.value.planet_publish = planetPublish
+  notes.value = notes.value.map((item) =>
+    item.id === editorDraft.value.id ? { ...item, planet_publish: planetPublish } : item
+  )
+  if (editingNote.value?.id === editorDraft.value.id) {
+    editingNote.value = { ...editingNote.value, planet_publish: planetPublish }
+  }
+}
+
+const openPublishDialog = async () => {
+  if (!editorDraft.value.id) return
+  publishTag.value = editorDraft.value.planet_publish?.tag || ''
+  publishDialogVisible.value = true
+  try {
+    const res = await getOctopusPlanetCommonTags()
+    commonTags.value = res.data.items || []
+  } catch {
+    commonTags.value = []
+  }
+}
+
+const submitPublish = async () => {
+  const tag = publishTag.value.trim()
+  if (!tag) {
+    ElMessage.error('请输入标签')
+    return
+  }
+  if (tag.length > 10) {
+    ElMessage.error('标签最多 10 个字')
+    return
+  }
+  publishing.value = true
+  try {
+    if (dirty.value) await saveDraft({ silent: true })
+    const res = await publishOctopusNote({ notebook_id: editorDraft.value.id, tag })
+    replaceNotePublishState(res.data)
+    publishDialogVisible.value = false
+    ElMessage.success(res.data.message || '已发布到章鱼星球')
+  } catch (error) {
+    ElMessage.error(String(error || '发布失败'))
+  } finally {
+    publishing.value = false
+  }
 }
 
 const saveDraft = async ({ silent = false } = {}) => {
@@ -1390,6 +1469,64 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 24px;
   right: 28px;
+}
+
+.publish-form {
+  display: grid;
+  gap: 16px;
+}
+
+.publish-form label {
+  display: grid;
+  gap: 8px;
+  color: #9fdcf7;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.publish-form input {
+  min-height: 42px;
+  border: 1px solid rgba(144, 224, 255, .28);
+  border-radius: 14px;
+  padding: 0 12px;
+  outline: none;
+  color: #effbff;
+  background: rgba(3, 10, 24, .72);
+}
+
+.publish-form input:focus {
+  border-color: #69f0ff;
+  box-shadow: 0 0 0 4px rgba(105, 240, 255, .12);
+}
+
+.common-tags {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.common-tags small {
+  width: 100%;
+  color: #9fc6da;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.common-tags button {
+  min-height: 30px;
+  border: 1px solid rgba(127, 243, 255, .26);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: #eaffff;
+  background: rgba(255, 255, 255, .06);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.common-tags button:hover {
+  border-color: rgba(255, 78, 198, .68);
+  background: rgba(255, 78, 198, .16);
 }
 
 .editor-pop-enter-active,

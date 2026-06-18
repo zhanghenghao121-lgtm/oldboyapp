@@ -13,6 +13,8 @@ from apps.ai_customer.ai_image_services import _image_urls, _task_result_images
 from apps.ai_customer.models import (
     OctopusNote,
     OctopusNoteFolder,
+    OctopusPlanetPublish,
+    OctopusPlanetTagStat,
     PositionStickerAsset,
     PositionStickerComposition,
     SceneInferenceJob,
@@ -615,6 +617,98 @@ class OctopusNoteApiTests(TestCase):
         self.assertEqual(note_response.status_code, 404)
         note.refresh_from_db()
         self.assertEqual(note.title, "别人的记事本")
+
+    @patch("apps.ai_customer.octopus_planet_services.upsert_qdrant_publish")
+    def test_publish_note_to_octopus_planet_and_common_tags(self, upsert_qdrant):
+        upsert_qdrant.return_value = True
+        folder = OctopusNoteFolder.objects.create(user=self.user, name="星球文件夹")
+        note = OctopusNote.objects.create(user=self.user, folder=folder, title="星球记事", content="一段准备公开的灵感")
+
+        too_long = self.client.post(
+            "/api/v1/octopus-planet/publish",
+            {"notebook_id": note.id, "tag": "超过十个字的标签会失败"},
+            format="json",
+        )
+        self.assertEqual(too_long.status_code, 400)
+
+        first = self.client.post(
+            "/api/v1/octopus-planet/publish",
+            {"notebook_id": note.id, "tag": "  玄幻  "},
+            format="json",
+        )
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(first.data["data"]["is_vector_ready"])
+        publish = OctopusPlanetPublish.objects.get(note=note)
+        self.assertEqual(publish.tag, "玄幻")
+        self.assertEqual(publish.tag_normalized, "玄幻")
+        self.assertIsNotNone(publish.particle_x)
+        self.assertEqual(OctopusPlanetTagStat.objects.get(user=self.user, tag_normalized="玄幻").use_count, 1)
+
+        second = self.client.post(
+            "/api/v1/octopus-planet/publish",
+            {"notebook_id": note.id, "tag": "玄幻"},
+            format="json",
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(OctopusPlanetTagStat.objects.get(user=self.user, tag_normalized="玄幻").use_count, 2)
+
+        common = self.client.get("/api/v1/octopus-planet/my-common-tags")
+        self.assertEqual(common.status_code, 200)
+        self.assertEqual(common.data["data"]["items"][0]["tag"], "玄幻")
+        self.assertEqual(common.data["data"]["items"][0]["use_count"], 2)
+
+        particles = self.client.get("/api/v1/octopus-planet/particles", {"scope": "mine"})
+        self.assertEqual(particles.status_code, 200)
+        self.assertEqual(len(particles.data["data"]["items"]), 1)
+        self.assertTrue(particles.data["data"]["items"][0]["is_mine"])
+
+        search = self.client.get("/api/v1/octopus-planet/search", {"tag": "玄幻", "scope": "mine"})
+        self.assertEqual(search.status_code, 200)
+        self.assertEqual(search.data["data"]["items"][0]["publish_id"], publish.id)
+        self.assertTrue(search.data["data"]["items"][0]["highlight"])
+
+        detail = self.client.get(f"/api/v1/octopus-planet/publish/{publish.id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.data["data"]["title"], "星球记事")
+
+    def test_octopus_planet_scope_mine_filters_other_users(self):
+        folder = OctopusNoteFolder.objects.create(user=self.user, name="我的文件夹")
+        note = OctopusNote.objects.create(user=self.user, folder=folder, title="我的记事")
+        OctopusPlanetPublish.objects.create(
+            note=note,
+            user=self.user,
+            tag="灵感",
+            tag_normalized="灵感",
+            qdrant_point_id=str(note.id),
+            particle_x=0,
+            particle_y=0,
+            particle_z=1,
+        )
+        other = get_user_model().objects.create_user(
+            username="planet-other",
+            email="planet-other@example.com",
+            password="pass1234",
+            can_access_workbench=True,
+        )
+        other_folder = OctopusNoteFolder.objects.create(user=other, name="别人的文件夹")
+        other_note = OctopusNote.objects.create(user=other, folder=other_folder, title="别人的记事")
+        OctopusPlanetPublish.objects.create(
+            note=other_note,
+            user=other,
+            tag="灵感",
+            tag_normalized="灵感",
+            qdrant_point_id=str(other_note.id),
+            particle_x=0,
+            particle_y=1,
+            particle_z=0,
+        )
+
+        all_particles = self.client.get("/api/v1/octopus-planet/particles", {"scope": "all"})
+        mine_particles = self.client.get("/api/v1/octopus-planet/particles", {"scope": "mine"})
+
+        self.assertEqual(len(all_particles.data["data"]["items"]), 2)
+        self.assertEqual(len(mine_particles.data["data"]["items"]), 1)
+        self.assertEqual(mine_particles.data["data"]["items"][0]["user_id"], self.user.id)
 
 
 class SceneInferenceServicesTests(TestCase):

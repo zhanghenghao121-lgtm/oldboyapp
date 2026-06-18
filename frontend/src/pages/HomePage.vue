@@ -17,6 +17,12 @@
           <small>进入章鱼记</small>
         </button>
 
+        <button class="desk-button planet-button" type="button" @click="enterFeature('workbench', '/octopus-planet')">
+          <span class="button-mark">星</span>
+          <strong>章鱼星球</strong>
+          <small>查看灵感粒子</small>
+        </button>
+
         <button class="desk-button storyboard-button" type="button" @click="enterFeature('storyboard', '/storyboard')">
           <span class="button-mark">AI</span>
           <strong>AI故事板</strong>
@@ -183,7 +189,7 @@ onMounted(async () => {
 
 .desk-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: clamp(18px, 4vw, 34px);
 }
 
@@ -242,6 +248,10 @@ onMounted(async () => {
   background: linear-gradient(135deg, rgba(57, 180, 255, 0.92), rgba(81, 88, 238, 0.92), rgba(132, 75, 232, 0.88));
 }
 
+.planet-button {
+  background: linear-gradient(135deg, rgba(43, 216, 189, 0.94), rgba(86, 116, 255, 0.92), rgba(255, 214, 92, 0.86));
+}
+
 .storyboard-button {
   background: linear-gradient(135deg, rgba(68, 184, 255, 0.94), rgba(139, 89, 255, 0.92), rgba(255, 78, 198, 0.88));
 }
@@ -298,6 +308,12 @@ onMounted(async () => {
 
   .desk-button {
     min-height: 170px;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1080px) {
+  .desk-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

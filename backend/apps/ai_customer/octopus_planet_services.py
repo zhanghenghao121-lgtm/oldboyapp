@@ -10,6 +10,7 @@ from apps.ai_customer.models import OctopusNote, OctopusPlanetPublish, OctopusPl
 
 
 VECTOR_SIZE = 32
+MAX_TAGS = 5
 
 
 class OctopusPlanetError(Exception):
@@ -32,12 +33,33 @@ def display_tag(value: str) -> str:
     return "".join(str(value or "").split())[: int(getattr(settings, "OCTOPUS_PLANET_MAX_TAG_LENGTH", 10) or 10)]
 
 
+def clean_tags(value) -> tuple[list[str], list[str]]:
+    raw_items = value if isinstance(value, list) else [value]
+    tags = []
+    normalized_tags = []
+    for item in raw_items:
+        raw_tag = "".join(str(item or "").split())
+        if not raw_tag:
+            continue
+        normalized = normalize_tag(raw_tag)
+        tag = display_tag(raw_tag)
+        normalized = normalize_tag(tag)
+        if normalized in normalized_tags:
+            continue
+        tags.append(tag)
+        normalized_tags.append(normalized)
+        if len(tags) >= MAX_TAGS:
+            break
+    if not tags:
+        raise OctopusPlanetError("至少选择 1 个标签")
+    return tags, normalized_tags
+
+
 def _hash_int(value: str) -> int:
     return int(hashlib.sha256(value.encode("utf-8")).hexdigest()[:16], 16)
 
 
-def embedding_text(tag: str) -> list[float]:
-    text = f"标签：{normalize_tag(tag)}"
+def _embedding_raw_text(text: str) -> list[float]:
     vector = [0.0 for _ in range(VECTOR_SIZE)]
     tokens = list(text) + [text[i : i + 2] for i in range(max(len(text) - 1, 0))]
     for index, token in enumerate(tokens):
@@ -47,6 +69,15 @@ def embedding_text(tag: str) -> list[float]:
         vector[slot] += sign * (1.0 if index < len(text) else 0.65)
     norm = math.sqrt(sum(item * item for item in vector)) or 1.0
     return [item / norm for item in vector]
+
+
+def embedding_text(tag: str) -> list[float]:
+    return _embedding_raw_text(f"标签：{normalize_tag(tag)}")
+
+
+def embedding_tags(tags: list[str]) -> list[float]:
+    normalized = [normalize_tag(tag) for tag in tags if str(tag or "").strip()]
+    return _embedding_raw_text(f"标签组：{' '.join(normalized)}")
 
 
 def cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -158,6 +189,8 @@ def upsert_qdrant_publish(publish: OctopusPlanetPublish) -> bool:
                         "user_id": publish.user_id,
                         "tag": publish.tag,
                         "tag_normalized": publish.tag_normalized,
+                        "tags": publish.tags or [publish.tag],
+                        "tags_normalized": publish.tags_normalized or [publish.tag_normalized],
                         "is_public": publish.is_public,
                         "published_at": int(publish.published_at.timestamp()) if publish.published_at else int(time.time()),
                     },
@@ -198,20 +231,38 @@ def qdrant_search(query_vector: list[float], scope: str, user, limit: int):
         return None
 
 
-def publish_note(user, note_id: int, tag_value: str) -> OctopusPlanetPublish:
+def add_tag_to_library(user, tag_value: str):
+    tag = display_tag(tag_value)
+    normalized = normalize_tag(tag)
+    stat, _ = OctopusPlanetTagStat.objects.get_or_create(
+        user=user,
+        tag_normalized=normalized,
+        defaults={"tag": tag, "use_count": 0},
+    )
+    stat.tag = tag
+    stat.last_used_at = timezone.now()
+    stat.save(update_fields=["tag", "last_used_at"])
+    stat.refresh_from_db()
+    return {"tag": stat.tag, "use_count": stat.use_count}
+
+
+def publish_note(user, note_id: int, tags_value) -> OctopusPlanetPublish:
     note = OctopusNote.objects.filter(id=note_id, user=user).first()
     if not note:
         raise OctopusPlanetError("记事本不存在", 404)
-    normalized = normalize_tag(tag_value)
-    tag = display_tag(tag_value)
-    vector = embedding_text(normalized)
+    tags, normalized_tags = clean_tags(tags_value)
+    tag = tags[0]
+    normalized = normalized_tags[0]
+    vector = embedding_tags(normalized_tags)
     defaults = {
         "user": user,
         "tag": tag,
         "tag_normalized": normalized,
+        "tags": tags,
+        "tags_normalized": normalized_tags,
         "is_public": True,
         "tag_vector": vector,
-        "particle_color": particle_color(normalized),
+        "particle_color": particle_color(" ".join(normalized_tags)),
         "particle_size": 1.0,
         "qdrant_point_id": str(note.id),
     }
@@ -226,6 +277,8 @@ def publish_note(user, note_id: int, tag_value: str) -> OctopusPlanetPublish:
             "user",
             "tag",
             "tag_normalized",
+            "tags",
+            "tags_normalized",
             "is_public",
             "tag_vector",
             "particle_x",
@@ -238,16 +291,16 @@ def publish_note(user, note_id: int, tag_value: str) -> OctopusPlanetPublish:
             "updated_at",
         ]
     )
-    stat, created = OctopusPlanetTagStat.objects.get_or_create(
-        user=user,
-        tag_normalized=normalized,
-        defaults={"tag": tag, "use_count": 0},
-    )
-    stat.tag = tag
-    stat.use_count = F("use_count") + 1
-    stat.last_used_at = timezone.now()
-    stat.save(update_fields=["tag", "use_count", "last_used_at"])
-    stat.refresh_from_db()
+    for item_tag, item_normalized in zip(tags, normalized_tags):
+        stat, _ = OctopusPlanetTagStat.objects.get_or_create(
+            user=user,
+            tag_normalized=item_normalized,
+            defaults={"tag": item_tag, "use_count": 0},
+        )
+        stat.tag = item_tag
+        stat.use_count = F("use_count") + 1
+        stat.last_used_at = timezone.now()
+        stat.save(update_fields=["tag", "use_count", "last_used_at"])
     return publish
 
 
@@ -271,6 +324,7 @@ def serialize_particle(publish: OctopusPlanetPublish, user, highlight=False, sco
         "user_id": publish.user_id,
         "is_mine": publish.user_id == user.id,
         "tag": publish.tag,
+        "tags": publish.tags or [publish.tag],
         "title": publish.note.title,
         "x": publish.particle_x if publish.particle_x is not None else 0,
         "y": publish.particle_y if publish.particle_y is not None else 0,
@@ -321,7 +375,9 @@ def publish_detail(publish_id: int, user):
         "publish_id": publish.id,
         "notebook_id": publish.note_id,
         "tag": publish.tag,
+        "tags": publish.tags or [publish.tag],
         "title": publish.note.title,
+        "image_urls": publish.note.image_urls or [],
         "content_preview": content[:600],
         "is_mine": publish.user_id == user.id,
         "author": {
@@ -335,11 +391,11 @@ def publish_detail(publish_id: int, user):
 def rebuild_particle_positions():
     publishes = list(OctopusPlanetPublish.objects.filter(is_public=True))
     for publish in publishes:
-        vector = publish.tag_vector or embedding_text(publish.tag_normalized)
+        vector = publish.tag_vector or embedding_tags(publish.tags_normalized or [publish.tag_normalized])
         x, y, z = project_vector(vector, publish.qdrant_point_id)
         publish.particle_x = x
         publish.particle_y = y
         publish.particle_z = z
-        publish.particle_color = publish.particle_color or particle_color(publish.tag_normalized)
+        publish.particle_color = publish.particle_color or particle_color(" ".join(publish.tags_normalized or [publish.tag_normalized]))
         publish.save(update_fields=["particle_x", "particle_y", "particle_z", "particle_color", "updated_at"])
     return len(publishes)

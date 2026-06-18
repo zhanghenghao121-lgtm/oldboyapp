@@ -35,12 +35,36 @@
 
     <el-dialog v-model="detailVisible" title="星球记事" width="560px" class="planet-detail-dialog">
       <article v-if="detail" class="planet-detail">
-        <p class="eyebrow">#{{ detail.tag }}</p>
+        <p class="eyebrow">{{ detailTags.map((tag) => `#${tag}`).join(' ') }}</p>
         <h2>{{ detail.title }}</h2>
         <small>{{ detail.author?.nickname || '匿名章鱼' }} · {{ formatDate(detail.published_at) }}</small>
+        <div v-if="detailImageUrls.length" class="detail-image-block">
+          <button v-if="detailImageUrls.length > 1" class="detail-image-stack" type="button" @click="detailImagesExpanded = !detailImagesExpanded">
+            <span
+              v-for="(url, index) in detailStackImages"
+              :key="`${url}-${index}`"
+              class="detail-stack-card"
+              :style="{ transform: `translate(${index * 8}px, ${index * 8}px)` }"
+            >
+              <img :src="storageFileUrl(url)" alt="记事本图片" />
+            </span>
+            <strong>{{ detailImagesExpanded ? '收起' : `展开 ${detailImageUrls.length} 张` }}</strong>
+          </button>
+
+          <div v-if="detailImagesExpanded || detailImageUrls.length === 1" class="detail-image-grid">
+            <button v-for="(url, index) in detailImageUrls" :key="`${url}-${index}`" type="button" @click="previewImageUrl = url">
+              <img :src="storageFileUrl(url)" alt="记事本图片" />
+            </button>
+          </div>
+        </div>
         <p>{{ detail.content_preview || '这本记事暂时没有公开正文预览。' }}</p>
       </article>
     </el-dialog>
+
+    <section v-if="previewImageUrl" class="planet-image-preview" @click.self="previewImageUrl = ''">
+      <button class="ghost-chip preview-close" type="button" @click="previewImageUrl = ''">关闭</button>
+      <img :src="storageFileUrl(previewImageUrl)" alt="图片预览" />
+    </section>
   </div>
 </template>
 
@@ -55,6 +79,7 @@ import {
   getOctopusPlanetPublish,
   searchOctopusPlanet,
 } from '../api/octopusPlanet'
+import { storageFileUrl } from '../api/storage'
 
 const router = useRouter()
 const canvasRef = ref(null)
@@ -65,6 +90,8 @@ const searchTag = ref('')
 const searchActive = ref(false)
 const detail = ref(null)
 const detailVisible = ref(false)
+const detailImagesExpanded = ref(false)
+const previewImageUrl = ref('')
 const hoverParticle = ref(null)
 const pointer = new THREE.Vector2()
 const tooltipPosition = ref({ x: 0, y: 0 })
@@ -81,6 +108,17 @@ const tooltipStyle = computed(() => ({
   left: `${tooltipPosition.value.x + 14}px`,
   top: `${tooltipPosition.value.y + 14}px`,
 }))
+
+const detailTags = computed(() => {
+  const tags = Array.isArray(detail.value?.tags) && detail.value.tags.length ? detail.value.tags : [detail.value?.tag]
+  return tags.filter(Boolean)
+})
+
+const detailImageUrls = computed(() =>
+  (Array.isArray(detail.value?.image_urls) ? detail.value.image_urls : []).map((url) => String(url || '').trim()).filter(Boolean)
+)
+
+const detailStackImages = computed(() => detailImageUrls.value.slice(0, Math.min(detailImageUrls.value.length, 3)))
 
 const formatDate = (value) => {
   if (!value) return ''
@@ -106,7 +144,14 @@ const initScene = () => {
 
   const shell = new THREE.Mesh(
     new THREE.SphereGeometry(2.55, 48, 32),
-    new THREE.MeshBasicMaterial({ color: 0x4be7ff, wireframe: true, transparent: true, opacity: 0.08 })
+    new THREE.MeshBasicMaterial({
+      color: 0x4be7ff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.08,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
   )
   scene.add(shell)
   scene.add(new THREE.AmbientLight(0xffffff, 1.2))
@@ -134,22 +179,39 @@ const animate = () => {
 const updateSceneParticles = () => {
   if (!particleGroup) return
   particleGroup.clear()
-  const geometry = new THREE.SphereGeometry(0.045, 14, 14)
+  const coreGeometry = new THREE.SphereGeometry(0.045, 18, 18)
+  const glowGeometry = new THREE.SphereGeometry(0.12, 18, 18)
   particles.value.forEach((particle) => {
     const highlighted = particle.highlight || (scope.value === 'mine' && particle.is_mine)
-    const material = new THREE.MeshBasicMaterial({
+    const color = new THREE.Color(particle.color || '#7ff3ff')
+    const dimmed = searchActive.value && !highlighted
+    const coreMaterial = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: dimmed ? 0.26 : highlighted ? 0.78 : 0.52,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+    const glowMaterial = new THREE.MeshBasicMaterial({
       color: new THREE.Color(particle.color || '#7ff3ff'),
       transparent: true,
-      opacity: searchActive.value && !highlighted ? 0.24 : 0.94,
+      opacity: dimmed ? 0.08 : highlighted ? 0.28 : 0.16,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
     })
-    const mesh = new THREE.Mesh(geometry, material)
+    const mesh = new THREE.Mesh(coreGeometry, coreMaterial)
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial)
     const size = (particle.size || 1) * (highlighted ? 1.65 : particle.is_mine ? 1.35 : 1)
     mesh.scale.setScalar(size)
+    glow.scale.setScalar(size * (highlighted ? 1.38 : 1))
     mesh.position.set(Number(particle.x || 0) * 2.45, Number(particle.y || 0) * 2.45, Number(particle.z || 0) * 2.45)
+    glow.position.copy(mesh.position)
     mesh.userData = { particle }
+    glow.userData = { particle }
     particleGroup.add(mesh)
+    particleGroup.add(glow)
   })
-  window.__OCTOPUS_PLANET_PARTICLE_COUNT__ = particleGroup.children.length
+  window.__OCTOPUS_PLANET_PARTICLE_COUNT__ = particles.value.length
 }
 
 const loadParticles = async () => {
@@ -218,6 +280,8 @@ const handleCanvasClick = async (event) => {
   try {
     const res = await getOctopusPlanetPublish(particle.publish_id)
     detail.value = res.data
+    detailImagesExpanded.value = false
+    previewImageUrl.value = ''
     detailVisible.value = true
   } catch (error) {
     ElMessage.error(String(error || '粒子详情加载失败'))
@@ -392,6 +456,99 @@ onBeforeUnmount(() => {
 .planet-detail p:last-child {
   white-space: pre-wrap;
   line-height: 1.8;
+}
+
+.detail-image-block {
+  margin: 16px 0;
+  display: grid;
+  gap: 14px;
+}
+
+.detail-image-stack {
+  position: relative;
+  width: 132px;
+  aspect-ratio: 1 / 1;
+  border: 0;
+  margin: 0 0 18px;
+  padding: 0;
+  color: #fff;
+  background: transparent;
+  cursor: pointer;
+}
+
+.detail-stack-card {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid rgba(216, 248, 255, .42);
+  border-radius: 18px;
+  background: #071426;
+  box-shadow: 0 14px 34px rgba(0, 7, 24, .34);
+}
+
+.detail-stack-card img,
+.detail-image-grid img,
+.planet-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.detail-image-stack strong {
+  position: absolute;
+  right: -12px;
+  bottom: -20px;
+  z-index: 4;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  color: #06111f;
+  background: #7ff3ff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.detail-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+  gap: 10px;
+}
+
+.detail-image-grid button {
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border: 1px solid rgba(216, 248, 255, .28);
+  border-radius: 14px;
+  padding: 0;
+  background: #071426;
+  cursor: zoom-in;
+}
+
+.planet-image-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  padding: 28px;
+  display: grid;
+  place-items: center;
+  background: rgba(1, 5, 16, .86);
+  backdrop-filter: blur(10px);
+}
+
+.planet-image-preview img {
+  width: min(92vw, 980px);
+  height: min(82vh, 820px);
+  border: 1px solid rgba(160, 229, 255, .34);
+  border-radius: 22px;
+  box-shadow: 0 28px 80px rgba(0, 8, 30, .58);
+}
+
+.preview-close {
+  position: absolute;
+  top: 24px;
+  right: 28px;
 }
 
 @media (max-width: 820px) {

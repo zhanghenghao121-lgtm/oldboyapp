@@ -214,7 +214,7 @@
 
           <footer class="editor-actions">
             <button class="soft-btn" type="button" :disabled="saving" @click="openPublishDialog">
-              {{ editorDraft.planet_publish ? `已发布 #${editorDraft.planet_publish.tag}` : '发布到章鱼星球' }}
+              {{ editorDraft.planet_publish ? `已发布 ${publishLabel(editorDraft.planet_publish)}` : '发布到章鱼星球' }}
             </button>
             <button class="danger-btn" type="button" :disabled="saving" @click="deleteEditingNote">删除</button>
             <button class="primary-glow" type="button" :disabled="saving" @click="saveDraft()">{{ saving ? '保存中...' : '保存' }}</button>
@@ -236,11 +236,19 @@
       <div class="publish-form">
         <label>
           <span>标签</span>
-          <input v-model.trim="publishTag" maxlength="10" placeholder="最多 10 个字" @keyup.enter="submitPublish" />
+          <div class="tag-add-row">
+            <input v-model.trim="publishTag" maxlength="10" placeholder="最多 10 个字" @keyup.enter.prevent="addPublishTagFromInput" />
+            <button type="button" @click="addPublishTagFromInput">加入标签库</button>
+          </div>
         </label>
+        <div class="selected-tags">
+          <small>已选标签 {{ selectedPublishTags.length }}/5</small>
+          <button v-for="tag in selectedPublishTags" :key="tag" type="button" @click="removePublishTag(tag)">#{{ tag }} ×</button>
+          <span v-if="!selectedPublishTags.length">请选择或输入标签</span>
+        </div>
         <div v-if="commonTags.length" class="common-tags">
           <small>常用标签</small>
-          <button v-for="item in commonTags" :key="item.tag" type="button" @click="publishTag = item.tag">
+          <button v-for="item in commonTags" :key="item.tag" type="button" @click="selectPublishTag(item.tag)">
             #{{ item.tag }}
           </button>
         </div>
@@ -271,7 +279,7 @@ import {
   updateOctopusFolder,
   updateOctopusNote,
 } from '../api/octopusNotes'
-import { getOctopusPlanetCommonTags, publishOctopusNote } from '../api/octopusPlanet'
+import { addOctopusPlanetTag, getOctopusPlanetCommonTags, publishOctopusNote } from '../api/octopusPlanet'
 import { storageFileUrl, uploadToCos } from '../api/storage'
 
 const router = useRouter()
@@ -299,6 +307,7 @@ const noteImagesExpanded = ref(false)
 const previewImageUrl = ref('')
 const publishDialogVisible = ref(false)
 const publishTag = ref('')
+const selectedPublishTags = ref([])
 const commonTags = ref([])
 const publishing = ref(false)
 let searchTimer = null
@@ -647,7 +656,7 @@ const closeImagePreview = () => {
 }
 
 const replaceNotePublishState = (publish) => {
-  const planetPublish = { id: publish.publish_id, tag: publish.tag, is_vector_ready: publish.is_vector_ready }
+  const planetPublish = { id: publish.publish_id, tag: publish.tag, tags: publish.tags || [publish.tag], is_vector_ready: publish.is_vector_ready }
   editorDraft.value.planet_publish = planetPublish
   notes.value = notes.value.map((item) =>
     item.id === editorDraft.value.id ? { ...item, planet_publish: planetPublish } : item
@@ -657,9 +666,19 @@ const replaceNotePublishState = (publish) => {
   }
 }
 
+const publishLabel = (publish) => {
+  const tags = Array.isArray(publish?.tags) && publish.tags.length ? publish.tags : [publish?.tag].filter(Boolean)
+  return tags.map((tag) => `#${tag}`).join(' ')
+}
+
 const openPublishDialog = async () => {
   if (!editorDraft.value.id) return
-  publishTag.value = editorDraft.value.planet_publish?.tag || ''
+  publishTag.value = ''
+  selectedPublishTags.value = Array.isArray(editorDraft.value.planet_publish?.tags)
+    ? [...editorDraft.value.planet_publish.tags].slice(0, 5)
+    : editorDraft.value.planet_publish?.tag
+      ? [editorDraft.value.planet_publish.tag]
+      : []
   publishDialogVisible.value = true
   try {
     const res = await getOctopusPlanetCommonTags()
@@ -669,7 +688,26 @@ const openPublishDialog = async () => {
   }
 }
 
-const submitPublish = async () => {
+const selectPublishTag = (tag) => {
+  const nextTag = String(tag || '').trim()
+  if (!nextTag) return
+  if (nextTag.length > 10) {
+    ElMessage.error('标签最多 10 个字')
+    return
+  }
+  if (selectedPublishTags.value.includes(nextTag)) return
+  if (selectedPublishTags.value.length >= 5) {
+    ElMessage.warning('最多选择 5 个标签')
+    return
+  }
+  selectedPublishTags.value = [...selectedPublishTags.value, nextTag]
+}
+
+const removePublishTag = (tag) => {
+  selectedPublishTags.value = selectedPublishTags.value.filter((item) => item !== tag)
+}
+
+const addPublishTagFromInput = async () => {
   const tag = publishTag.value.trim()
   if (!tag) {
     ElMessage.error('请输入标签')
@@ -679,10 +717,29 @@ const submitPublish = async () => {
     ElMessage.error('标签最多 10 个字')
     return
   }
+  try {
+    const res = await addOctopusPlanetTag(tag)
+    const savedTag = res.data.tag || tag
+    selectPublishTag(savedTag)
+    if (!commonTags.value.some((item) => item.tag === savedTag)) {
+      commonTags.value = [{ tag: savedTag, use_count: res.data.use_count || 0 }, ...commonTags.value].slice(0, 5)
+    }
+    publishTag.value = ''
+    ElMessage.success('标签已加入标签库')
+  } catch (error) {
+    ElMessage.error(String(error || '标签加入失败'))
+  }
+}
+
+const submitPublish = async () => {
+  if (!selectedPublishTags.value.length) {
+    ElMessage.error('请至少选择 1 个标签')
+    return
+  }
   publishing.value = true
   try {
     if (dirty.value) await saveDraft({ silent: true })
-    const res = await publishOctopusNote({ notebook_id: editorDraft.value.id, tag })
+    const res = await publishOctopusNote({ notebook_id: editorDraft.value.id, tags: selectedPublishTags.value })
     replaceNotePublishState(res.data)
     publishDialogVisible.value = false
     ElMessage.success(res.data.message || '已发布到章鱼星球')
@@ -1499,6 +1556,49 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 4px rgba(105, 240, 255, .12);
 }
 
+.tag-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.tag-add-row button,
+.selected-tags button,
+.common-tags button {
+  min-height: 30px;
+  border: 1px solid rgba(127, 243, 255, .26);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: #eaffff;
+  background: rgba(255, 255, 255, .06);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.tag-add-row button {
+  min-height: 42px;
+}
+
+.selected-tags {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.selected-tags small,
+.selected-tags span {
+  width: 100%;
+  color: #9fc6da;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.selected-tags button {
+  border-color: rgba(255, 78, 198, .5);
+  background: rgba(255, 78, 198, .16);
+}
+
 .common-tags {
   display: flex;
   gap: 8px;
@@ -1513,17 +1613,8 @@ onBeforeUnmount(() => {
   font-weight: 900;
 }
 
-.common-tags button {
-  min-height: 30px;
-  border: 1px solid rgba(127, 243, 255, .26);
-  border-radius: 999px;
-  padding: 0 10px;
-  color: #eaffff;
-  background: rgba(255, 255, 255, .06);
-  cursor: pointer;
-  font-weight: 800;
-}
-
+.tag-add-row button:hover,
+.selected-tags button:hover,
 .common-tags button:hover {
   border-color: rgba(255, 78, 198, .68);
   background: rgba(255, 78, 198, .16);

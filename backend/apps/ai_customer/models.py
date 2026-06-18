@@ -81,6 +81,8 @@ class OctopusPlanetPublish(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="octopus_planet_publishes")
     tag = models.CharField(max_length=10)
     tag_normalized = models.CharField(max_length=20, db_index=True)
+    tags = models.JSONField(default=list, blank=True)
+    tags_normalized = models.JSONField(default=list, blank=True)
     is_public = models.BooleanField(default=True)
     is_vector_ready = models.BooleanField(default=False)
     tag_vector = models.JSONField(default=list, blank=True)

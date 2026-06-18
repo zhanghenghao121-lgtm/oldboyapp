@@ -26,6 +26,7 @@ from apps.ai_customer.models import (
 )
 from apps.ai_customer.octopus_planet_services import (
     OctopusPlanetError,
+    add_tag_to_library,
     common_tags,
     particles,
     publish_detail,
@@ -139,6 +140,7 @@ def _serialize_octopus_note(note):
         "planet_publish": {
             "id": planet_publish.id,
             "tag": planet_publish.tag,
+            "tags": planet_publish.tags or [planet_publish.tag],
             "is_vector_ready": planet_publish.is_vector_ready,
         } if planet_publish and planet_publish.is_public else None,
         "created_at": note.created_at,
@@ -279,12 +281,16 @@ def octopus_planet_publish(request):
     if not _workbench_allowed(request):
         return _workbench_denied()
     try:
-        publish = publish_note(request.user, request.data.get("notebook_id"), request.data.get("tag"))
+        tags = request.data.get("tags")
+        if tags is None:
+            tags = request.data.get("tag")
+        publish = publish_note(request.user, request.data.get("notebook_id"), tags)
         return ok(
             {
                 "publish_id": publish.id,
                 "notebook_id": publish.note_id,
                 "tag": publish.tag,
+                "tags": publish.tags or [publish.tag],
                 "is_vector_ready": publish.is_vector_ready,
                 "message": "已发布到章鱼星球" if publish.is_vector_ready else "已发布，星球同步中",
             }
@@ -293,11 +299,17 @@ def octopus_planet_publish(request):
         return bad(str(exc), exc.status)
 
 
-@api_view(["GET"])
+@csrf_exempt
+@api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def octopus_planet_common_tags(request):
     if not _workbench_allowed(request):
         return _workbench_denied()
+    if request.method == "POST":
+        try:
+            return ok(add_tag_to_library(request.user, request.data.get("tag")))
+        except OctopusPlanetError as exc:
+            return bad(str(exc), exc.status)
     return ok({"items": common_tags(request.user)})
 
 

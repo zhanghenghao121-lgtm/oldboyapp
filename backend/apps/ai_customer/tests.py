@@ -622,7 +622,13 @@ class OctopusNoteApiTests(TestCase):
     def test_publish_note_to_octopus_planet_and_common_tags(self, upsert_qdrant):
         upsert_qdrant.return_value = True
         folder = OctopusNoteFolder.objects.create(user=self.user, name="星球文件夹")
-        note = OctopusNote.objects.create(user=self.user, folder=folder, title="星球记事", content="一段准备公开的灵感")
+        note = OctopusNote.objects.create(
+            user=self.user,
+            folder=folder,
+            title="星球记事",
+            content="一段准备公开的灵感",
+            image_urls=["https://assets.example.com/planet-a.jpg", "https://assets.example.com/planet-b.jpg"],
+        )
 
         too_long = self.client.post(
             "/api/v1/octopus-planet/publish",
@@ -631,22 +637,29 @@ class OctopusNoteApiTests(TestCase):
         )
         self.assertEqual(too_long.status_code, 400)
 
+        added_tag = self.client.post("/api/v1/octopus-planet/my-common-tags", {"tag": "分镜"}, format="json")
+        self.assertEqual(added_tag.status_code, 200)
+        self.assertEqual(added_tag.data["data"]["tag"], "分镜")
+
         first = self.client.post(
             "/api/v1/octopus-planet/publish",
-            {"notebook_id": note.id, "tag": "  玄幻  "},
+            {"notebook_id": note.id, "tags": ["  玄幻  ", "分镜", "AI", "修仙", "角色", "超出"]},
             format="json",
         )
         self.assertEqual(first.status_code, 200)
         self.assertTrue(first.data["data"]["is_vector_ready"])
+        self.assertEqual(first.data["data"]["tags"], ["玄幻", "分镜", "AI", "修仙", "角色"])
         publish = OctopusPlanetPublish.objects.get(note=note)
         self.assertEqual(publish.tag, "玄幻")
+        self.assertEqual(publish.tags, ["玄幻", "分镜", "AI", "修仙", "角色"])
         self.assertEqual(publish.tag_normalized, "玄幻")
         self.assertIsNotNone(publish.particle_x)
         self.assertEqual(OctopusPlanetTagStat.objects.get(user=self.user, tag_normalized="玄幻").use_count, 1)
+        self.assertEqual(OctopusPlanetTagStat.objects.get(user=self.user, tag_normalized="分镜").use_count, 1)
 
         second = self.client.post(
             "/api/v1/octopus-planet/publish",
-            {"notebook_id": note.id, "tag": "玄幻"},
+            {"notebook_id": note.id, "tags": ["玄幻", "AI"]},
             format="json",
         )
         self.assertEqual(second.status_code, 200)
@@ -654,8 +667,10 @@ class OctopusNoteApiTests(TestCase):
 
         common = self.client.get("/api/v1/octopus-planet/my-common-tags")
         self.assertEqual(common.status_code, 200)
-        self.assertEqual(common.data["data"]["items"][0]["tag"], "玄幻")
-        self.assertEqual(common.data["data"]["items"][0]["use_count"], 2)
+        common_counts = {item["tag"]: item["use_count"] for item in common.data["data"]["items"]}
+        self.assertEqual(common_counts["玄幻"], 2)
+        self.assertEqual(common_counts["AI"], 2)
+        self.assertEqual(common_counts["分镜"], 1)
 
         particles = self.client.get("/api/v1/octopus-planet/particles", {"scope": "mine"})
         self.assertEqual(particles.status_code, 200)
@@ -670,6 +685,7 @@ class OctopusNoteApiTests(TestCase):
         detail = self.client.get(f"/api/v1/octopus-planet/publish/{publish.id}")
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.data["data"]["title"], "星球记事")
+        self.assertEqual(len(detail.data["data"]["image_urls"]), 2)
 
     def test_octopus_planet_scope_mine_filters_other_users(self):
         folder = OctopusNoteFolder.objects.create(user=self.user, name="我的文件夹")

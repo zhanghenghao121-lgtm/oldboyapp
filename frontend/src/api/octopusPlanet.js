@@ -6,6 +6,9 @@ export const publishOctopusNote = (payload) =>
 export const getOctopusPlanetCommonTags = () =>
   http.get('/octopus-planet/my-common-tags', { timeout: 30000 })
 
+export const addOctopusPlanetTag = (tag) =>
+  http.post('/octopus-planet/my-common-tags', { tag }, { timeout: 30000 })
+
 export const getOctopusPlanetParticles = (params = {}) =>
   http.get('/octopus-planet/particles', { params, timeout: 30000 })
 

@@ -131,7 +131,13 @@
               <p class="eyebrow">FLOATING NOTEBOOK</p>
               <input v-model="editorDraft.title" class="title-input" maxlength="120" placeholder="记事本名称" @input="markDirty" />
             </div>
-            <button class="close-btn" type="button" @click="closeEditor">关闭</button>
+            <div class="editor-head-actions">
+              <div class="publish-status" :class="{ published: editorDraft.planet_publish, syncing: editorDraft.planet_publish && !editorDraft.planet_publish.is_vector_ready }">
+                <span></span>
+                <strong>{{ publishStatusText }}</strong>
+              </div>
+              <button class="close-btn" type="button" @click="closeEditor">关闭</button>
+            </div>
           </header>
 
           <div class="font-toolbar">
@@ -213,8 +219,14 @@
           </div>
 
           <footer class="editor-actions">
-            <button class="soft-btn" type="button" :disabled="saving" @click="openPublishDialog">
-              {{ editorDraft.planet_publish ? `已发布 ${publishLabel(editorDraft.planet_publish)}` : '发布到章鱼星球' }}
+            <button
+              class="soft-btn publish-action-btn"
+              :class="{ 'cancel-publish': editorDraft.planet_publish }"
+              type="button"
+              :disabled="saving || publishing"
+              @click="togglePublish"
+            >
+              {{ publishing ? publishBusyText : publishActionText }}
             </button>
             <button class="danger-btn" type="button" :disabled="saving" @click="deleteEditingNote">删除</button>
             <button class="primary-glow" type="button" :disabled="saving" @click="saveDraft()">{{ saving ? '保存中...' : '保存' }}</button>
@@ -682,6 +694,26 @@ const clearNotePublishState = () => {
 const publishLabel = (publish) => {
   const tags = Array.isArray(publish?.tags) && publish.tags.length ? publish.tags : [publish?.tag].filter(Boolean)
   return tags.map((tag) => `#${tag}`).join(' ')
+}
+
+const publishStatusText = computed(() => {
+  const publish = editorDraft.value.planet_publish
+  if (!publish) return '未发布'
+  const tags = publishLabel(publish)
+  const status = publish.is_vector_ready ? '已发布' : '已发布，同步中'
+  return tags ? `${status} ${tags}` : status
+})
+
+const publishActionText = computed(() => (editorDraft.value.planet_publish ? '取消发布' : '发布'))
+
+const publishBusyText = computed(() => (editorDraft.value.planet_publish ? '取消中...' : '发布中...'))
+
+const togglePublish = () => {
+  if (editorDraft.value.planet_publish) {
+    cancelPublish()
+    return
+  }
+  openPublishDialog()
 }
 
 const openPublishDialog = async () => {
@@ -1303,6 +1335,66 @@ onBeforeUnmount(() => {
   font-size: clamp(26px, 5vw, 48px);
 }
 
+.editor-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+.publish-status {
+  min-height: 34px;
+  max-width: min(420px, 38vw);
+  border: 1px solid rgba(161, 229, 255, .28);
+  border-radius: 999px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #a9bfd4;
+  background: rgba(255, 255, 255, .05);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.publish-status span {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #7e8fa4;
+  box-shadow: 0 0 14px rgba(126, 143, 164, .42);
+}
+
+.publish-status strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.publish-status.published {
+  border-color: rgba(113, 255, 211, .36);
+  color: #dffdf5;
+  background: rgba(49, 222, 165, .1);
+}
+
+.publish-status.published span {
+  background: #71ffd3;
+  box-shadow: 0 0 16px rgba(113, 255, 211, .6);
+}
+
+.publish-status.syncing {
+  border-color: rgba(255, 223, 130, .4);
+  color: #fff2c7;
+  background: rgba(255, 199, 77, .12);
+}
+
+.publish-status.syncing span {
+  background: #ffd66d;
+  box-shadow: 0 0 16px rgba(255, 214, 109, .62);
+}
+
 .font-toolbar {
   padding: 12px;
   border: 1px solid rgba(147, 223, 255, .16);
@@ -1532,6 +1624,16 @@ onBeforeUnmount(() => {
   background: linear-gradient(180deg, rgba(7, 16, 36, .1), rgba(7, 16, 36, .72));
 }
 
+.publish-action-btn {
+  min-width: 112px;
+}
+
+.publish-action-btn.cancel-publish {
+  border-color: rgba(255, 106, 138, .36);
+  background: linear-gradient(120deg, rgba(58, 22, 32, .94), rgba(165, 51, 72, .88));
+  box-shadow: 0 12px 28px rgba(255, 86, 120, .2);
+}
+
 .image-preview-overlay {
   position: fixed;
   inset: 0;
@@ -1695,6 +1797,22 @@ onBeforeUnmount(() => {
   .head-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .editor-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .editor-head-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
+  .publish-status {
+    flex: 1;
+    max-width: none;
   }
 
   .editor-body {

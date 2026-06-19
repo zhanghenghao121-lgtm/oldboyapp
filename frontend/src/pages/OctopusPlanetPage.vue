@@ -46,14 +46,14 @@
               class="detail-stack-card"
               :style="{ transform: `translate(${index * 8}px, ${index * 8}px)` }"
             >
-              <img :src="storageFileUrl(url)" alt="记事本图片" />
+              <img :src="planetImageUrl(url)" alt="记事本图片" />
             </span>
             <strong>{{ detailImagesExpanded ? '收起' : `展开 ${detailImageUrls.length} 张` }}</strong>
           </button>
 
           <div v-if="detailImagesExpanded || detailImageUrls.length === 1" class="detail-image-grid">
             <button v-for="(url, index) in detailImageUrls" :key="`${url}-${index}`" type="button" @click="previewImageUrl = url">
-              <img :src="storageFileUrl(url)" alt="记事本图片" />
+              <img :src="planetImageUrl(url)" alt="记事本图片" />
             </button>
           </div>
         </div>
@@ -63,7 +63,7 @@
 
     <section v-if="previewImageUrl" class="planet-image-preview" @click.self="previewImageUrl = ''">
       <button class="ghost-chip preview-close" type="button" @click="previewImageUrl = ''">关闭</button>
-      <img :src="storageFileUrl(previewImageUrl)" alt="图片预览" />
+      <img :src="planetImageUrl(previewImageUrl)" alt="图片预览" />
     </section>
   </div>
 </template>
@@ -119,6 +119,12 @@ const detailImageUrls = computed(() =>
 )
 
 const detailStackImages = computed(() => detailImageUrls.value.slice(0, Math.min(detailImageUrls.value.length, 3)))
+
+const planetImageUrl = (url) => {
+  const value = String(url || '').trim()
+  if (/^(https?:)?\/\//i.test(value) || value.startsWith('data:')) return value
+  return storageFileUrl(value)
+}
 
 const formatDate = (value) => {
   if (!value) return ''
